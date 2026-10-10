@@ -1,0 +1,4643 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+public/
+  manifest.json
+src/
+  components/
+    tabs/
+      accounts-tab.tsx
+      budgets-view.tsx
+      stats-tab.tsx
+      transactions-tab.tsx
+    ui/
+      button.tsx
+      dialog.tsx
+      drawer.tsx
+      input.tsx
+      label.tsx
+      sonner.tsx
+      switch.tsx
+      textarea.tsx
+    auth-view.tsx
+    bottom-nav.tsx
+    calculator-numpad.tsx
+    icon-map.tsx
+    theme-provider.tsx
+    transaction-item.tsx
+    transaction-sheet.tsx
+  lib/
+    currencies.ts
+    finance.ts
+    firebase.ts
+    seed-data.ts
+    store.ts
+    types.ts
+    utils.ts
+  App.tsx
+  index.css
+  main.tsx
+.eslintrc.json
+.gitignore
+components.json
+index.html
+package.json
+postcss.config.js
+tailwind.config.ts
+tsconfig.json
+vite.config.ts
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="public/manifest.json">
+{
+  "name": "Kalcy",
+  "short_name": "Kalcy",
+  "description": "Track expenses, manage budgets, and visualize your financial life.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
+</file>
+
+<file path="src/components/tabs/accounts-tab.tsx">
+'use client';
+
+import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { Plus, Pencil, ArrowRightLeft, X, Check } from 'lucide-react';
+import { Drawer, DrawerContent } from '@/components/ui/drawer';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { CategoryIcon, AVAILABLE_ICONS, CATEGORY_COLORS } from '@/components/icon-map';
+import { useStore } from '@/lib/store';
+import type { Account, AccountType } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/lib/currencies';
+import { getTotalBalance } from '@/lib/finance';
+import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+
+const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'bank', label: 'Bank' },
+  { value: 'card', label: 'Card' },
+  { value: 'savings', label: 'Savings' },
+  { value: 'wallet', label: 'Wallet' },
+];
+
+export function AccountsTab() {
+  const { accounts, preferences, addAccount, updateAccount } = useStore();
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+
+  const totalBalance = getTotalBalance(accounts);
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="px-4 pt-4 pb-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Accounts</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">{accounts.length} accounts</p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="rounded-xl"
+              onClick={() => setTransferOpen(true)}
+              disabled={accounts.length < 2}
+            >
+              <ArrowRightLeft className="h-4 w-4" />
+            </Button>
+            <Button size="icon" className="rounded-xl" onClick={() => setIsAdding(true)}>
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 pt-2">
+        <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20">
+          <p className="text-sm opacity-90 font-medium">Total Net Worth</p>
+          <p className="text-3xl font-bold mt-1 tabular-nums">
+            {formatCurrency(totalBalance, preferences.currencySymbol)}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 pt-3 pb-2 no-scrollbar">
+        <div className="flex flex-col gap-3">
+          {accounts.map((acc, i) => (
+            <motion.div
+              key={acc.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className="bg-card rounded-2xl border border-border/40 p-4"
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className="h-12 w-12 rounded-2xl flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: `${acc.color}1A` }}
+                >
+                  <span style={{ color: acc.color }}>
+                    <CategoryIcon name={acc.icon} size={24} />
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm">{acc.name}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
+                      {acc.type}
+                    </span>
+                  </div>
+                  <p
+                    className={cn(
+                      'text-lg font-bold tabular-nums mt-1',
+                      acc.balance >= 0 ? 'text-foreground' : 'text-expense'
+                    )}
+                  >
+                    {formatCurrency(acc.balance, preferences.currencySymbol)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setEditingAccount(acc)}
+                  className="p-2 rounded-xl hover:bg-muted transition-colors"
+                >
+                  <Pencil className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </div>
+              {!acc.isIncludedInTotal && (
+                <p className="text-xs text-muted-foreground mt-2">Excluded from total</p>
+              )}
+            </motion.div>
+          ))}
+        </div>
+      </div>
+
+      <AccountSheet
+        open={isAdding || editingAccount !== null}
+        account={editingAccount}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsAdding(false);
+            setEditingAccount(null);
+          }
+        }}
+        onSave={(data, id) => {
+          if (id) {
+            updateAccount(id, data);
+            toast.success('Account updated');
+          } else {
+            addAccount(data);
+            toast.success('Account added');
+          }
+          setIsAdding(false);
+          setEditingAccount(null);
+        }}
+      />
+
+      <TransferDialog open={transferOpen} onOpenChange={setTransferOpen} />
+    </div>
+  );
+}
+
+function AccountSheet({
+  open,
+  account,
+  onOpenChange,
+  onSave,
+}: {
+  open: boolean;
+  account: Account | null;
+  onOpenChange: (open: boolean) => void;
+  onSave: (data: Omit<Account, 'id' | 'createdAt'>, id?: string) => void;
+}) {
+  const { preferences } = useStore();
+  const formKey = open ? (account?.id ?? 'new') : 'closed';
+
+  return (
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent className="rounded-t-[2rem]">
+        <div
+          className="mx-auto w-full max-w-md px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 overflow-y-auto no-scrollbar"
+          style={{ maxHeight: '85vh' }}
+        >
+          <h2 className="text-xl font-bold mb-4">{account ? 'Edit Account' : 'New Account'}</h2>
+          <AccountForm
+            key={formKey}
+            initialName={account?.name ?? ''}
+            initialType={account?.type ?? 'cash'}
+            initialBalance={account?.initialBalance ?? 0}
+            currentBalance={account?.balance ?? 0}
+            isEditing={!!account}
+            initialIcon={account?.icon ?? 'Banknote'}
+            initialColor={account?.color ?? '#22C55E'}
+            initialIncluded={account?.isIncludedInTotal ?? true}
+            currencySymbol={preferences.currencySymbol}
+            onCancel={() => onOpenChange(false)}
+            onSubmit={(data) => onSave(data, account?.id)}
+          />
+        </div>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+function AccountForm({
+  initialName,
+  initialType,
+  initialBalance,
+  currentBalance,
+  isEditing,
+  initialIcon,
+  initialColor,
+  initialIncluded,
+  currencySymbol,
+  onCancel,
+  onSubmit,
+}: {
+  initialName: string;
+  initialType: AccountType;
+  initialBalance: number;
+  currentBalance: number;
+  isEditing: boolean;
+  initialIcon: string;
+  initialColor: string;
+  initialIncluded: boolean;
+  currencySymbol: string;
+  onCancel: () => void;
+  onSubmit: (data: Omit<Account, 'id' | 'createdAt'>) => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [type, setType] = useState<AccountType>(initialType);
+  const [initialBalanceInput, setInitialBalanceInput] = useState(String(initialBalance));
+  const [icon, setIcon] = useState(initialIcon);
+  const [color, setColor] = useState(initialColor);
+  const [isIncludedInTotal, setIsIncludedInTotal] = useState(initialIncluded);
+
+  // Preview of what the *current* balance will be after saving.
+  const parsedInitial = parseFloat(initialBalanceInput) || 0;
+  const previewDelta = parsedInitial - initialBalance;
+  const previewBalance = isEditing ? currentBalance + previewDelta : parsedInitial;
+
+  const handleSubmit = () => {
+    if (!name.trim()) {
+      toast.error('Please enter an account name');
+      return;
+    }
+    const newInitial = parsedInitial;
+    const newBalance = isEditing ? currentBalance + (newInitial - initialBalance) : newInitial;
+
+    onSubmit({
+      name: name.trim(),
+      type,
+      balance: newBalance,
+      initialBalance: newInitial,
+      currency: 'USD',
+      icon,
+      color,
+      isIncludedInTotal,
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/40">
+        <div
+          className="h-12 w-12 rounded-2xl flex items-center justify-center"
+          style={{ backgroundColor: `${color}1A` }}
+        >
+          <span style={{ color }}>
+            <CategoryIcon name={icon} size={24} />
+          </span>
+        </div>
+        <div>
+          <p className="font-semibold text-sm">{name || 'Account Name'}</p>
+          <p className="text-xs text-muted-foreground capitalize">{type}</p>
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Account Name</Label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Main Wallet"
+          className="mt-1 rounded-xl"
+        />
+      </div>
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Account Type</Label>
+        <div className="flex flex-wrap gap-2 mt-1">
+          {ACCOUNT_TYPES.map((t) => (
+            <button
+              key={t.value}
+              onClick={() => setType(t.value)}
+              className={cn(
+                'px-3 py-2 rounded-xl text-sm font-medium transition-all',
+                type === t.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Initial Balance</Label>
+        <div className="relative mt-1">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+            {currencySymbol}
+          </span>
+          <Input
+            type="number"
+            value={initialBalanceInput}
+            onChange={(e) => setInitialBalanceInput(e.target.value)}
+            placeholder="0.00"
+            className="rounded-xl pl-8"
+          />
+        </div>
+        {isEditing && (
+          <p className="text-xs text-muted-foreground mt-2">
+            Current balance:{' '}
+            <span className="font-medium text-foreground tabular-nums">
+              {formatCurrency(currentBalance, currencySymbol)}
+            </span>
+            {previewDelta !== 0 && (
+              <>
+                {' → '}
+                <span className="font-medium text-foreground tabular-nums">
+                  {formatCurrency(previewBalance, currencySymbol)}
+                </span>
+              </>
+            )}
+          </p>
+        )}
+      </div>
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Icon</Label>
+        <div className="grid grid-cols-8 gap-2 mt-1">
+          {AVAILABLE_ICONS.slice(0, 16).map((iconName) => (
+            <button
+              key={iconName}
+              onClick={() => setIcon(iconName)}
+              className={cn(
+                'h-10 w-10 rounded-xl flex items-center justify-center transition-all',
+                icon === iconName ? 'bg-primary text-primary-foreground' : 'bg-muted'
+              )}
+            >
+              <CategoryIcon name={iconName} size={18} />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Color</Label>
+        <div className="flex flex-wrap gap-2 mt-1">
+          {CATEGORY_COLORS.slice(0, 12).map((c) => (
+            <button
+              key={c}
+              onClick={() => setColor(c)}
+              className={cn(
+                'h-8 w-8 rounded-full transition-all',
+                color === c && 'ring-2 ring-offset-2 ring-ring scale-110'
+              )}
+              style={{ backgroundColor: c }}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <Label className="text-sm">Include in net worth total</Label>
+        <Switch checked={isIncludedInTotal} onCheckedChange={setIsIncludedInTotal} />
+      </div>
+
+      <div className="flex gap-2 mt-2">
+        <Button variant="outline" className="flex-1 rounded-xl" onClick={onCancel}>
+          <X className="h-4 w-4 mr-1" /> Cancel
+        </Button>
+        <Button className="flex-1 rounded-xl" onClick={handleSubmit}>
+          <Check className="h-4 w-4 mr-1" /> Save
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function TransferDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { accounts, preferences, addTransaction } = useStore();
+  const [fromId, setFromId] = useState('');
+  const [toId, setToId] = useState('');
+  const [amount, setAmount] = useState('');
+
+  const handleTransfer = () => {
+    const amt = parseFloat(amount) || 0;
+    if (amt <= 0) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+    if (!fromId || !toId) {
+      toast.error('Select both accounts');
+      return;
+    }
+    if (fromId === toId) {
+      toast.error('Choose different accounts');
+      return;
+    }
+    addTransaction({
+      type: 'transfer',
+      amount: amt,
+      accountId: fromId,
+      toAccountId: toId,
+      categoryId: null,
+      date: Date.now(),
+      note: 'Transfer',
+      receiptUrl: null,
+      isExcludedFromStats: true,
+      isExcludedFromBudget: true,
+    });
+    toast.success('Transfer completed');
+    setAmount('');
+    setFromId('');
+    setToId('');
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="rounded-3xl">
+        <DialogHeader>
+          <DialogTitle>Transfer Between Accounts</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-4 py-2">
+          <div>
+            <Label className="text-xs text-muted-foreground">From</Label>
+            <select
+              value={fromId}
+              onChange={(e) => setFromId(e.target.value)}
+              className="w-full mt-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm"
+            >
+              <option value="">Select account</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({formatCurrency(a.balance, preferences.currencySymbol)})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">To</Label>
+            <select
+              value={toId}
+              onChange={(e) => setToId(e.target.value)}
+              className="w-full mt-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm"
+            >
+              <option value="">Select account</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({formatCurrency(a.balance, preferences.currencySymbol)})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Amount</Label>
+            <div className="relative mt-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                {preferences.currencySymbol}
+              </span>
+              <Input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="rounded-xl pl-8"
+              />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleTransfer}>
+            <ArrowRightLeft className="h-4 w-4 mr-1" /> Transfer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+</file>
+
+<file path="src/components/tabs/budgets-view.tsx">
+'use client';
+
+import { useState, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { Plus, Pencil, Trash2, Target, AlertTriangle, X, Check } from 'lucide-react';
+import { Drawer, DrawerContent } from '@/components/ui/drawer';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { CategoryIcon } from '@/components/icon-map';
+import { useStore } from '@/lib/store';
+import type { Budget, Category } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/lib/currencies';
+import { getBudgetProgress, getMonthTotalSpent, formatMonthYear, monthYearKey } from '@/lib/finance';
+import { toast } from 'sonner';
+
+export function BudgetsView() {
+  const { budgets, transactions, categories, preferences, addBudget, updateBudget, deleteBudget } = useStore();
+  const [editing, setEditing] = useState<Budget | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+
+  const currentMonth = monthYearKey(Date.now());
+  const monthBudgets = budgets.filter((b) => b.monthYear === currentMonth);
+
+  const totalBudget = monthBudgets.reduce((s, b) => s + b.amount, 0);
+  // Compute spent from raw transactions — do NOT sum per-budget progress (double-counts).
+  const totalSpent = useMemo(
+    () => getMonthTotalSpent(transactions, currentMonth),
+    [transactions, currentMonth]
+  );
+  const overallPercentage = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20">
+        <div className="flex items-center gap-2 mb-2">
+          <Target className="h-5 w-5" />
+          <span className="text-sm font-medium opacity-90">Overall Budget — {formatMonthYear(currentMonth)}</span>
+        </div>
+        <p className="text-3xl font-bold tabular-nums">
+          {formatCurrency(totalSpent, preferences.currencySymbol)}
+          <span className="text-lg opacity-75 font-normal"> / {formatCurrency(totalBudget, preferences.currencySymbol)}</span>
+        </p>
+        <div className="mt-3 h-2.5 rounded-full bg-white/20 overflow-hidden">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.min(overallPercentage, 100)}%` }}
+            transition={{ type: 'spring', stiffness: 100, damping: 20 }}
+            className={cn(
+              'h-full rounded-full transition-colors',
+              overallPercentage >= 100 ? 'bg-destructive' : overallPercentage >= 80 ? 'bg-warning' : 'bg-white'
+            )}
+          />
+        </div>
+        <p className="text-xs opacity-75 mt-2">
+          {totalBudget === 0
+            ? 'No budgets set for this month yet.'
+            : overallPercentage >= 100
+            ? 'Budget exceeded! Consider adjusting your spending.'
+            : `${(100 - overallPercentage).toFixed(0)}% remaining`}
+        </p>
+      </div>
+
+      <Button variant="outline" className="rounded-2xl border-dashed" onClick={() => setIsAdding(true)}>
+        <Plus className="h-4 w-4 mr-2" /> Add Budget
+      </Button>
+
+      {monthBudgets.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+            <Target className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <p className="text-sm text-muted-foreground">No budgets set for this month yet</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {monthBudgets.map((budget, i) => {
+            const cat = categories.find((c) => c.id === budget.categoryId);
+            const progress = getBudgetProgress(budget, transactions, categories);
+            return (
+              <motion.div
+                key={budget.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="bg-card rounded-2xl border border-border/40 p-4"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div
+                    className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: cat ? `${cat.color}1A` : 'hsl(var(--muted))' }}
+                  >
+                    {cat ? (
+                      <span style={{ color: cat.color }}>
+                        <CategoryIcon name={cat.icon} size={20} />
+                      </span>
+                    ) : (
+                      <Target className="h-5 w-5 text-primary" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm">{cat?.name ?? 'Overall Budget'}</p>
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      {formatCurrency(progress.spent, preferences.currencySymbol)} of {formatCurrency(budget.amount, preferences.currencySymbol)}
+                    </p>
+                  </div>
+                  <div className="flex gap-1">
+                    <button onClick={() => setEditing(budget)} className="p-2 rounded-xl hover:bg-muted">
+                      <Pencil className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        deleteBudget(budget.id);
+                        toast.success('Budget deleted');
+                      }}
+                      className="p-2 rounded-xl hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="h-2.5 rounded-full bg-muted overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progress.percentage}%` }}
+                    transition={{ type: 'spring', stiffness: 100, damping: 20 }}
+                    className={cn(
+                      'h-full rounded-full',
+                      progress.isOver ? 'bg-destructive' : progress.isWarning ? 'bg-warning' : 'bg-primary'
+                    )}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {progress.percentage.toFixed(0)}% used
+                  </span>
+                  <span
+                    className={cn(
+                      'text-xs font-medium tabular-nums',
+                      progress.isOver ? 'text-destructive' : progress.isWarning ? 'text-warning' : 'text-muted-foreground'
+                    )}
+                  >
+                    {progress.isOver ? (
+                      <span className="flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        Over by {formatCurrency(progress.spent - budget.amount, preferences.currencySymbol)}
+                      </span>
+                    ) : (
+                      `${formatCurrency(progress.remaining, preferences.currencySymbol)} left`
+                    )}
+                  </span>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+
+      <BudgetSheet
+        open={isAdding || editing !== null}
+        budget={editing}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsAdding(false);
+            setEditing(null);
+          }
+        }}
+        onSave={(data, id) => {
+          if (id) {
+            updateBudget(id, data);
+            toast.success('Budget updated');
+          } else {
+            addBudget(data);
+            toast.success('Budget added');
+          }
+          setIsAdding(false);
+          setEditing(null);
+        }}
+      />
+    </div>
+  );
+}
+
+function BudgetSheet({
+  open,
+  budget,
+  onOpenChange,
+  onSave,
+}: {
+  open: boolean;
+  budget: Budget | null;
+  onOpenChange: (open: boolean) => void;
+  onSave: (data: Omit<Budget, 'id'>, id?: string) => void;
+}) {
+  const { categories, preferences } = useStore();
+  const formKey = open ? (budget?.id ?? 'new') : 'closed';
+
+  return (
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent className="rounded-t-[2rem]">
+        <div className="mx-auto w-full max-w-md px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2">
+          <h2 className="text-xl font-bold mb-4">{budget ? 'Edit Budget' : 'New Budget'}</h2>
+          <BudgetForm
+            key={formKey}
+            initialAmount={budget?.amount ?? 0}
+            initialCategoryId={budget?.categoryId ?? null}
+            initialCarryOver={budget?.carryOver ?? false}
+            currencySymbol={preferences.currencySymbol}
+            categories={categories}
+            onCancel={() => onOpenChange(false)}
+            onSubmit={(data) =>
+              onSave(
+                {
+                  ...data,
+                  monthYear: monthYearKey(Date.now()),
+                  period: 'monthly',
+                },
+                budget?.id
+              )
+            }
+          />
+        </div>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+function BudgetForm({
+  initialAmount,
+  initialCategoryId,
+  initialCarryOver,
+  currencySymbol,
+  categories,
+  onCancel,
+  onSubmit,
+}: {
+  initialAmount: number;
+  initialCategoryId: string | null;
+  initialCarryOver: boolean;
+  currencySymbol: string;
+  categories: Category[];
+  onCancel: () => void;
+  onSubmit: (data: { amount: number; categoryId: string | null; carryOver: boolean }) => void;
+}) {
+  const [amount, setAmount] = useState(String(initialAmount));
+  const [categoryId, setCategoryId] = useState<string | null>(initialCategoryId);
+  const [carryOver, setCarryOver] = useState(initialCarryOver);
+  const expenseCategories = categories.filter((c) => c.type === 'expense' && !c.parentId && !c.isHidden);
+
+  const handleSubmit = () => {
+    const amt = parseFloat(amount) || 0;
+    if (amt <= 0) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+    onSubmit({ amount: amt, categoryId, carryOver });
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <Label className="text-xs text-muted-foreground">Budget for Category</Label>
+        <div className="flex flex-wrap gap-2 mt-1">
+          <button
+            onClick={() => setCategoryId(null)}
+            className={cn(
+              'px-3 py-2 rounded-xl text-sm font-medium transition-all',
+              categoryId === null ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+            )}
+          >
+            Overall
+          </button>
+          {expenseCategories.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setCategoryId(cat.id)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all',
+                categoryId === cat.id ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+              )}
+            >
+              <span style={{ color: categoryId === cat.id ? 'inherit' : cat.color }}>
+                <CategoryIcon name={cat.icon} size={14} />
+              </span>
+              {cat.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Monthly Budget Amount</Label>
+        <div className="relative mt-1">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">{currencySymbol}</span>
+          <Input
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            className="rounded-xl pl-8 text-lg"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <Label className="text-sm">Carry over</Label>
+          <p className="text-xs text-muted-foreground">Roll over unused budget to next month</p>
+        </div>
+        <Switch checked={carryOver} onCheckedChange={setCarryOver} />
+      </div>
+
+      <div className="flex gap-2 mt-2">
+        <Button variant="outline" className="flex-1 rounded-xl" onClick={onCancel}>
+          <X className="h-4 w-4 mr-1" /> Cancel
+        </Button>
+        <Button className="flex-1 rounded-xl" onClick={handleSubmit}>
+          <Check className="h-4 w-4 mr-1" /> Save
+        </Button>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/tabs/stats-tab.tsx">
+'use client';
+
+import { useState, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { PieChart as PieChartIcon, BarChart3, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart, Line, CartesianGrid } from 'recharts';
+import { useStore } from '@/lib/store';
+import { CategoryIcon } from '@/components/icon-map';
+import { cn } from '@/lib/utils';
+import { formatCurrency, formatCurrencyCompact } from '@/lib/currencies';
+import { getCategoryBreakdown, getMonthlyTrend, getMonthlyTotals, monthYearKey, formatMonthYear } from '@/lib/finance';
+
+export function StatsTab() {
+  const { transactions, categories, preferences } = useStore();
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date());
+  const [chartType, setChartType] = useState<'expense' | 'income'>('expense');
+
+  const monthYear = monthYearKey(selectedMonth.getTime());
+  const totals = useMemo(() => getMonthlyTotals(transactions, monthYear), [transactions, monthYear]);
+  const breakdown = useMemo(
+    () => getCategoryBreakdown(transactions, categories, chartType, monthYear),
+    [transactions, categories, chartType, monthYear]
+  );
+  const monthlyTrend = useMemo(() => getMonthlyTrend(transactions, 6), [transactions]);
+
+  const changeMonth = (dir: number) => {
+    const d = new Date(selectedMonth);
+    d.setMonth(d.getMonth() + dir);
+    setSelectedMonth(d);
+  };
+
+  const pieData = breakdown.slice(0, 8).map((b) => ({ name: b.name, value: b.amount, color: b.color }));
+  const otherAmount = breakdown.slice(8).reduce((s, b) => s + b.amount, 0);
+  if (otherAmount > 0) {
+    pieData.push({ name: 'Other', value: otherAmount, color: '#94A3B8' });
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="px-4 pt-4 pb-2">
+        <h1 className="text-2xl font-bold">Statistics</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Analyze your spending patterns</p>
+      </div>
+
+      {/* Month selector */}
+      <div className="flex items-center justify-between px-4 py-2">
+        <button onClick={() => changeMonth(-1)} className="p-2 rounded-xl hover:bg-muted">
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <h2 className="text-base font-semibold">{formatMonthYear(monthYear)}</h2>
+        <button onClick={() => changeMonth(1)} className="p-2 rounded-xl hover:bg-muted">
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 pb-2">
+        {/* Income vs Expense card */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="grid grid-cols-2 gap-3 mt-2"
+        >
+          <div className="rounded-2xl bg-income/10 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp className="h-4 w-4 text-income" />
+              <span className="text-xs text-muted-foreground font-medium">Income</span>
+            </div>
+            <p className="text-xl font-bold text-income tabular-nums">{formatCurrency(totals.income, preferences.currencySymbol)}</p>
+          </div>
+          <div className="rounded-2xl bg-expense/10 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp className="h-4 w-4 text-expense rotate-180" />
+              <span className="text-xs text-muted-foreground font-medium">Expense</span>
+            </div>
+            <p className="text-xl font-bold text-expense tabular-nums">{formatCurrency(totals.expense, preferences.currencySymbol)}</p>
+          </div>
+        </motion.div>
+
+        {/* Chart type toggle */}
+        <div className="flex gap-1 mt-4 p-1 bg-muted rounded-xl">
+          {(['expense', 'income'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setChartType(t)}
+              className={cn(
+                'flex-1 py-2 rounded-lg text-sm font-medium capitalize transition-all',
+                chartType === t
+                  ? t === 'expense' ? 'bg-expense text-white' : 'bg-income text-white'
+                  : 'text-muted-foreground'
+              )}
+            >
+              {t} Breakdown
+            </button>
+          ))}
+        </div>
+
+        {/* Donut chart */}
+        <div className="bg-card rounded-3xl border border-border/40 p-4 mt-3">
+          {pieData.length > 0 ? (
+            <>
+              <div className="relative h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={90}
+                      paddingAngle={2}
+                      dataKey="value"
+                    >
+                      {pieData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value: number) => formatCurrency(value, preferences.currencySymbol)}
+                      contentStyle={{ borderRadius: '0.75rem', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-xs text-muted-foreground">Total</span>
+                  <span className="text-xl font-bold tabular-nums">
+                    {formatCurrencyCompact(chartType === 'expense' ? totals.expense : totals.income, preferences.currencySymbol)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Breakdown list */}
+              <div className="mt-4 flex flex-col gap-2">
+                {breakdown.slice(0, 8).map((item) => (
+                  <div key={item.categoryId} className="flex items-center gap-3">
+                    <div
+                      className="h-8 w-8 rounded-xl flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: `${item.color}1A` }}
+                    >
+                      <span style={{ color: item.color }}>
+                        <CategoryIcon name={item.icon} size={16} />
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium truncate">{item.name}</span>
+                        <span className="text-sm font-semibold tabular-nums">{formatCurrency(item.amount, preferences.currencySymbol)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${item.percentage}%`, backgroundColor: item.color }}
+                          />
+                        </div>
+                        <span className="text-xs text-muted-foreground tabular-nums w-10 text-right">{item.percentage.toFixed(0)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="h-48 flex flex-col items-center justify-center text-muted-foreground">
+              <PieChartIcon className="h-10 w-10 mb-2 opacity-50" />
+              <p className="text-sm">No {chartType} data this month</p>
+            </div>
+          )}
+        </div>
+
+        {/* Monthly trend bar chart */}
+        <div className="bg-card rounded-3xl border border-border/40 p-4 mt-3">
+          <div className="flex items-center gap-2 mb-3">
+            <BarChart3 className="h-5 w-5 text-primary" />
+            <h3 className="text-sm font-semibold">6-Month Trend</h3>
+          </div>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthlyTrend} barGap={2}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrencyCompact(v, preferences.currencySymbol)} />
+                <Tooltip
+                  formatter={(value: number, name: string) => [formatCurrency(value, preferences.currencySymbol), name === 'income' ? 'Income' : 'Expense']}
+                  contentStyle={{ borderRadius: '0.75rem', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                  cursor={{ fill: 'hsl(var(--muted) / 0.5)' }}
+                />
+                <Bar dataKey="income" fill="hsl(var(--income))" radius={[4, 4, 0, 0]} maxBarSize={20} />
+                <Bar dataKey="expense" fill="hsl(var(--expense))" radius={[4, 4, 0, 0]} maxBarSize={20} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Cash flow line chart */}
+        <div className="bg-card rounded-3xl border border-border/40 p-4 mt-3 mb-2">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            <h3 className="text-sm font-semibold">Cash Flow</h3>
+          </div>
+          <div className="h-40">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={monthlyTrend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrencyCompact(v, preferences.currencySymbol)} />
+                <Tooltip
+                  formatter={(value: number) => formatCurrency(value, preferences.currencySymbol)}
+                  contentStyle={{ borderRadius: '0.75rem', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="net"
+                  stroke="hsl(var(--primary))"
+                  strokeWidth={2.5}
+                  dot={{ fill: 'hsl(var(--primary))', r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/tabs/transactions-tab.tsx">
+'use client';
+
+import { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Wallet, CalendarDays, List, PieChart, LayoutGrid } from 'lucide-react';
+import { useStore } from '@/lib/store';
+import { TransactionItem } from '../transaction-item';
+import type { Transaction } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { formatCurrency, formatCurrencyCompact } from '@/lib/currencies';
+import {
+  groupTransactionsByDay,
+  getDailyTotals,
+  getMonthlyTotals,
+  getCalendarDays,
+  formatDateLabel,
+  formatDateKey,
+  formatMonthYear,
+  monthYearKey,
+  getTotalBalance,
+} from '@/lib/finance';
+
+type ViewMode = 'daily' | 'calendar' | 'monthly' | 'summary';
+
+interface TransactionsTabProps {
+  onEditTransaction: (tx: Transaction) => void;
+  onAddTransaction: () => void;
+}
+
+export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
+  const { transactions, accounts, preferences, deleteTransaction } = useStore();
+  const [viewMode, setViewMode] = useState<ViewMode>('daily');
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date());
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState<string | null>(null);
+
+  const monthYear = monthYearKey(selectedMonth.getTime());
+  const monthTxs = useMemo(() => transactions.filter((t) => monthYearKey(t.date) === monthYear), [transactions, monthYear]);
+  const totals = useMemo(() => getMonthlyTotals(transactions, monthYear), [transactions, monthYear]);
+  const totalBalance = useMemo(() => getTotalBalance(accounts), [accounts]);
+
+  const changeMonth = (dir: number) => {
+    const d = new Date(selectedMonth);
+    d.setMonth(d.getMonth() + dir);
+    setSelectedMonth(d);
+    setCalendarSelectedDate(null);
+  };
+
+  const viewModes: { key: ViewMode; label: string; icon: typeof List }[] = [
+    { key: 'daily', label: 'Daily', icon: List },
+    { key: 'calendar', label: 'Calendar', icon: CalendarDays },
+    { key: 'monthly', label: 'Monthly', icon: LayoutGrid },
+    { key: 'summary', label: 'Summary', icon: PieChart },
+  ];
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Balance Card */}
+      <div className="px-4 pt-4">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20"
+        >
+          <div className="absolute -top-8 -right-8 h-32 w-32 rounded-full bg-white/10" />
+          <div className="absolute -bottom-12 -left-4 h-24 w-24 rounded-full bg-white/5" />
+          <div className="relative">
+            <p className="text-sm opacity-90 font-medium">Total Balance</p>
+            <p className="text-3xl font-bold mt-1 tabular-nums">
+              {formatCurrency(totalBalance, preferences.currencySymbol)}
+            </p>
+            <div className="flex gap-4 mt-4">
+              <div className="flex items-center gap-1.5">
+                <div className="h-7 w-7 rounded-full bg-white/20 flex items-center justify-center">
+                  <TrendingDown className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs opacity-75">Expense</p>
+                  <p className="text-sm font-semibold tabular-nums">
+                    {formatCurrencyCompact(totals.expense, preferences.currencySymbol)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="h-7 w-7 rounded-full bg-white/20 flex items-center justify-center">
+                  <TrendingUp className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs opacity-75">Income</p>
+                  <p className="text-sm font-semibold tabular-nums">
+                    {formatCurrencyCompact(totals.income, preferences.currencySymbol)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Month selector */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <button onClick={() => changeMonth(-1)} className="p-2 rounded-xl hover:bg-muted">
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <h2 className="text-base font-semibold">{formatMonthYear(monthYear)}</h2>
+        <button onClick={() => changeMonth(1)} className="p-2 rounded-xl hover:bg-muted">
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* View mode tabs */}
+      <div className="flex gap-1 px-4 pb-3 overflow-x-auto no-scrollbar">
+        {viewModes.map((mode) => {
+          const Icon = mode.icon;
+          const isActive = viewMode === mode.key;
+          return (
+            <button
+              key={mode.key}
+              onClick={() => setViewMode(mode.key)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap',
+                isActive ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {mode.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 pb-2">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={viewMode}
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -5 }}
+            transition={{ duration: 0.15 }}
+          >
+            {viewMode === 'daily' && (
+              <DailyView transactions={monthTxs} onEdit={onEditTransaction} onDelete={deleteTransaction} symbol={preferences.currencySymbol} />
+            )}
+            {viewMode === 'calendar' && (
+              <CalendarView
+                transactions={transactions}
+                selectedMonth={selectedMonth}
+                weekStartDay={preferences.weekStartDay}
+                selectedDate={calendarSelectedDate}
+                onSelectDate={setCalendarSelectedDate}
+                onEdit={onEditTransaction}
+                onDelete={deleteTransaction}
+                symbol={preferences.currencySymbol}
+              />
+            )}
+            {viewMode === 'monthly' && (
+              <MonthlyView transactions={transactions} symbol={preferences.currencySymbol} selectedMonth={selectedMonth} />
+            )}
+            {viewMode === 'summary' && (
+              <SummaryView transactions={transactions} accounts={accounts} symbol={preferences.currencySymbol} selectedMonth={selectedMonth} />
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+function DailyView({ transactions, onEdit, onDelete, symbol }: {
+  transactions: Transaction[];
+  onEdit: (tx: Transaction) => void;
+  onDelete: (id: string) => void;
+  symbol: string;
+}) {
+  const grouped = useMemo(() => groupTransactionsByDay(transactions), [transactions]);
+
+  if (grouped.size === 0) {
+    return <EmptyState message="No transactions this month. Tap + to add one." />;
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {Array.from(grouped.entries()).map(([dayKey, txs]) => {
+        const totals = getDailyTotals(transactions, dayKey);
+        return (
+          <div key={dayKey}>
+            <div className="flex items-center justify-between px-1 py-2">
+              <span className="text-sm font-semibold">{formatDateLabel(new Date(dayKey).getTime())}</span>
+              <div className="flex gap-3 text-xs">
+                {totals.income > 0 && <span className="text-income font-medium">+{formatCurrencyCompact(totals.income, symbol)}</span>}
+                {totals.expense > 0 && <span className="text-expense font-medium">-{formatCurrencyCompact(totals.expense, symbol)}</span>}
+              </div>
+            </div>
+            <div className="bg-card rounded-2xl border border-border/40 px-1">
+              {txs.map((tx) => (
+                <TransactionItem key={tx.id} transaction={tx} onEdit={onEdit} onDelete={onDelete} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CalendarView({ transactions, selectedMonth, weekStartDay, selectedDate, onSelectDate, onEdit, onDelete, symbol }: {
+  transactions: Transaction[];
+  selectedMonth: Date;
+  weekStartDay: 0 | 1;
+  selectedDate: string | null;
+  onSelectDate: (date: string) => void;
+  onEdit: (tx: Transaction) => void;
+  onDelete: (id: string) => void;
+  symbol: string;
+}) {
+  const days = useMemo(
+    () => getCalendarDays(selectedMonth.getFullYear(), selectedMonth.getMonth(), weekStartDay),
+    [selectedMonth, weekStartDay]
+  );
+  const weekDays = weekStartDay === 1
+    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const selectedTxs = selectedDate
+    ? transactions.filter((t) => formatDateKey(t.date) === selectedDate).sort((a, b) => b.date - a.date)
+    : [];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="bg-card rounded-2xl border border-border/40 p-3">
+        <div className="grid grid-cols-7 gap-1 mb-2">
+          {weekDays.map((d) => (
+            <div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">{d}</div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {days.map((day, i) => {
+            if (!day) return <div key={i} />;
+            const dayKey = formatDateKey(day.getTime());
+            const dayTxs = transactions.filter((t) => formatDateKey(t.date) === dayKey && t.type !== 'transfer');
+            const expense = dayTxs.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+            const income = dayTxs.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+            const net = income - expense;
+            const isToday = formatDateKey(Date.now()) === dayKey;
+            const isSelected = selectedDate === dayKey;
+
+            return (
+              <button
+                key={i}
+                onClick={() => onSelectDate(dayKey)}
+                className={cn(
+                  'aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all relative',
+                  isSelected ? 'bg-primary text-primary-foreground' : isToday ? 'bg-primary/10' : 'hover:bg-muted',
+                )}
+              >
+                <span className={cn('text-xs font-medium', isSelected && 'text-primary-foreground')}>{day.getDate()}</span>
+                {net !== 0 && (
+                  <span
+                    className={cn(
+                      'text-[8px] font-semibold tabular-nums leading-none',
+                      isSelected ? 'text-primary-foreground/80' : net > 0 ? 'text-income' : 'text-expense'
+                    )}
+                  >
+                    {net > 0 ? '+' : ''}{formatCurrencyCompact(net, symbol).replace(symbol, '')}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {selectedDate && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+          <div className="flex items-center justify-between px-1 py-2">
+            <span className="text-sm font-semibold">{formatDateLabel(new Date(selectedDate).getTime())}</span>
+            <span className="text-xs text-muted-foreground">{selectedTxs.length} transaction{selectedTxs.length !== 1 ? 's' : ''}</span>
+          </div>
+          {selectedTxs.length > 0 ? (
+            <div className="bg-card rounded-2xl border border-border/40 px-1">
+              {selectedTxs.map((tx) => (
+                <TransactionItem key={tx.id} transaction={tx} onEdit={onEdit} onDelete={onDelete} />
+              ))}
+            </div>
+          ) : (
+            <div className="bg-card rounded-2xl border border-border/40 p-8 text-center text-sm text-muted-foreground">
+              No transactions on this day
+            </div>
+          )}
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+function MonthlyView({ transactions, symbol, selectedMonth }: {
+  transactions: Transaction[];
+  symbol: string;
+  selectedMonth: Date;
+}) {
+  const monthsData = useMemo(() => {
+    const result: { label: string; monthYear: string; income: number; expense: number; net: number }[] = [];
+    for (let m = 5; m >= 0; m--) {
+      const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - m, 1);
+      const myKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const totals = getMonthlyTotals(transactions, myKey);
+      result.push({ label: d.toLocaleDateString('en-US', { month: 'short' }), monthYear: myKey, ...totals });
+    }
+    return result;
+  }, [transactions, selectedMonth]);
+
+  const maxVal = Math.max(...monthsData.map((d) => Math.max(d.income, d.expense)), 1);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="bg-card rounded-2xl border border-border/40 p-4">
+        <h3 className="text-sm font-semibold mb-4">6-Month Overview</h3>
+        <div className="flex items-end justify-between gap-2 h-32">
+          {monthsData.map((d, i) => (
+            <div key={i} className="flex-1 flex flex-col items-center gap-1">
+              <div className="w-full flex flex-col items-center gap-0.5 justify-end h-24">
+                <div
+                  className="w-full max-w-[24px] rounded-t-lg bg-income transition-all"
+                  style={{ height: `${(d.income / maxVal) * 50}%`, minHeight: d.income > 0 ? '4px' : '0' }}
+                  title={`Income: ${formatCurrency(d.income, symbol)}`}
+                />
+                <div
+                  className="w-full max-w-[24px] rounded-b-lg bg-expense transition-all"
+                  style={{ height: `${(d.expense / maxVal) * 50}%`, minHeight: d.expense > 0 ? '4px' : '0' }}
+                  title={`Expense: ${formatCurrency(d.expense, symbol)}`}
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground font-medium">{d.label}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-center gap-4 mt-3">
+          <div className="flex items-center gap-1.5">
+            <div className="h-3 w-3 rounded bg-income" />
+            <span className="text-xs text-muted-foreground">Income</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="h-3 w-3 rounded bg-expense" />
+            <span className="text-xs text-muted-foreground">Expense</span>
+          </div>
+        </div>
+      </div>
+
+      {monthsData.map((d) => (
+        <div key={d.monthYear} className="bg-card rounded-2xl border border-border/40 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-semibold">{formatMonthYear(d.monthYear)}</span>
+            <span className={cn('text-sm font-bold tabular-nums', d.net >= 0 ? 'text-income' : 'text-expense')}>
+              {d.net >= 0 ? '+' : ''}{formatCurrency(d.net, symbol)}
+            </span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Income: <span className="text-income font-medium">{formatCurrency(d.income, symbol)}</span></span>
+            <span className="text-muted-foreground">Expense: <span className="text-expense font-medium">{formatCurrency(d.expense, symbol)}</span></span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SummaryView({ transactions, accounts, symbol, selectedMonth }: {
+  transactions: Transaction[];
+  accounts: ReturnType<typeof useStore.getState>['accounts'];
+  symbol: string;
+  selectedMonth: Date;
+}) {
+  const monthYear = monthYearKey(selectedMonth.getTime());
+  const totals = getMonthlyTotals(transactions, monthYear);
+  const totalBalance = getTotalBalance(accounts);
+  const totalAssets = accounts.filter((a) => a.isIncludedInTotal && a.balance > 0).reduce((s, a) => s + a.balance, 0);
+  const totalLiabilities = accounts.filter((a) => a.isIncludedInTotal && a.balance < 0).reduce((s, a) => s + Math.abs(a.balance), 0);
+  const savingsRate = totals.income > 0 ? ((totals.income - totals.expense) / totals.income) * 100 : 0;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="bg-card rounded-2xl border border-border/40 p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Wallet className="h-5 w-5 text-primary" />
+          <h3 className="text-sm font-semibold">Net Worth</h3>
+        </div>
+        <p className="text-3xl font-bold tabular-nums">{formatCurrency(totalBalance, symbol)}</p>
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          <div className="rounded-xl bg-income/10 p-3">
+            <p className="text-xs text-muted-foreground">Total Assets</p>
+            <p className="text-lg font-bold text-income tabular-nums">{formatCurrency(totalAssets, symbol)}</p>
+          </div>
+          <div className="rounded-xl bg-expense/10 p-3">
+            <p className="text-xs text-muted-foreground">Liabilities</p>
+            <p className="text-lg font-bold text-expense tabular-nums">{formatCurrency(totalLiabilities, symbol)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-card rounded-2xl border border-border/40 p-5">
+        <h3 className="text-sm font-semibold mb-3">{formatMonthYear(monthYear)} Summary</h3>
+        <div className="flex flex-col gap-3">
+          <SummaryRow label="Total Income" value={formatCurrency(totals.income, symbol)} color="text-income" />
+          <SummaryRow label="Total Expense" value={formatCurrency(totals.expense, symbol)} color="text-expense" />
+          <div className="border-t pt-3">
+            <SummaryRow label="Net Cash Flow" value={`${totals.net >= 0 ? '+' : ''}${formatCurrency(totals.net, symbol)}`} color={totals.net >= 0 ? 'text-income' : 'text-expense'} bold />
+          </div>
+          <div className="border-t pt-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Savings Rate</span>
+              <span className={cn('text-sm font-bold tabular-nums', savingsRate >= 0 ? 'text-income' : 'text-expense')}>
+                {savingsRate.toFixed(1)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-card rounded-2xl border border-border/40 p-5">
+        <h3 className="text-sm font-semibold mb-3">Accounts Breakdown</h3>
+        <div className="flex flex-col gap-2">
+          {accounts.map((acc) => (
+            <div key={acc.id} className="flex items-center justify-between py-2 border-b last:border-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium capitalize text-muted-foreground">{acc.type}</span>
+                <span className="text-sm font-medium">{acc.name}</span>
+              </div>
+              <span className={cn('text-sm font-semibold tabular-nums', acc.balance >= 0 ? 'text-foreground' : 'text-expense')}>
+                {formatCurrency(acc.balance, symbol)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value, color, bold }: { label: string; value: string; color: string; bold?: boolean }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className={cn('text-sm text-muted-foreground', bold && 'text-foreground font-medium')}>{label}</span>
+      <span className={cn('text-sm tabular-nums', color, bold && 'font-bold text-base')}>{value}</span>
+    </div>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+        <Wallet className="h-8 w-8 text-muted-foreground" />
+      </div>
+      <p className="text-sm text-muted-foreground max-w-xs">{message}</p>
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/ui/button.tsx">
+import * as React from 'react';
+import { Slot } from '@radix-ui/react-slot';
+import { cva, type VariantProps } from 'class-variance-authority';
+
+import { cn } from '@/lib/utils';
+
+const buttonVariants = cva(
+  'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
+  {
+    variants: {
+      variant: {
+        default: 'bg-primary text-primary-foreground hover:bg-primary/90',
+        destructive:
+          'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+        outline:
+          'border border-input bg-background hover:bg-accent hover:text-accent-foreground',
+        secondary:
+          'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+        ghost: 'hover:bg-accent hover:text-accent-foreground',
+        link: 'text-primary underline-offset-4 hover:underline',
+      },
+      size: {
+        default: 'h-10 px-4 py-2',
+        sm: 'h-9 rounded-md px-3',
+        lg: 'h-11 rounded-md px-8',
+        icon: 'h-10 w-10',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+      size: 'default',
+    },
+  }
+);
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean;
+}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : 'button';
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        {...props}
+      />
+    );
+  }
+);
+Button.displayName = 'Button';
+
+export { Button, buttonVariants };
+</file>
+
+<file path="src/components/ui/dialog.tsx">
+'use client';
+
+import * as React from 'react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { X } from 'lucide-react';
+
+import { cn } from '@/lib/utils';
+
+const Dialog = DialogPrimitive.Root;
+
+const DialogTrigger = DialogPrimitive.Trigger;
+
+const DialogPortal = DialogPrimitive.Portal;
+
+const DialogClose = DialogPrimitive.Close;
+
+const DialogOverlay = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Overlay
+    ref={ref}
+    className={cn(
+      'fixed inset-0 z-50 bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+      className
+    )}
+    {...props}
+  />
+));
+DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
+
+const DialogContent = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <DialogPortal>
+    <DialogOverlay />
+    <DialogPrimitive.Content
+      ref={ref}
+      className={cn(
+        'fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg',
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+        <X className="h-4 w-4" />
+        <span className="sr-only">Close</span>
+      </DialogPrimitive.Close>
+    </DialogPrimitive.Content>
+  </DialogPortal>
+));
+DialogContent.displayName = DialogPrimitive.Content.displayName;
+
+const DialogHeader = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      'flex flex-col space-y-1.5 text-center sm:text-left',
+      className
+    )}
+    {...props}
+  />
+);
+DialogHeader.displayName = 'DialogHeader';
+
+const DialogFooter = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      'flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2',
+      className
+    )}
+    {...props}
+  />
+);
+DialogFooter.displayName = 'DialogFooter';
+
+const DialogTitle = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title
+    ref={ref}
+    className={cn(
+      'text-lg font-semibold leading-none tracking-tight',
+      className
+    )}
+    {...props}
+  />
+));
+DialogTitle.displayName = DialogPrimitive.Title.displayName;
+
+const DialogDescription = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn('text-sm text-muted-foreground', className)}
+    {...props}
+  />
+));
+DialogDescription.displayName = DialogPrimitive.Description.displayName;
+
+export {
+  Dialog,
+  DialogPortal,
+  DialogOverlay,
+  DialogClose,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+};
+</file>
+
+<file path="src/components/ui/drawer.tsx">
+'use client';
+
+import * as React from 'react';
+import { Drawer as DrawerPrimitive } from 'vaul';
+
+import { cn } from '@/lib/utils';
+
+const Drawer = ({
+  shouldScaleBackground = true,
+  ...props
+}: React.ComponentProps<typeof DrawerPrimitive.Root>) => (
+  <DrawerPrimitive.Root
+    shouldScaleBackground={shouldScaleBackground}
+    {...props}
+  />
+);
+Drawer.displayName = 'Drawer';
+
+const DrawerTrigger = DrawerPrimitive.Trigger;
+
+const DrawerPortal = DrawerPrimitive.Portal;
+
+const DrawerClose = DrawerPrimitive.Close;
+
+const DrawerOverlay = React.forwardRef<
+  React.ElementRef<typeof DrawerPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DrawerPrimitive.Overlay
+    ref={ref}
+    className={cn('fixed inset-0 z-50 bg-black/80', className)}
+    {...props}
+  />
+));
+DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
+
+const DrawerContent = React.forwardRef<
+  React.ElementRef<typeof DrawerPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <DrawerPortal>
+    <DrawerOverlay />
+    <DrawerPrimitive.Content
+      ref={ref}
+      className={cn(
+        'fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background',
+        className
+      )}
+      {...props}
+    >
+      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
+      {children}
+    </DrawerPrimitive.Content>
+  </DrawerPortal>
+));
+DrawerContent.displayName = 'DrawerContent';
+
+const DrawerHeader = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn('grid gap-1.5 p-4 text-center sm:text-left', className)}
+    {...props}
+  />
+);
+DrawerHeader.displayName = 'DrawerHeader';
+
+const DrawerFooter = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn('mt-auto flex flex-col gap-2 p-4', className)}
+    {...props}
+  />
+);
+DrawerFooter.displayName = 'DrawerFooter';
+
+const DrawerTitle = React.forwardRef<
+  React.ElementRef<typeof DrawerPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DrawerPrimitive.Title
+    ref={ref}
+    className={cn(
+      'text-lg font-semibold leading-none tracking-tight',
+      className
+    )}
+    {...props}
+  />
+));
+DrawerTitle.displayName = DrawerPrimitive.Title.displayName;
+
+const DrawerDescription = React.forwardRef<
+  React.ElementRef<typeof DrawerPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DrawerPrimitive.Description
+    ref={ref}
+    className={cn('text-sm text-muted-foreground', className)}
+    {...props}
+  />
+));
+DrawerDescription.displayName = DrawerPrimitive.Description.displayName;
+
+export {
+  Drawer,
+  DrawerPortal,
+  DrawerOverlay,
+  DrawerTrigger,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerFooter,
+  DrawerTitle,
+  DrawerDescription,
+};
+</file>
+
+<file path="src/components/ui/input.tsx">
+import * as React from 'react';
+
+import { cn } from '@/lib/utils';
+
+export interface InputProps
+  extends React.InputHTMLAttributes<HTMLInputElement> {}
+
+const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, type, ...props }, ref) => {
+    return (
+      <input
+        type={type}
+        className={cn(
+          'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+          className
+        )}
+        ref={ref}
+        {...props}
+      />
+    );
+  }
+);
+Input.displayName = 'Input';
+
+export { Input };
+</file>
+
+<file path="src/components/ui/label.tsx">
+'use client';
+
+import * as React from 'react';
+import * as LabelPrimitive from '@radix-ui/react-label';
+import { cva, type VariantProps } from 'class-variance-authority';
+
+import { cn } from '@/lib/utils';
+
+const labelVariants = cva(
+  'text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70'
+);
+
+const Label = React.forwardRef<
+  React.ElementRef<typeof LabelPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root> &
+    VariantProps<typeof labelVariants>
+>(({ className, ...props }, ref) => (
+  <LabelPrimitive.Root
+    ref={ref}
+    className={cn(labelVariants(), className)}
+    {...props}
+  />
+));
+Label.displayName = LabelPrimitive.Root.displayName;
+
+export { Label };
+</file>
+
+<file path="src/components/ui/sonner.tsx">
+'use client';
+
+import { Toaster as Sonner } from 'sonner';
+import { useTheme } from '@/components/theme-provider';
+
+type ToasterProps = React.ComponentProps<typeof Sonner>;
+
+const Toaster = ({ ...props }: ToasterProps) => {
+  const { theme } = useTheme();
+
+  return (
+    <Sonner
+      theme={theme as ToasterProps['theme']}
+      className="toaster group"
+      toastOptions={{
+        classNames: {
+          toast:
+            'group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg',
+          description: 'group-[.toast]:text-muted-foreground',
+          actionButton: 'group-[.toast]:bg-primary group-[.toast]:text-primary-foreground',
+          cancelButton: 'group-[.toast]:bg-muted group-[.toast]:text-muted-foreground',
+        },
+      }}
+      {...props}
+    />
+  );
+};
+
+export { Toaster };
+</file>
+
+<file path="src/components/ui/switch.tsx">
+'use client';
+
+import * as React from 'react';
+import * as SwitchPrimitives from '@radix-ui/react-switch';
+
+import { cn } from '@/lib/utils';
+
+const Switch = React.forwardRef<
+  React.ElementRef<typeof SwitchPrimitives.Root>,
+  React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root>
+>(({ className, ...props }, ref) => (
+  <SwitchPrimitives.Root
+    className={cn(
+      'peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input',
+      className
+    )}
+    {...props}
+    ref={ref}
+  >
+    <SwitchPrimitives.Thumb
+      className={cn(
+        'pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0'
+      )}
+    />
+  </SwitchPrimitives.Root>
+));
+Switch.displayName = SwitchPrimitives.Root.displayName;
+
+export { Switch };
+</file>
+
+<file path="src/components/ui/textarea.tsx">
+import * as React from 'react';
+
+import { cn } from '@/lib/utils';
+
+export interface TextareaProps
+  extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {}
+
+const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
+  ({ className, ...props }, ref) => {
+    return (
+      <textarea
+        className={cn(
+          'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+          className
+        )}
+        ref={ref}
+        {...props}
+      />
+    );
+  }
+);
+Textarea.displayName = 'Textarea';
+
+export { Textarea };
+</file>
+
+<file path="src/components/auth-view.tsx">
+import React, { useState } from 'react';
+import {
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+} from 'firebase/auth';
+import { auth, googleProvider } from '@/lib/firebase';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Wallet, Mail, Lock, Sparkles, ArrowRight } from 'lucide-react';
+import { toast } from 'sonner';
+
+export function AuthView() {
+  const [isRegister, setIsRegister] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    try {
+      setLoading(true);
+      await signInWithPopup(auth, googleProvider);
+      toast.success('Signed in successfully');
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || 'Failed to sign in with Google');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) {
+      toast.error('Please enter email and password');
+      return;
+    }
+    try {
+      setLoading(true);
+      if (isRegister) {
+        await createUserWithEmailAndPassword(auth, email, password);
+        toast.success('Account created');
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+        toast.success('Signed in successfully');
+      }
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || 'Authentication error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col justify-center min-h-[100dvh] px-6 max-w-sm mx-auto">
+      <div className="text-center mb-8">
+        <div className="mx-auto h-16 w-16 rounded-3xl bg-primary/10 flex items-center justify-center text-primary mb-4 shadow-inner">
+          <Wallet className="h-8 w-8" />
+        </div>
+        <h1 className="text-2xl font-bold tracking-tight">Kalcy</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Cloud-synced money manager & expense tracker
+        </p>
+      </div>
+
+      <div className="bg-card border border-border/40 rounded-3xl p-6 shadow-sm">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleGoogleSignIn}
+          disabled={loading}
+          className="w-full rounded-2xl h-11 text-sm font-medium gap-2 mb-4"
+        >
+          <Sparkles className="h-4 w-4 text-amber-500" />
+          Continue with Google
+        </Button>
+
+        <div className="relative my-4 text-center">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-border" />
+          </div>
+          <span className="relative bg-card px-2 text-xs uppercase text-muted-foreground">
+            Or with email
+          </span>
+        </div>
+
+        <form onSubmit={handleEmailAuth} className="space-y-3">
+          <div>
+            <Label className="text-xs text-muted-foreground">Email</Label>
+            <div className="relative mt-1">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@example.com"
+                className="rounded-xl pl-9"
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs text-muted-foreground">Password</Label>
+            <div className="relative mt-1">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="rounded-xl pl-9"
+              />
+            </div>
+          </div>
+
+          <Button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-2xl h-11 mt-2 text-sm font-semibold gap-1.5"
+          >
+            {isRegister ? 'Create Account' : 'Sign In'}
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </form>
+
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={() => setIsRegister(!isRegister)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-4 hover:underline"
+          >
+            {isRegister
+              ? 'Already have an account? Sign in'
+              : "Don't have an account? Register"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/bottom-nav.tsx">
+'use client';
+
+import { ListChecks, BarChart3, Wallet, Settings, Plus } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
+
+export type TabKey = 'transactions' | 'stats' | 'accounts' | 'more';
+
+interface BottomNavProps {
+  activeTab: TabKey;
+  onTabChange: (tab: TabKey) => void;
+  onAddClick: () => void;
+}
+
+const NAV_ITEMS: { key: TabKey; label: string; icon: typeof ListChecks }[] = [
+  { key: 'transactions', label: 'Trans', icon: ListChecks },
+  { key: 'stats', label: 'Stats', icon: BarChart3 },
+  { key: 'accounts', label: 'Accounts', icon: Wallet },
+  { key: 'more', label: 'More', icon: Settings },
+];
+
+export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps) {
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pointer-events-none">
+      <div className="w-full max-w-md pointer-events-auto">
+        <div className="relative px-4 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2">
+          {/* Floating FAB */}
+          <motion.button
+            onClick={onAddClick}
+            whileTap={{ scale: 0.9 }}
+            whileHover={{ scale: 1.05 }}
+            className="absolute left-1/2 -top-5 z-50 h-14 w-14 -translate-x-1/2 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center"
+            aria-label="Add transaction"
+          >
+            <Plus className="h-7 w-7" strokeWidth={2.5} />
+          </motion.button>
+
+          {/* Nav bar */}
+          <div className="flex items-center justify-around rounded-3xl border border-border/60 bg-card/95 backdrop-blur-xl shadow-lg shadow-black/5 h-16 px-2">
+            {NAV_ITEMS.map((item, index) => {
+              const isActive = activeTab === item.key;
+              const Icon = item.icon;
+              const isRightOfFAB = index >= 2;
+
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => onTabChange(item.key)}
+                  className={cn(
+                    'relative flex flex-col items-center justify-center gap-1 rounded-2xl transition-all py-1.5 flex-1',
+                    isRightOfFAB ? 'pl-5' : 'pr-5',
+                    isActive ? 'text-primary' : 'text-muted-foreground'
+                  )}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="nav-pill"
+                      className="absolute inset-0 rounded-2xl bg-primary/10"
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  <Icon className="h-5 w-5 relative z-10" strokeWidth={isActive ? 2.5 : 2} />
+                  <span className={cn('text-[10px] font-medium relative z-10', isActive && 'font-semibold')}>
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/calculator-numpad.tsx">
+'use client';
+
+import { useState, useCallback } from 'react';
+import { Delete } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
+
+interface CalculatorNumpadProps {
+  initialAmount: number;
+  symbol: string;
+  onChange: (amount: number) => void;
+}
+
+type Operator = '+' | '-' | '×' | '÷' | null;
+
+export function CalculatorNumpad({ initialAmount, symbol, onChange }: CalculatorNumpadProps) {
+  const [display, setDisplay] = useState(initialAmount > 0 ? String(initialAmount) : '');
+  const [storedValue, setStoredValue] = useState<number | null>(null);
+  const [operator, setOperator] = useState<Operator>(null);
+  const [justEvaluated, setJustEvaluated] = useState(false);
+
+  const compute = useCallback((a: number, b: number, op: Operator): number => {
+    switch (op) {
+      case '+': return a + b;
+      case '-': return a - b;
+      case '×': return a * b;
+      case '÷': return b === 0 ? 0 : a / b;
+      default: return b;
+    }
+  }, []);
+
+  const emitValue = useCallback(
+    (val: number) => onChange(Math.round(val * 100) / 100),
+    [onChange]
+  );
+
+  const inputDigit = (digit: string) => {
+    if (justEvaluated) {
+      const fresh = digit === '.' ? '0.' : digit;
+      setDisplay(fresh);
+      setJustEvaluated(false);
+      emitValue(parseFloat(fresh) || 0);
+      return;
+    }
+    if (digit === '.') {
+      if (display.includes('.')) return;
+      const next = display === '' ? '0.' : display + '.';
+      setDisplay(next);
+      emitValue(parseFloat(next) || 0);
+      return;
+    }
+    const newDisplay = display === '0' ? digit : display + digit;
+    if (newDisplay.replace('.', '').length > 12) return;
+    setDisplay(newDisplay);
+    emitValue(parseFloat(newDisplay) || 0);
+  };
+
+  const inputOperator = (op: Operator) => {
+    if (display === '' && storedValue !== null) {
+      setOperator(op);
+      return;
+    }
+    if (storedValue !== null && operator && display !== '') {
+      const result = compute(storedValue, parseFloat(display) || 0, operator);
+      const rounded = Math.round(result * 100) / 100;
+      setStoredValue(rounded);
+      emitValue(rounded);
+    } else {
+      setStoredValue(parseFloat(display) || 0);
+    }
+    setOperator(op);
+    setJustEvaluated(false);
+    setDisplay('');
+  };
+
+  const evaluate = () => {
+    if (storedValue === null || !operator || display === '') return;
+    const result = compute(storedValue, parseFloat(display) || 0, operator);
+    const rounded = Math.round(result * 100) / 100;
+    setDisplay(String(rounded));
+    setStoredValue(null);
+    setOperator(null);
+    setJustEvaluated(true);
+    emitValue(rounded);
+  };
+
+  const clearAll = () => {
+    setDisplay('');
+    setStoredValue(null);
+    setOperator(null);
+    setJustEvaluated(false);
+    emitValue(0);
+  };
+
+  const deleteLast = () => {
+    if (justEvaluated) {
+      clearAll();
+      return;
+    }
+    const newDisplay = display.slice(0, -1);
+    setDisplay(newDisplay);
+    emitValue(parseFloat(newDisplay) || 0);
+  };
+
+  const formatDisplay = (val: string) => {
+    if (!val) return '0';
+    if (val === '.') return '0.';
+    const [int, dec] = val.split('.');
+    const intPart = int === '' ? '0' : parseInt(int, 10).toLocaleString('en-US');
+    return dec !== undefined ? `${intPart}.${dec}` : intPart;
+  };
+
+  const keys: { label: string; action: () => void; type: 'num' | 'op' | 'fn'; span?: string; active?: boolean }[] = [
+    { label: 'AC', action: clearAll, type: 'fn' },
+    { label: '÷', action: () => inputOperator('÷'), type: 'op', active: operator === '÷' },
+    { label: '×', action: () => inputOperator('×'), type: 'op', active: operator === '×' },
+    { label: '⌫', action: deleteLast, type: 'fn' },
+    { label: '7', action: () => inputDigit('7'), type: 'num' },
+    { label: '8', action: () => inputDigit('8'), type: 'num' },
+    { label: '9', action: () => inputDigit('9'), type: 'num' },
+    { label: '-', action: () => inputOperator('-'), type: 'op', active: operator === '-' },
+    { label: '4', action: () => inputDigit('4'), type: 'num' },
+    { label: '5', action: () => inputDigit('5'), type: 'num' },
+    { label: '6', action: () => inputDigit('6'), type: 'num' },
+    { label: '+', action: () => inputOperator('+'), type: 'op', active: operator === '+' },
+    { label: '1', action: () => inputDigit('1'), type: 'num' },
+    { label: '2', action: () => inputDigit('2'), type: 'num' },
+    { label: '3', action: () => inputDigit('3'), type: 'num' },
+    { label: '=', action: evaluate, type: 'op', span: 'row-span-2' },
+    { label: '0', action: () => inputDigit('0'), type: 'num', span: 'col-span-2' },
+    { label: '.', action: () => inputDigit('.'), type: 'num' },
+  ];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-baseline justify-end gap-1 px-2 py-3 rounded-2xl bg-muted/50">
+        {operator && storedValue !== null && (
+          <span className="text-muted-foreground text-sm">
+            {Math.round(storedValue * 100) / 100} {operator}
+          </span>
+        )}
+        <span className="text-2xl font-bold tabular-nums truncate">
+          {symbol}{formatDisplay(display)}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-4 gap-1.5">
+        {keys.map((key, i) => (
+          <motion.button
+            key={i}
+            whileTap={{ scale: 0.92 }}
+            onClick={key.action}
+            className={cn(
+              'h-14 rounded-2xl flex items-center justify-center text-xl font-semibold transition-colors',
+              key.span,
+              key.type === 'num' && 'bg-muted/60 hover:bg-muted text-foreground',
+              key.type === 'op' && 'bg-primary/10 hover:bg-primary/20 text-primary font-bold',
+              key.type === 'fn' && 'bg-muted/40 hover:bg-muted/60 text-muted-foreground text-base',
+              key.active && 'bg-primary text-primary-foreground hover:bg-primary'
+            )}
+          >
+            {key.label === '⌫' ? <Delete className="h-5 w-5" /> : key.label}
+          </motion.button>
+        ))}
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/icon-map.tsx">
+'use client';
+
+import {
+  UtensilsCrossed, ShoppingCart, Utensils, Bike, Car, Fuel, CarTaxiFront,
+  ShoppingBag, Shirt, Smartphone, Home, KeyRound, Plug, Wifi, Clapperboard,
+  Film, Music, Gamepad2, HeartPulse, Dumbbell, Pill, GraduationCap, BookOpen,
+  Plane, BedDouble, Gift, Repeat, Sparkles, MoreHorizontal, Banknote,
+  Building2, CreditCard, PiggyBank, Wallet, Laptop, TrendingUp, RotateCcw,
+  Coffee, Briefcase, DollarSign, PiggyBank as SavingsIcon, Landmark,
+  Target, PiggyBank as Piggy, Coins, Receipt, Zap, type LucideIcon,
+} from 'lucide-react';
+
+const ICON_MAP: Record<string, LucideIcon> = {
+  UtensilsCrossed, ShoppingCart, Utensils, Bike, Car, Fuel, CarTaxiFront,
+  ShoppingBag, Shirt, Smartphone, Home, KeyRound, Plug, Wifi, Clapperboard,
+  Film, Music, Gamepad2, HeartPulse, Dumbbell, Pill, GraduationCap, BookOpen,
+  Plane, BedDouble, Gift, Repeat, Sparkles, MoreHorizontal, Banknote,
+  Building2, CreditCard, PiggyBank, Wallet, Laptop, TrendingUp, RotateCcw,
+  Coffee, Briefcase, DollarSign, SavingsIcon, Landmark, Target, Coins,
+  Receipt, Zap,
+};
+
+export const AVAILABLE_ICONS = Object.keys(ICON_MAP);
+
+export const CATEGORY_COLORS = [
+  '#FF6B6B', '#4ECDC4', '#45B7D1', '#DDA0DD', '#FFB347',
+  '#96CEB4', '#FF8E72', '#6C5CE7', '#A8DADC', '#FF6B9D',
+  '#22C55E', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6',
+  '#EC4899', '#14B8A6', '#F97316', '#84CC16', '#06B6D4',
+  '#94A3B8', '#E11D48', '#7C3AED', '#0891B2', '#CA8A04',
+];
+
+export function getIcon(name: string): LucideIcon {
+  return ICON_MAP[name] ?? MoreHorizontal;
+}
+
+interface IconProps {
+  name: string;
+  className?: string;
+  size?: number;
+}
+
+export function CategoryIcon({ name, className, size }: IconProps) {
+  const Icon = getIcon(name);
+  return <Icon className={className} size={size} />;
+}
+</file>
+
+<file path="src/components/theme-provider.tsx">
+'use client';
+
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useStore } from '@/lib/store';
+import type { ThemeMode } from '@/lib/types';
+
+interface ThemeContextValue {
+  theme: ThemeMode;
+  setTheme: (theme: ThemeMode) => void;
+  isDark: boolean;
+}
+
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const preferences = useStore((s) => s.preferences);
+  const updatePreferences = useStore((s) => s.updatePreferences);
+  const [isDark, setIsDark] = useState(false);
+
+  const theme = preferences.theme;
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove('dark', 'oled');
+
+    let dark = false;
+    if (theme === 'dark') {
+      dark = true;
+      root.classList.add('dark');
+    } else if (theme === 'system') {
+      dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) root.classList.add('dark');
+    }
+
+    // Check for OLED dark mode (user setting could be extended)
+    setIsDark(dark);
+  }, [theme]);
+
+  const setTheme = (newTheme: ThemeMode) => {
+    updatePreferences({ theme: newTheme });
+  };
+
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme, isDark }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+export function useTheme() {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error('useTheme must be used within ThemeProvider');
+  return ctx;
+}
+</file>
+
+<file path="src/components/transaction-item.tsx">
+'use client';
+
+import { motion, type PanInfo } from 'framer-motion';
+import { Pencil, Trash2, ArrowRightLeft } from 'lucide-react';
+import { CategoryIcon } from './icon-map';
+import { useStore } from '@/lib/store';
+import type { Transaction } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/lib/currencies';
+
+interface TransactionItemProps {
+  transaction: Transaction;
+  onEdit: (tx: Transaction) => void;
+  onDelete: (id: string) => void;
+}
+
+export function TransactionItem({ transaction, onEdit, onDelete }: TransactionItemProps) {
+  const { categories, accounts, preferences } = useStore();
+
+  const category = categories.find((c) => c.id === transaction.categoryId);
+  const account = accounts.find((a) => a.id === transaction.accountId);
+  const toAccount = transaction.toAccountId ? accounts.find((a) => a.id === transaction.toAccountId) : null;
+
+  const isExpense = transaction.type === 'expense';
+  const isIncome = transaction.type === 'income';
+  const isTransfer = transaction.type === 'transfer';
+
+  const handleDragEnd = (_e: unknown, info: PanInfo) => {
+    if (info.offset.x < -100) {
+      onDelete(transaction.id);
+    } else if (info.offset.x > 100) {
+      onEdit(transaction);
+    }
+  };
+
+  return (
+    <motion.div
+      drag="x"
+      dragConstraints={{ left: 0, right: 0 }}
+      dragElastic={0.2}
+      onDragEnd={handleDragEnd}
+      className="relative flex items-center gap-3 py-3 px-3 rounded-2xl hover:bg-muted/40 transition-colors cursor-grab active:cursor-grabbing"
+    >
+      {/* Swipe action backgrounds */}
+      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 pointer-events-none">
+        <div className="h-9 w-9 rounded-xl bg-destructive/90 flex items-center justify-center">
+          <Trash2 className="h-4 w-4 text-white" />
+        </div>
+      </div>
+      <div className="absolute left-3 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 pointer-events-none">
+        <div className="h-9 w-9 rounded-xl bg-primary/90 flex items-center justify-center">
+          <Pencil className="h-4 w-4 text-white" />
+        </div>
+      </div>
+
+      {/* Icon */}
+      <div
+        className="h-11 w-11 rounded-2xl flex items-center justify-center shrink-0"
+        style={{
+          backgroundColor: isTransfer
+            ? 'hsl(var(--transfer) / 0.1)'
+            : category
+            ? `${category.color}1A`
+            : 'hsl(var(--muted))',
+        }}
+      >
+        {isTransfer ? (
+          <ArrowRightLeft className="h-5 w-5 text-transfer" />
+        ) : category ? (
+          <span style={{ color: category.color }}>
+            <CategoryIcon name={category.icon} size={20} />
+          </span>
+        ) : (
+          <CategoryIcon name="MoreHorizontal" size={20} className="text-muted-foreground" />
+        )}
+      </div>
+
+      {/* Details */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">
+          {transaction.note || category?.name || (isTransfer ? 'Transfer' : 'Transaction')}
+        </p>
+        <p className="text-xs text-muted-foreground truncate">
+          {isTransfer ? `${account?.name} → ${toAccount?.name}` : `${category?.name ?? 'Uncategorized'} · ${account?.name}`}
+        </p>
+      </div>
+
+      {/* Amount */}
+      <div className="text-right shrink-0">
+        <p
+          className={cn(
+            'text-sm font-semibold tabular-nums',
+            isExpense && 'text-expense',
+            isIncome && 'text-income',
+            isTransfer && 'text-transfer'
+          )}
+        >
+          {isExpense ? '-' : isIncome ? '+' : ''}
+          {formatCurrency(transaction.amount, preferences.currencySymbol)}
+        </p>
+        {transaction.isExcludedFromStats && (
+          <p className="text-[10px] text-muted-foreground">excl. stats</p>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+</file>
+
+<file path="src/components/transaction-sheet.tsx">
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ChevronLeft, Check, Calendar as CalendarIcon, FileText, Settings2, ArrowRight } from 'lucide-react';
+import { Drawer, DrawerContent } from '@/components/ui/drawer';
+import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { CalculatorNumpad } from './calculator-numpad';
+import { CategoryIcon } from './icon-map';
+import { useStore } from '@/lib/store';
+import type { TransactionType, Transaction, Category } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { formatDateLong } from '@/lib/finance';
+import { toast } from 'sonner';
+
+interface TransactionSheetProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  editingTransaction?: Transaction | null;
+  defaultType?: TransactionType;
+}
+
+type Step = 'main' | 'category' | 'account' | 'toAccount' | 'date' | 'note';
+
+export function TransactionSheet({
+  open,
+  onOpenChange,
+  editingTransaction,
+  defaultType = 'expense',
+}: TransactionSheetProps) {
+  const { accounts, categories, preferences, addTransaction, updateTransaction } = useStore();
+  const [step, setStep] = useState<Step>('main');
+  const [type, setType] = useState<TransactionType>(defaultType);
+  const [amount, setAmount] = useState(0);
+  const [accountId, setAccountId] = useState('');
+  const [toAccountId, setToAccountId] = useState('');
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [parentCategory, setParentCategory] = useState<Category | null>(null);
+  const [date, setDate] = useState(Date.now());
+  const [note, setNote] = useState('');
+  const [isExcludedFromStats, setIsExcludedFromStats] = useState(false);
+  const [isExcludedFromBudget, setIsExcludedFromBudget] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+
+  // Reset form when the sheet opens or the target transaction changes.
+  // NOTE: `accounts` is intentionally excluded from deps — it changes on
+  // every Firestore snapshot and would otherwise wipe the form mid-edit.
+  useEffect(() => {
+    if (!open) return;
+    const defaultAccounts = useStore.getState().accounts;
+    if (editingTransaction) {
+      setType(editingTransaction.type);
+      setAmount(editingTransaction.amount);
+      setAccountId(editingTransaction.accountId);
+      setToAccountId(editingTransaction.toAccountId ?? '');
+      setCategoryId(editingTransaction.categoryId);
+      setDate(editingTransaction.date);
+      setNote(editingTransaction.note);
+      setIsExcludedFromStats(editingTransaction.isExcludedFromStats);
+      setIsExcludedFromBudget(editingTransaction.isExcludedFromBudget);
+    } else {
+      setType(defaultType);
+      setAmount(0);
+      setAccountId(defaultAccounts[0]?.id ?? '');
+      setToAccountId(defaultAccounts[1]?.id ?? '');
+      setCategoryId(null);
+      setDate(Date.now());
+      setNote('');
+      setIsExcludedFromStats(false);
+      setIsExcludedFromBudget(false);
+    }
+    setStep('main');
+    setShowOptions(false);
+    setParentCategory(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editingTransaction, defaultType]);
+
+  const handleSave = useCallback(() => {
+    if (amount <= 0) {
+      toast.error('Please enter an amount');
+      return;
+    }
+    if (!accountId) {
+      toast.error('Please select an account');
+      return;
+    }
+    if (type === 'transfer' && !toAccountId) {
+      toast.error('Please select a destination account');
+      return;
+    }
+    if (type === 'transfer' && accountId === toAccountId) {
+      toast.error('Source and destination must be different');
+      return;
+    }
+    if (type !== 'transfer' && !categoryId) {
+      toast.error('Please select a category');
+      return;
+    }
+
+    const txData = {
+      type,
+      amount,
+      accountId,
+      toAccountId: type === 'transfer' ? toAccountId : null,
+      categoryId: type === 'transfer' ? null : categoryId,
+      date,
+      note,
+      receiptUrl: null,
+      isExcludedFromStats,
+      isExcludedFromBudget: type === 'transfer' ? true : isExcludedFromBudget,
+    };
+
+    if (editingTransaction) {
+      updateTransaction(editingTransaction.id, txData);
+      toast.success('Transaction updated');
+    } else {
+      addTransaction(txData);
+      toast.success(
+        type === 'expense' ? 'Expense added' : type === 'income' ? 'Income added' : 'Transfer completed'
+      );
+    }
+    onOpenChange(false);
+  }, [
+    amount, accountId, toAccountId, type, categoryId, date, note,
+    isExcludedFromStats, isExcludedFromBudget,
+    editingTransaction, addTransaction, updateTransaction, onOpenChange,
+  ]);
+
+  const selectedAccount = accounts.find((a) => a.id === accountId);
+  const selectedToAccount = accounts.find((a) => a.id === toAccountId);
+  const selectedCategory = categories.find((c) => c.id === categoryId);
+  const filteredCategories = categories.filter((c) => c.type === type && !c.isHidden && !c.parentId);
+
+  const renderStep = () => {
+    if (step === 'category') {
+      const subs = parentCategory
+        ? categories.filter((c) => c.parentId === parentCategory.id && !c.isHidden)
+        : [];
+      const list = parentCategory ? subs : filteredCategories;
+
+      return (
+        <div className="flex flex-col h-full">
+          <div className="flex items-center gap-3 px-1 pb-4">
+            <button
+              onClick={() => {
+                if (parentCategory) setParentCategory(null);
+                else setStep('main');
+              }}
+              className="p-2 -ml-2 rounded-xl hover:bg-muted"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <h2 className="text-lg font-semibold">
+              {parentCategory ? parentCategory.name : 'Select Category'}
+            </h2>
+          </div>
+          <div className="grid grid-cols-4 gap-2 overflow-y-auto no-scrollbar pb-4">
+            {list.map((cat) => {
+              const hasChildren =
+                !parentCategory && categories.some((c) => c.parentId === cat.id && !c.isHidden);
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => {
+                    if (hasChildren) {
+                      setParentCategory(cat);
+                    } else {
+                      setCategoryId(cat.id);
+                      setParentCategory(null);
+                      setStep('main');
+                    }
+                  }}
+                  className={cn(
+                    'flex flex-col items-center gap-2 p-3 rounded-2xl transition-all',
+                    categoryId === cat.id ? 'bg-primary/10 ring-2 ring-primary' : 'hover:bg-muted'
+                  )}
+                >
+                  <div
+                    className="h-12 w-12 rounded-2xl flex items-center justify-center"
+                    style={{ backgroundColor: `${cat.color}20` }}
+                  >
+                    <span style={{ color: cat.color }}>
+                      <CategoryIcon name={cat.icon} size={22} />
+                    </span>
+                  </div>
+                  <span className="text-xs font-medium text-center leading-tight">{cat.name}</span>
+                  {hasChildren && (
+                    <span className="text-[9px] text-muted-foreground">More ›</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    if (step === 'account' || step === 'toAccount') {
+      const isTo = step === 'toAccount';
+      return (
+        <div className="flex flex-col h-full">
+          <div className="flex items-center gap-3 px-1 pb-4">
+            <button onClick={() => setStep('main')} className="p-2 -ml-2 rounded-xl hover:bg-muted">
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <h2 className="text-lg font-semibold">{isTo ? 'To Account' : 'Select Account'}</h2>
+          </div>
+          <div className="flex flex-col gap-2 overflow-y-auto no-scrollbar pb-4">
+            {accounts.map((acc) => {
+              const isActive = isTo ? toAccountId === acc.id : accountId === acc.id;
+              return (
+                <button
+                  key={acc.id}
+                  onClick={() => {
+                    if (isTo) setToAccountId(acc.id);
+                    else setAccountId(acc.id);
+                    setStep('main');
+                  }}
+                  className={cn(
+                    'flex items-center gap-3 p-4 rounded-2xl transition-all',
+                    isActive ? 'bg-primary/10 ring-2 ring-primary' : 'hover:bg-muted'
+                  )}
+                >
+                  <div
+                    className="h-10 w-10 rounded-xl flex items-center justify-center"
+                    style={{ backgroundColor: `${acc.color}20` }}
+                  >
+                    <span style={{ color: acc.color }}>
+                      <CategoryIcon name={acc.icon} size={20} />
+                    </span>
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="font-medium text-sm">{acc.name}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{acc.type}</p>
+                  </div>
+                  <span className="text-sm font-semibold tabular-nums">
+                    {preferences.currencySymbol}
+                    {acc.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    if (step === 'date') {
+      return (
+        <div className="flex flex-col h-full">
+          <div className="flex items-center gap-3 px-1 pb-4">
+            <button onClick={() => setStep('main')} className="p-2 -ml-2 rounded-xl hover:bg-muted">
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <h2 className="text-lg font-semibold">Select Date</h2>
+          </div>
+          <div className="flex flex-col gap-3 pb-4">
+            <input
+              type="date"
+              value={new Date(date).toISOString().split('T')[0]}
+              onChange={(e) => {
+                const [y, m, d] = e.target.value.split('-').map(Number);
+                const newDate = new Date(y, m - 1, d);
+                newDate.setHours(new Date(date).getHours(), new Date(date).getMinutes());
+                setDate(newDate.getTime());
+              }}
+              className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-base"
+            />
+            <input
+              type="time"
+              value={new Date(date).toTimeString().slice(0, 5)}
+              onChange={(e) => {
+                const [h, m] = e.target.value.split(':').map(Number);
+                const newDate = new Date(date);
+                newDate.setHours(h, m);
+                setDate(newDate.getTime());
+              }}
+              className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-base"
+            />
+            <div className="flex gap-2">
+              {['Today', 'Yesterday', '2 days ago'].map((label, i) => (
+                <Button
+                  key={label}
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full flex-1"
+                  onClick={() => {
+                    const d = new Date();
+                    d.setDate(d.getDate() - i);
+                    d.setHours(new Date().getHours(), new Date().getMinutes());
+                    setDate(d.getTime());
+                  }}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (step === 'note') {
+      return (
+        <div className="flex flex-col h-full">
+          <div className="flex items-center gap-3 px-1 pb-4">
+            <button onClick={() => setStep('main')} className="p-2 -ml-2 rounded-xl hover:bg-muted">
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <h2 className="text-lg font-semibold">Add Note</h2>
+          </div>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="What was this transaction for?"
+            className="flex-1 min-h-[120px] rounded-2xl text-base resize-none"
+            autoFocus
+          />
+          <Button onClick={() => setStep('main')} className="mt-3 rounded-2xl">
+            Done
+          </Button>
+        </div>
+      );
+    }
+
+    // ---- Main step ----
+    return (
+      <div className="flex flex-col h-full overflow-y-auto no-scrollbar">
+        <div className="flex gap-2 p-1 bg-muted rounded-2xl">
+          {(['expense', 'income', 'transfer'] as TransactionType[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => setType(t)}
+              className={cn(
+                'flex-1 py-2.5 rounded-xl text-sm font-semibold capitalize transition-all',
+                type === t
+                  ? t === 'expense'
+                    ? 'bg-expense text-white shadow-sm'
+                    : t === 'income'
+                    ? 'bg-income text-white shadow-sm'
+                    : 'bg-transfer text-white shadow-sm'
+                  : 'text-muted-foreground'
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-3">
+          <CalculatorNumpad
+            initialAmount={amount}
+            symbol={preferences.currencySymbol}
+            onChange={setAmount}
+          />
+        </div>
+
+        <div className="mt-3 flex flex-col gap-2">
+          {type === 'transfer' ? (
+            <>
+              <FieldButton
+                icon={
+                  <span style={{ color: selectedAccount?.color }}>
+                    <CategoryIcon name={selectedAccount?.icon ?? 'Wallet'} size={20} />
+                  </span>
+                }
+                label="From"
+                value={selectedAccount?.name ?? 'Select'}
+                onClick={() => setStep('account')}
+              />
+              <div className="flex items-center justify-center -my-1">
+                <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center">
+                  <ArrowRight className="h-3 w-3" />
+                </div>
+              </div>
+              <FieldButton
+                icon={
+                  <span style={{ color: selectedToAccount?.color }}>
+                    <CategoryIcon name={selectedToAccount?.icon ?? 'Wallet'} size={20} />
+                  </span>
+                }
+                label="To"
+                value={selectedToAccount?.name ?? 'Select'}
+                onClick={() => setStep('toAccount')}
+              />
+            </>
+          ) : (
+            <>
+              <FieldButton
+                icon={
+                  selectedCategory ? (
+                    <span style={{ color: selectedCategory.color }}>
+                      <CategoryIcon name={selectedCategory.icon} size={20} />
+                    </span>
+                  ) : (
+                    <div className="h-5 w-5 rounded-full border-2 border-dashed border-muted-foreground" />
+                  )
+                }
+                label="Category"
+                value={selectedCategory?.name ?? 'Select'}
+                onClick={() => {
+                  setParentCategory(null);
+                  setStep('category');
+                }}
+              />
+              <FieldButton
+                icon={
+                  <span style={{ color: selectedAccount?.color }}>
+                    <CategoryIcon name={selectedAccount?.icon ?? 'Wallet'} size={20} />
+                  </span>
+                }
+                label="Account"
+                value={selectedAccount?.name ?? 'Select'}
+                onClick={() => setStep('account')}
+              />
+            </>
+          )}
+
+          <FieldButton
+            icon={<CalendarIcon className="h-5 w-5 text-muted-foreground" />}
+            label="Date"
+            value={formatDateLong(date)}
+            onClick={() => setStep('date')}
+          />
+
+          <FieldButton
+            icon={<FileText className="h-5 w-5 text-muted-foreground" />}
+            label="Note"
+            value={note || 'Add a note'}
+            onClick={() => setStep('note')}
+            valueClass={note ? 'text-foreground' : 'text-muted-foreground'}
+          />
+        </div>
+
+        {type !== 'transfer' && (
+          <button
+            onClick={() => setShowOptions(!showOptions)}
+            className="flex items-center gap-2 mt-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Settings2 className="h-4 w-4" />
+            More options
+          </button>
+        )}
+
+        <AnimatePresence>
+          {showOptions && type !== 'transfer' && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="flex flex-col gap-3 pt-3">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="ex-stats" className="text-sm">Exclude from stats</Label>
+                  <Switch
+                    id="ex-stats"
+                    checked={isExcludedFromStats}
+                    onCheckedChange={setIsExcludedFromStats}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="ex-budget" className="text-sm">Exclude from budget</Label>
+                  <Switch
+                    id="ex-budget"
+                    checked={isExcludedFromBudget}
+                    onCheckedChange={setIsExcludedFromBudget}
+                  />
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  };
+
+  return (
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent className="max-h-[92vh] rounded-t-[2rem]">
+        <div className="mx-auto w-full max-w-md px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2">
+          <div className="flex items-center justify-between mb-2">
+            <h1 className="text-xl font-bold">
+              {editingTransaction ? 'Edit Transaction' : 'Add Transaction'}
+            </h1>
+            <Button onClick={handleSave} size="sm" className="rounded-full h-9 px-4 gap-1">
+              <Check className="h-4 w-4" />
+              Save
+            </Button>
+          </div>
+
+          <div className="overflow-y-auto no-scrollbar" style={{ maxHeight: 'calc(92vh - 60px)' }}>
+            {renderStep()}
+          </div>
+        </div>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+function FieldButton({
+  icon,
+  label,
+  value,
+  onClick,
+  valueClass,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  onClick: () => void;
+  valueClass?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-3 p-3.5 rounded-2xl bg-muted/40 hover:bg-muted transition-colors text-left"
+    >
+      <div className="h-10 w-10 rounded-xl bg-card flex items-center justify-center shrink-0">
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className={cn('text-sm font-medium truncate', valueClass)}>{value}</p>
+      </div>
+      <ChevronLeft className="h-4 w-4 rotate-180 text-muted-foreground shrink-0" />
+    </button>
+  );
+}
+</file>
+
+<file path="src/lib/currencies.ts">
+import type { Currency } from './types';
+
+export const CURRENCIES: Currency[] = [
+  { code: 'USD', symbol: '$', name: 'US Dollar' },
+  { code: 'EUR', symbol: '€', name: 'Euro' },
+  { code: 'GBP', symbol: '£', name: 'British Pound' },
+  { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
+  { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
+  { code: 'KRW', symbol: '₩', name: 'Korean Won' },
+  { code: 'CNY', symbol: '¥', name: 'Chinese Yuan' },
+  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
+  { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
+  { code: 'BRL', symbol: 'R$', name: 'Brazilian Real' },
+  { code: 'MXN', symbol: 'Mex$', name: 'Mexican Peso' },
+  { code: 'SGD', symbol: 'S$', name: 'Singapore Dollar' },
+  { code: 'AED', symbol: 'د.إ', name: 'UAE Dirham' },
+  { code: 'RUB', symbol: '₽', name: 'Russian Ruble' },
+  { code: 'ZAR', symbol: 'R', name: 'South African Rand' },
+  { code: 'NGN', symbol: '₦', name: 'Nigerian Naira' },
+  { code: 'THB', symbol: '฿', name: 'Thai Baht' },
+  { code: 'IDR', symbol: 'Rp', name: 'Indonesian Rupiah' },
+  { code: 'PHP', symbol: '₱', name: 'Philippine Peso' },
+  { code: 'VND', symbol: '₫', name: 'Vietnamese Dong' },
+];
+
+export function getCurrencySymbol(code: string): string {
+  return CURRENCIES.find((c) => c.code === code)?.symbol ?? '$';
+}
+
+export function formatCurrency(amount: number, symbol: string = '$', showSign: boolean = false): string {
+  const abs = Math.abs(amount);
+  const formatted = abs.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const sign = showSign ? (amount > 0 ? '+' : amount < 0 ? '-' : '') : amount < 0 ? '-' : '';
+  return `${sign}${symbol}${formatted}`;
+}
+
+export function formatCurrencyCompact(amount: number, symbol: string = '$'): string {
+  const abs = Math.abs(amount);
+  if (abs >= 1_000_000) return `${amount < 0 ? '-' : ''}${symbol}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${amount < 0 ? '-' : ''}${symbol}${(abs / 1_000).toFixed(1)}K`;
+  return formatCurrency(amount, symbol);
+}
+</file>
+
+<file path="src/lib/finance.ts">
+import type { Transaction, Account, Category, Budget } from './types';
+
+export function formatDateKey(timestamp: number): string {
+  const d = new Date(timestamp);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function monthYearKey(timestamp: number): string {
+  const d = new Date(timestamp);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Parse 'YYYY-MM-DD' as a LOCAL date (not UTC). */
+export function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/** Get the [start, end) millisecond range for a 'YYYY-MM' month key, in local time. */
+export function getMonthRange(monthYear: string): { start: number; end: number } {
+  const [y, m] = monthYear.split('-').map(Number);
+  return {
+    start: new Date(y, m - 1, 1).getTime(),
+    end: new Date(y, m, 1).getTime(),
+  };
+}
+
+export function formatDateLabel(timestamp: number): string {
+  const date = new Date(timestamp);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  const dateStr = formatDateKey(timestamp);
+  if (dateStr === formatDateKey(today.getTime())) return 'Today';
+  if (dateStr === formatDateKey(yesterday.getTime())) return 'Yesterday';
+
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+export function formatDateLong(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+}
+
+export function formatMonthYear(monthYear: string): string {
+  const [year, month] = monthYear.split('-');
+  return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', {
+    month: 'long', year: 'numeric',
+  });
+}
+
+export function groupTransactionsByDay(transactions: Transaction[]): Map<string, Transaction[]> {
+  const map = new Map<string, Transaction[]>();
+  const sorted = [...transactions].sort((a, b) => b.date - a.date);
+  for (const tx of sorted) {
+    const key = formatDateKey(tx.date);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(tx);
+  }
+  return map;
+}
+
+export function getTransactionsForMonth(transactions: Transaction[], monthYear: string): Transaction[] {
+  return transactions.filter((tx) => monthYearKey(tx.date) === monthYear);
+}
+
+export function getDailyTotals(transactions: Transaction[], dayKey: string): { income: number; expense: number } {
+  const dayTxs = transactions.filter((tx) => formatDateKey(tx.date) === dayKey && tx.type !== 'transfer');
+  return {
+    income: dayTxs.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0),
+    expense: dayTxs.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0),
+  };
+}
+
+export function getMonthlyTotals(transactions: Transaction[], monthYear: string): { income: number; expense: number; net: number } {
+  const monthTxs = getTransactionsForMonth(transactions, monthYear).filter(
+    (t) => !t.isExcludedFromStats && t.type !== 'transfer'
+  );
+  const income = monthTxs.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+  const expense = monthTxs.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  return { income, expense, net: income - expense };
+}
+
+export function getTotalBalance(accounts: Account[]): number {
+  return accounts.filter((a) => a.isIncludedInTotal).reduce((sum, a) => sum + a.balance, 0);
+}
+
+export function getCategoryById(categories: Category[], id: string | null): Category | undefined {
+  if (!id) return undefined;
+  return categories.find((c) => c.id === id);
+}
+
+export function getAccountById(accounts: Account[], id: string): Account | undefined {
+  return accounts.find((a) => a.id === id);
+}
+
+function findRootCategory(categories: Category[], catId: string): Category | undefined {
+  let cat = categories.find((c) => c.id === catId);
+  const seen = new Set<string>();
+  while (cat?.parentId && !seen.has(cat.id)) {
+    seen.add(cat.id);
+    const parent = categories.find((c) => c.id === cat!.parentId);
+    if (!parent) break;
+    cat = parent;
+  }
+  return cat;
+}
+
+export function getCategoryBreakdown(
+  transactions: Transaction[],
+  categories: Category[],
+  type: 'expense' | 'income',
+  monthYear?: string
+): { categoryId: string; name: string; color: string; icon: string; amount: number; percentage: number }[] {
+  let filtered = transactions.filter((t) => t.type === type && !t.isExcludedFromStats);
+  if (monthYear) filtered = filtered.filter((t) => monthYearKey(t.date) === monthYear);
+
+  const total = filtered.reduce((sum, t) => sum + t.amount, 0);
+  if (total === 0) return [];
+
+  // Aggregate by ROOT category so subcategories roll up into their parent.
+  const byRoot = new Map<string, number>();
+  for (const tx of filtered) {
+    const root = tx.categoryId ? findRootCategory(categories, tx.categoryId) : undefined;
+    const key = root?.id ?? 'uncategorized';
+    byRoot.set(key, (byRoot.get(key) ?? 0) + tx.amount);
+  }
+
+  return Array.from(byRoot.entries())
+    .map(([rootId, amount]) => {
+      const cat = categories.find((c) => c.id === rootId);
+      return {
+        categoryId: rootId,
+        name: cat?.name ?? 'Uncategorized',
+        color: cat?.color ?? '#94A3B8',
+        icon: cat?.icon ?? 'MoreHorizontal',
+        amount,
+        percentage: (amount / total) * 100,
+      };
+    })
+    .sort((a, b) => b.amount - a.amount);
+}
+
+export function getBudgetProgress(
+  budget: Budget,
+  transactions: Transaction[],
+  categories: Category[]
+): { spent: number; remaining: number; percentage: number; isOver: boolean; isWarning: boolean } {
+  const { start, end } = getMonthRange(budget.monthYear);
+
+  const monthTxs = transactions.filter(
+    (t) => t.type === 'expense' && !t.isExcludedFromBudget && t.date >= start && t.date < end
+  );
+
+  let spent: number;
+  if (budget.categoryId) {
+    const subcats = categories.filter((c) => c.parentId === budget.categoryId).map((c) => c.id);
+    const allCatIds = [budget.categoryId, ...subcats];
+    spent = monthTxs
+      .filter((t) => t.categoryId && allCatIds.includes(t.categoryId))
+      .reduce((sum, t) => sum + t.amount, 0);
+  } else {
+    spent = monthTxs.reduce((sum, t) => sum + t.amount, 0);
+  }
+
+  const remaining = budget.amount - spent;
+  const rawPct = budget.amount > 0 ? (spent / budget.amount) * 100 : 0;
+  return {
+    spent,
+    remaining,
+    percentage: Math.min(rawPct, 100),
+    isOver: spent > budget.amount,
+    isWarning: rawPct >= 80 && rawPct < 100,
+  };
+}
+
+export function getMonthTotalSpent(transactions: Transaction[], monthYear: string): number {
+  const { start, end } = getMonthRange(monthYear);
+  return transactions
+    .filter((t) => t.type === 'expense' && !t.isExcludedFromBudget && t.date >= start && t.date < end)
+    .reduce((s, t) => s + t.amount, 0);
+}
+
+export function exportToCSV(transactions: Transaction[], accounts: Account[], categories: Category[]): string {
+  const headers = ['Date', 'Type', 'Amount', 'Account', 'To Account', 'Category', 'Note', 'Excluded from Stats', 'Excluded from Budget'];
+  const rows = transactions.map((tx) => {
+    const acc = accounts.find((a) => a.id === tx.accountId)?.name ?? '';
+    const toAcc = tx.toAccountId ? accounts.find((a) => a.id === tx.toAccountId)?.name ?? '' : '';
+    const cat = tx.categoryId ? categories.find((c) => c.id === tx.categoryId)?.name ?? '' : '';
+    return [
+      new Date(tx.date).toISOString(),
+      tx.type,
+      tx.amount.toString(),
+      acc,
+      toAcc,
+      cat,
+      tx.note.replace(/,/g, ';'),
+      tx.isExcludedFromStats ? 'yes' : 'no',
+      tx.isExcludedFromBudget ? 'yes' : 'no',
+    ].join(',');
+  });
+  return [headers.join(','), ...rows].join('\n');
+}
+
+export function downloadCSV(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export function getCalendarDays(year: number, month: number, weekStartDay: 0 | 1): (Date | null)[] {
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const days: (Date | null)[] = [];
+  const firstDayWeekday = firstDay.getDay();
+  const offset = weekStartDay === 1 ? (firstDayWeekday + 6) % 7 : firstDayWeekday;
+  for (let i = 0; i < offset; i++) days.push(null);
+  for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d));
+  while (days.length % 7 !== 0) days.push(null);
+  return days;
+}
+
+export function getMonthlyTrend(transactions: Transaction[], months: number): { label: string; income: number; expense: number; net: number }[] {
+  const result: { label: string; income: number; expense: number; net: number }[] = [];
+  const now = new Date();
+  for (let m = months - 1; m >= 0; m--) {
+    const date = new Date(now.getFullYear(), now.getMonth() - m, 1);
+    const myKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const totals = getMonthlyTotals(transactions, myKey);
+    result.push({ label: date.toLocaleDateString('en-US', { month: 'short' }), ...totals });
+  }
+  return result;
+}
+</file>
+
+<file path="src/lib/firebase.ts">
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+};
+
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const googleProvider = new GoogleAuthProvider();
+export default app;
+</file>
+
+<file path="src/lib/seed-data.ts">
+import type { Account, Category, Transaction, Budget, Preferences } from './types';
+
+export const SEED_CATEGORIES: Category[] = [
+  { id: 'cat_food', name: 'Food & Dining', type: 'expense', icon: 'UtensilsCrossed', color: '#FF6B6B', parentId: null, isHidden: false, order: 0 },
+  { id: 'cat_groceries', name: 'Groceries', type: 'expense', icon: 'ShoppingCart', color: '#4ECDC4', parentId: 'cat_food', isHidden: false, order: 1 },
+  { id: 'cat_restaurant', name: 'Restaurant', type: 'expense', icon: 'Utensils', color: '#FF6B6B', parentId: 'cat_food', isHidden: false, order: 2 },
+  { id: 'cat_transport', name: 'Transport', type: 'expense', icon: 'Car', color: '#45B7D1', parentId: null, isHidden: false, order: 3 },
+  { id: 'cat_fuel', name: 'Fuel', type: 'expense', icon: 'Fuel', color: '#96CEB4', parentId: 'cat_transport', isHidden: false, order: 4 },
+  { id: 'cat_shopping', name: 'Shopping', type: 'expense', icon: 'ShoppingBag', color: '#DDA0DD', parentId: null, isHidden: false, order: 5 },
+  { id: 'cat_housing', name: 'Housing', type: 'expense', icon: 'Home', color: '#A8DADC', parentId: null, isHidden: false, order: 6 },
+  { id: 'cat_entertainment', name: 'Entertainment', type: 'expense', icon: 'Clapperboard', color: '#E8A0BF', parentId: null, isHidden: false, order: 7 },
+  { id: 'cat_health', name: 'Health', type: 'expense', icon: 'HeartPulse', color: '#FF6B9D', parentId: null, isHidden: false, order: 8 },
+  { id: 'cat_salary', name: 'Salary', type: 'income', icon: 'Wallet', color: '#22C55E', parentId: null, isHidden: false, order: 9 },
+  { id: 'cat_freelance', name: 'Freelance', type: 'income', icon: 'Laptop', color: '#4ADE80', parentId: null, isHidden: false, order: 10 },
+  { id: 'cat_refund', name: 'Refund', type: 'income', icon: 'RotateCcw', color: '#22C55E', parentId: null, isHidden: false, order: 11 },
+];
+
+export const SEED_ACCOUNTS: Account[] = [
+  { id: 'acc_cash', name: 'Cash Wallet', type: 'cash', balance: 500, initialBalance: 500, currency: 'USD', icon: 'Banknote', color: '#22C55E', isIncludedInTotal: true, createdAt: Date.now() },
+  { id: 'acc_bank', name: 'Main Checking', type: 'bank', balance: 2500, initialBalance: 2500, currency: 'USD', icon: 'Building2', color: '#3B82F6', isIncludedInTotal: true, createdAt: Date.now() },
+];
+
+export const SEED_TRANSACTIONS: Transaction[] = [
+  { id: 't1', type: 'income', amount: 2500, accountId: 'acc_bank', toAccountId: null, categoryId: 'cat_salary', date: Date.now() - 86400000, note: 'Salary deposit', receiptUrl: null, isExcludedFromStats: false, isExcludedFromBudget: false, createdAt: Date.now() - 86400000 },
+  { id: 't2', type: 'expense', amount: 45.50, accountId: 'acc_cash', toAccountId: null, categoryId: 'cat_restaurant', date: Date.now() - 43200000, note: 'Lunch', receiptUrl: null, isExcludedFromStats: false, isExcludedFromBudget: false, createdAt: Date.now() - 43200000 },
+];
+
+export const SEED_BUDGETS: Budget[] = [
+  { id: 'b1', categoryId: 'cat_food', amount: 400, period: 'monthly', carryOver: false, monthYear: new Date().toISOString().slice(0, 7) },
+  { id: 'b2', categoryId: null, amount: 1500, period: 'monthly', carryOver: false, monthYear: new Date().toISOString().slice(0, 7) },
+];
+
+export const DEFAULT_PREFERENCES: Preferences = {
+  currency: 'USD',
+  currencySymbol: '$',
+  theme: 'light',
+  weekStartDay: 1,
+  monthlyStartDay: 1,
+};
+</file>
+
+<file path="src/lib/store.ts">
+import { create } from 'zustand';
+import {
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  updateDoc,
+  onSnapshot,
+  writeBatch,
+  getDocs,
+  Unsubscribe,
+} from 'firebase/firestore';
+import { db } from './firebase';
+import type { Account, Category, Transaction, Budget, Preferences, AuthUser } from './types';
+import {
+  SEED_CATEGORIES,
+  SEED_ACCOUNTS,
+  SEED_TRANSACTIONS,
+  SEED_BUDGETS,
+  DEFAULT_PREFERENCES,
+} from './seed-data';
+import { getCurrencySymbol } from './currencies';
+
+interface StoreState {
+  user: AuthUser | null;
+  isLoading: boolean;
+  accounts: Account[];
+  categories: Category[];
+  transactions: Transaction[];
+  budgets: Budget[];
+  preferences: Preferences;
+
+  setUser: (user: AuthUser | null) => void;
+  initUserData: (uid: string) => Promise<void>;
+  clearLocalState: () => void;
+
+  addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => Promise<void>;
+  updateTransaction: (id: string, updates: Partial<Transaction>) => Promise<void>;
+  deleteTransaction: (id: string) => Promise<void>;
+
+  addAccount: (acc: Omit<Account, 'id' | 'createdAt'>) => Promise<void>;
+  updateAccount: (id: string, updates: Partial<Account>) => Promise<void>;
+  deleteAccount: (id: string) => Promise<void>;
+
+  addCategory: (cat: Omit<Category, 'id' | 'order'>) => Promise<void>;
+  updateCategory: (id: string, updates: Partial<Category>) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
+
+  addBudget: (budget: Omit<Budget, 'id'>) => Promise<void>;
+  updateBudget: (id: string, updates: Partial<Budget>) => Promise<void>;
+  deleteBudget: (id: string) => Promise<void>;
+
+  updatePreferences: (updates: Partial<Preferences>) => Promise<void>;
+  resetToSampleData: () => Promise<void>;
+  clearCloudData: () => Promise<void>;
+}
+
+let unsubs: Unsubscribe[] = [];
+function clearUnsubs() {
+  unsubs.forEach((u) => u());
+  unsubs = [];
+}
+function genId(p: string) {
+  return `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export const useStore = create<StoreState>((set, get) => ({
+  user: null,
+  isLoading: true,
+  accounts: [],
+  categories: [],
+  transactions: [],
+  budgets: [],
+  preferences: DEFAULT_PREFERENCES,
+
+  setUser: (user) => {
+    set({ user });
+    if (!user) {
+      clearUnsubs();
+      get().clearLocalState();
+    }
+  },
+
+  clearLocalState: () => {
+    set({
+      accounts: [],
+      categories: [],
+      transactions: [],
+      budgets: [],
+      preferences: DEFAULT_PREFERENCES,
+      isLoading: false,
+    });
+  },
+
+  initUserData: async (uid: string) => {
+    clearUnsubs();
+    set({ isLoading: true });
+
+    // Bootstrap a first-time user with default categories + accounts.
+    try {
+      const catsSnap = await getDocs(collection(db, 'users', uid, 'categories'));
+      if (catsSnap.empty) {
+        const batch = writeBatch(db);
+        SEED_CATEGORIES.forEach((c) => batch.set(doc(db, 'users', uid, 'categories', c.id), c));
+        SEED_ACCOUNTS.forEach((a) =>
+          batch.set(doc(db, 'users', uid, 'accounts', a.id), { ...a, createdAt: Date.now() })
+        );
+        await batch.commit();
+      }
+    } catch (err) {
+      console.error('Failed to seed defaults for new user', err);
+    }
+
+    // Preferences
+    const prefRef = doc(db, 'users', uid, 'profile', 'preferences');
+    unsubs.push(
+      onSnapshot(prefRef, (docSnap) => {
+        if (docSnap.exists()) {
+          set({ preferences: docSnap.data() as Preferences });
+        } else {
+          setDoc(prefRef, DEFAULT_PREFERENCES);
+        }
+      })
+    );
+
+    unsubs.push(
+      onSnapshot(collection(db, 'users', uid, 'accounts'), (s) => {
+        set({ accounts: s.docs.map((d) => d.data() as Account) });
+      })
+    );
+
+    unsubs.push(
+      onSnapshot(collection(db, 'users', uid, 'categories'), (s) => {
+        const categories = s.docs.map((d) => d.data() as Category).sort((a, b) => a.order - b.order);
+        set({ categories });
+      })
+    );
+
+    unsubs.push(
+      onSnapshot(collection(db, 'users', uid, 'transactions'), (s) => {
+        const transactions = s.docs.map((d) => d.data() as Transaction).sort((a, b) => b.date - a.date);
+        set({ transactions });
+      })
+    );
+
+    unsubs.push(
+      onSnapshot(collection(db, 'users', uid, 'budgets'), (s) => {
+        set({ budgets: s.docs.map((d) => d.data() as Budget), isLoading: false });
+      })
+    );
+  },
+
+  addTransaction: async (tx) => {
+    const { user, accounts } = get();
+    if (!user) return;
+    const id = genId('t');
+    const newTx: Transaction = { ...tx, id, createdAt: Date.now() };
+
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', user.uid, 'transactions', id), newTx);
+
+    if (tx.type === 'transfer') {
+      const f = accounts.find((a) => a.id === tx.accountId);
+      const t = accounts.find((a) => a.id === tx.toAccountId);
+      if (f) batch.update(doc(db, 'users', user.uid, 'accounts', f.id), { balance: f.balance - tx.amount });
+      if (t) batch.update(doc(db, 'users', user.uid, 'accounts', t.id), { balance: t.balance + tx.amount });
+    } else if (tx.type === 'expense') {
+      const acc = accounts.find((a) => a.id === tx.accountId);
+      if (acc) batch.update(doc(db, 'users', user.uid, 'accounts', acc.id), { balance: acc.balance - tx.amount });
+    } else if (tx.type === 'income') {
+      const acc = accounts.find((a) => a.id === tx.accountId);
+      if (acc) batch.update(doc(db, 'users', user.uid, 'accounts', acc.id), { balance: acc.balance + tx.amount });
+    }
+    await batch.commit();
+  },
+
+  updateTransaction: async (id, updates) => {
+    const { user, transactions, accounts } = get();
+    if (!user) return;
+    const oldTx = transactions.find((t) => t.id === id);
+    if (!oldTx) return;
+
+    const updatedTx = { ...oldTx, ...updates };
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', user.uid, 'transactions', id), updates);
+
+    const temp = accounts.map((a) => ({ ...a }));
+    // Reverse old effect
+    if (oldTx.type === 'transfer') {
+      const f = temp.find((a) => a.id === oldTx.accountId);
+      const t = temp.find((a) => a.id === oldTx.toAccountId);
+      if (f) f.balance += oldTx.amount;
+      if (t) t.balance -= oldTx.amount;
+    } else if (oldTx.type === 'expense') {
+      const a = temp.find((acc) => acc.id === oldTx.accountId);
+      if (a) a.balance += oldTx.amount;
+    } else if (oldTx.type === 'income') {
+      const a = temp.find((acc) => acc.id === oldTx.accountId);
+      if (a) a.balance -= oldTx.amount;
+    }
+    // Apply new effect
+    if (updatedTx.type === 'transfer') {
+      const f = temp.find((a) => a.id === updatedTx.accountId);
+      const t = temp.find((a) => a.id === updatedTx.toAccountId);
+      if (f) f.balance -= updatedTx.amount;
+      if (t) t.balance += updatedTx.amount;
+    } else if (updatedTx.type === 'expense') {
+      const a = temp.find((acc) => acc.id === updatedTx.accountId);
+      if (a) a.balance -= updatedTx.amount;
+    } else if (updatedTx.type === 'income') {
+      const a = temp.find((acc) => acc.id === updatedTx.accountId);
+      if (a) a.balance += updatedTx.amount;
+    }
+
+    temp.forEach((acc) => {
+      batch.update(doc(db, 'users', user.uid, 'accounts', acc.id), { balance: acc.balance });
+    });
+    await batch.commit();
+  },
+
+  deleteTransaction: async (id) => {
+    const { user, transactions, accounts } = get();
+    if (!user) return;
+    const tx = transactions.find((t) => t.id === id);
+    if (!tx) return;
+
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'users', user.uid, 'transactions', id));
+
+    if (tx.type === 'transfer') {
+      const f = accounts.find((a) => a.id === tx.accountId);
+      const t = accounts.find((a) => a.id === tx.toAccountId);
+      if (f) batch.update(doc(db, 'users', user.uid, 'accounts', f.id), { balance: f.balance + tx.amount });
+      if (t) batch.update(doc(db, 'users', user.uid, 'accounts', t.id), { balance: t.balance - tx.amount });
+    } else if (tx.type === 'expense') {
+      const a = accounts.find((acc) => acc.id === tx.accountId);
+      if (a) batch.update(doc(db, 'users', user.uid, 'accounts', a.id), { balance: a.balance + tx.amount });
+    } else if (tx.type === 'income') {
+      const a = accounts.find((acc) => acc.id === tx.accountId);
+      if (a) batch.update(doc(db, 'users', user.uid, 'accounts', a.id), { balance: a.balance - tx.amount });
+    }
+    await batch.commit();
+  },
+
+  addAccount: async (acc) => {
+    const { user } = get();
+    if (!user) return;
+    const id = genId('acc');
+    await setDoc(doc(db, 'users', user.uid, 'accounts', id), { ...acc, id, createdAt: Date.now() });
+  },
+
+  updateAccount: async (id, updates) => {
+    const { user } = get();
+    if (!user) return;
+    await updateDoc(doc(db, 'users', user.uid, 'accounts', id), updates);
+  },
+
+  /**
+   * Deleting an account removes all its transactions AND reverses any
+   * transfer balance effect the deleted account had on the OTHER account.
+   */
+  deleteAccount: async (id) => {
+    const { user, transactions, accounts } = get();
+    if (!user) return;
+
+    const batch = writeBatch(db);
+
+    // Accumulate balance deltas so we don't write the same doc twice.
+    const balanceDeltas = new Map<string, number>();
+    const bump = (accId: string, delta: number) => {
+      balanceDeltas.set(accId, (balanceDeltas.get(accId) ?? 0) + delta);
+    };
+
+    transactions
+      .filter((t) => t.accountId === id || t.toAccountId === id)
+      .forEach((t) => {
+        if (t.type === 'transfer') {
+          if (t.accountId === id && t.toAccountId) {
+            // Deleted account was source → dest gained amount, reverse it.
+            bump(t.toAccountId, -t.amount);
+          }
+          if (t.toAccountId === id && t.accountId) {
+            // Deleted account was destination → source lost amount, reverse it.
+            bump(t.accountId, +t.amount);
+          }
+        }
+        batch.delete(doc(db, 'users', user.uid, 'transactions', t.id));
+      });
+
+    balanceDeltas.forEach((delta, accId) => {
+      const acc = accounts.find((a) => a.id === accId);
+      if (acc) {
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: acc.balance + delta });
+      }
+    });
+
+    batch.delete(doc(db, 'users', user.uid, 'accounts', id));
+    await batch.commit();
+  },
+
+  addCategory: async (cat) => {
+    const { user, categories } = get();
+    if (!user) return;
+    const id = genId('cat');
+    const order = categories.filter((c) => c.type === cat.type).length;
+    await setDoc(doc(db, 'users', user.uid, 'categories', id), { ...cat, id, order });
+  },
+
+  updateCategory: async (id, updates) => {
+    const { user } = get();
+    if (!user) return;
+    await updateDoc(doc(db, 'users', user.uid, 'categories', id), updates);
+  },
+
+  deleteCategory: async (id) => {
+    const { user, categories } = get();
+    if (!user) return;
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'users', user.uid, 'categories', id));
+    categories
+      .filter((c) => c.parentId === id)
+      .forEach((s) => batch.delete(doc(db, 'users', user.uid, 'categories', s.id)));
+    await batch.commit();
+  },
+
+  addBudget: async (b) => {
+    const { user } = get();
+    if (!user) return;
+    const id = genId('b');
+    await setDoc(doc(db, 'users', user.uid, 'budgets', id), { ...b, id });
+  },
+
+  updateBudget: async (id, updates) => {
+    const { user } = get();
+    if (!user) return;
+    await updateDoc(doc(db, 'users', user.uid, 'budgets', id), updates);
+  },
+
+  deleteBudget: async (id) => {
+    const { user } = get();
+    if (!user) return;
+    await deleteDoc(doc(db, 'users', user.uid, 'budgets', id));
+  },
+
+  updatePreferences: async (updates) => {
+    const { user, preferences } = get();
+    if (!user) return;
+    const prefs = { ...preferences, ...updates };
+    if (updates.currency) prefs.currencySymbol = getCurrencySymbol(updates.currency);
+    await setDoc(doc(db, 'users', user.uid, 'profile', 'preferences'), prefs);
+  },
+
+  resetToSampleData: async () => {
+    const { user } = get();
+    if (!user) return;
+    const batch = writeBatch(db);
+    SEED_CATEGORIES.forEach((c) => batch.set(doc(db, 'users', user.uid, 'categories', c.id), c));
+    SEED_ACCOUNTS.forEach((a) =>
+      batch.set(doc(db, 'users', user.uid, 'accounts', a.id), { ...a, createdAt: Date.now() })
+    );
+    SEED_TRANSACTIONS.forEach((t) =>
+      batch.set(doc(db, 'users', user.uid, 'transactions', t.id), { ...t, createdAt: Date.now() })
+    );
+    SEED_BUDGETS.forEach((b) =>
+      batch.set(doc(db, 'users', user.uid, 'budgets', b.id), {
+        ...b,
+        monthYear: new Date().toISOString().slice(0, 7),
+      })
+    );
+    batch.set(doc(db, 'users', user.uid, 'profile', 'preferences'), DEFAULT_PREFERENCES);
+    await batch.commit();
+  },
+
+  clearCloudData: async () => {
+    const { user, accounts, categories, transactions, budgets } = get();
+    if (!user) return;
+    const batch = writeBatch(db);
+    accounts.forEach((a) => batch.delete(doc(db, 'users', user.uid, 'accounts', a.id)));
+    categories.forEach((c) => batch.delete(doc(db, 'users', user.uid, 'categories', c.id)));
+    transactions.forEach((t) => batch.delete(doc(db, 'users', user.uid, 'transactions', t.id)));
+    budgets.forEach((b) => batch.delete(doc(db, 'users', user.uid, 'budgets', b.id)));
+    await batch.commit();
+  },
+}));
+</file>
+
+<file path="src/lib/types.ts">
+export type TransactionType = 'expense' | 'income' | 'transfer';
+export type AccountType = 'cash' | 'bank' | 'card' | 'savings' | 'wallet';
+export type ThemeMode = 'light' | 'dark' | 'system';
+
+export interface AuthUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}
+
+export interface Account {
+  id: string;
+  name: string;
+  type: AccountType;
+  balance: number;
+  initialBalance: number;
+  currency: string;
+  icon: string;
+  color: string;
+  isIncludedInTotal: boolean;
+  createdAt: number;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  type: TransactionType;
+  icon: string;
+  color: string;
+  parentId: string | null;
+  isHidden: boolean;
+  order: number;
+}
+
+export interface Transaction {
+  id: string;
+  type: TransactionType;
+  amount: number;
+  accountId: string;
+  toAccountId: string | null;
+  categoryId: string | null;
+  date: number;
+  note: string;
+  receiptUrl: string | null;
+  isExcludedFromStats: boolean;
+  isExcludedFromBudget: boolean;
+  createdAt: number;
+}
+
+export interface Budget {
+  id: string;
+  categoryId: string | null;
+  amount: number;
+  period: 'monthly';
+  carryOver: boolean;
+  monthYear: string;
+}
+
+export interface Preferences {
+  currency: string;
+  currencySymbol: string;
+  theme: ThemeMode;
+  weekStartDay: 0 | 1;
+  monthlyStartDay: number;
+}
+
+export interface Currency {
+  code: string;
+  symbol: string;
+  name: string;
+}
+</file>
+
+<file path="src/lib/utils.ts">
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+</file>
+
+<file path="src/App.tsx">
+import { useState, useEffect } from 'react';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
+import { TransactionsTab } from '@/components/tabs/transactions-tab';
+import { StatsTab } from '@/components/tabs/stats-tab';
+import { AccountsTab } from '@/components/tabs/accounts-tab';
+import { BudgetsView } from '@/components/tabs/budgets-view';
+import { BottomNav, type TabKey } from '@/components/bottom-nav';
+import { TransactionSheet } from '@/components/transaction-sheet';
+import { AuthView } from '@/components/auth-view';
+import { useStore } from '@/lib/store';
+import { CURRENCIES } from '@/lib/currencies';
+import { exportToCSV, downloadCSV } from '@/lib/finance';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import type { Transaction } from '@/lib/types';
+import { Download, RotateCcw, Trash2, Target, LogOut, Cloud } from 'lucide-react';
+import { toast } from 'sonner';
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<TabKey>('transactions');
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+
+  const {
+    user,
+    setUser,
+    isLoading,
+    initUserData,
+    transactions,
+    accounts,
+    categories,
+    preferences,
+    updatePreferences,
+    resetToSampleData,
+    clearCloudData,
+  } = useStore();
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser) {
+        setUser({
+          uid: fbUser.uid,
+          email: fbUser.email,
+          displayName: fbUser.displayName,
+          photoURL: fbUser.photoURL,
+        });
+        await initUserData(fbUser.uid);
+      } else {
+        setUser(null);
+      }
+    });
+    return () => unsub();
+  }, [setUser, initUserData]);
+
+  if (isLoading && !user) {
+    return (
+      <main className="flex h-[100dvh] w-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-9 w-9 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <p className="text-xs text-muted-foreground animate-pulse">Syncing BudgetWise...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return <AuthView />;
+  }
+
+  const handleEditTransaction = (tx: Transaction) => {
+    setEditingTx(tx);
+    setIsSheetOpen(true);
+  };
+
+  const handleAddTransaction = () => {
+    setEditingTx(null);
+    setIsSheetOpen(true);
+  };
+
+  const handleExportCSV = () => {
+    const csv = exportToCSV(transactions, accounts, categories);
+    downloadCSV(csv, `kalcy-export-${new Date().toISOString().slice(0, 10)}.csv`);
+    toast.success('Transactions exported to CSV');
+  };
+
+  const handleSignOut = async () => {
+    await signOut(auth);
+    toast.success('Signed out');
+  };
+
+  return (
+    <main className="relative flex flex-col h-[100dvh] max-w-md mx-auto bg-background text-foreground overflow-hidden">
+      <div className="flex-1 overflow-hidden pb-20">
+        {activeTab === 'transactions' && (
+          <TransactionsTab
+            onEditTransaction={handleEditTransaction}
+            onAddTransaction={handleAddTransaction}
+          />
+        )}
+
+        {activeTab === 'stats' && <StatsTab />}
+
+        {activeTab === 'accounts' && <AccountsTab />}
+
+        {activeTab === 'more' && (
+          <div className="h-full overflow-y-auto px-4 pt-4 pb-12 space-y-6 no-scrollbar">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold">More & Budgets</h1>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[200px]">
+                  {user.email}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSignOut}
+                className="rounded-xl h-8 text-xs gap-1"
+              >
+                <LogOut className="h-3.5 w-3.5" /> Sign Out
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-2 p-3 rounded-2xl bg-primary/10 text-primary text-xs font-medium">
+              <Cloud className="h-4 w-4" />
+              <span>Realtime cloud sync active</span>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Target className="h-4 w-4 text-primary" />
+                <h2 className="text-base font-semibold">Monthly Budgets</h2>
+              </div>
+              <BudgetsView />
+            </div>
+
+            <div className="space-y-4 bg-card border border-border/40 rounded-3xl p-4">
+              <h2 className="text-base font-semibold">Preferences</h2>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Currency</Label>
+                <select
+                  value={preferences.currency}
+                  onChange={(e) => updatePreferences({ currency: e.target.value })}
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name} ({c.symbol})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5 pt-2">
+                <Label className="text-xs text-muted-foreground">Week Starts On</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={preferences.weekStartDay === 1 ? 'default' : 'outline'}
+                    size="sm"
+                    className="flex-1 rounded-xl"
+                    onClick={() => updatePreferences({ weekStartDay: 1 })}
+                  >
+                    Monday
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={preferences.weekStartDay === 0 ? 'default' : 'outline'}
+                    size="sm"
+                    className="flex-1 rounded-xl"
+                    onClick={() => updatePreferences({ weekStartDay: 0 })}
+                  >
+                    Sunday
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5 pt-2">
+                <Label className="text-xs text-muted-foreground">Theme Mode</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['light', 'dark', 'system'] as const).map((mode) => (
+                    <Button
+                      key={mode}
+                      type="button"
+                      variant={preferences.theme === mode ? 'default' : 'outline'}
+                      size="sm"
+                      className="capitalize rounded-xl text-xs"
+                      onClick={() => updatePreferences({ theme: mode })}
+                    >
+                      {mode}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4">
+              <h2 className="text-base font-semibold">Cloud Actions</h2>
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start rounded-xl gap-2 text-sm"
+                  onClick={handleExportCSV}
+                >
+                  <Download className="h-4 w-4" /> Export All Data (CSV)
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start rounded-xl gap-2 text-sm text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                  onClick={async () => {
+                    await resetToSampleData();
+                    toast.success('Sample data populated in Firebase');
+                  }}
+                >
+                  <RotateCcw className="h-4 w-4" /> Seed Sample Cloud Data
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start rounded-xl gap-2 text-sm text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={async () => {
+                    await clearCloudData();
+                    toast.success('All cloud records deleted');
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" /> Delete All Cloud Data
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <BottomNav
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onAddClick={handleAddTransaction}
+      />
+
+      <TransactionSheet
+        open={isSheetOpen}
+        onOpenChange={(open) => {
+          setIsSheetOpen(open);
+          if (!open) setEditingTx(null);
+        }}
+        editingTransaction={editingTx}
+      />
+    </main>
+  );
+}
+</file>
+
+<file path="src/index.css">
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 330 20% 99%;
+    --foreground: 240 10% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 10%;
+    --primary: 158 64% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 10% 10%;
+    --muted: 240 5% 94%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 158 64% 95%;
+    --accent-foreground: 158 64% 30%;
+    --destructive: 0 76% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 158 64% 42%;
+    --radius: 1.25rem;
+    --expense: 0 76% 60%;
+    --income: 142 71% 45%;
+    --transfer: 212 92% 55%;
+    --warning: 38 92% 50%;
+  }
+
+  .dark {
+    --background: 240 10% 6%;
+    --foreground: 0 0% 96%;
+    --card: 240 8% 10%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 8% 10%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 158 64% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 6% 14%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 6% 14%;
+    --muted-foreground: 240 5% 55%;
+    --accent: 158 40% 18%;
+    --accent-foreground: 158 64% 72%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 18%;
+    --input: 240 6% 18%;
+    --ring: 158 64% 52%;
+    --expense: 0 72% 55%;
+    --income: 142 71% 50%;
+    --transfer: 212 92% 60%;
+    --warning: 38 92% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+</file>
+
+<file path="src/main.tsx">
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import './index.css';
+import { ThemeProvider } from '@/components/theme-provider';
+import { Toaster } from '@/components/ui/sonner';
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <ThemeProvider>
+      <App />
+      <Toaster position="top-center" />
+    </ThemeProvider>
+  </React.StrictMode>
+);
+</file>
+
+<file path=".eslintrc.json">
+{
+  "extends": "next/core-web-vitals"
+}
+</file>
+
+<file path=".gitignore">
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env
+.env*.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+</file>
+
+<file path="components.json">
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "default",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.ts",
+    "css": "app/globals.css",
+    "baseColor": "neutral",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  }
+}
+</file>
+
+<file path="index.html">
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#10b981" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Kalcy" />
+    <title>Kalcy</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+</file>
+
+<file path="package.json">
+{
+  "name": "Kalcy",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.1",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-switch": "^1.1.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "firebase": "^10.13.0",
+    "framer-motion": "^11.5.4",
+    "lucide-react": "^0.446.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.7",
+    "sonner": "^1.5.0",
+    "tailwind-merge": "^2.5.2",
+    "tailwindcss-animate": "^1.0.7",
+    "vaul": "^0.9.9",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.11",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.2"
+  }
+}
+</file>
+
+<file path="postcss.config.js">
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+</file>
+
+<file path="tailwind.config.ts">
+import type { Config } from 'tailwindcss';
+
+const config: Config = {
+  darkMode: ['class'],
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  theme: {
+    extend: {
+      borderRadius: {
+        xl: 'calc(var(--radius) + 4px)',
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 8px)',
+        sm: 'calc(var(--radius) - 12px)',
+      },
+      colors: {
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
+        popover: { DEFAULT: 'hsl(var(--popover))', foreground: 'hsl(var(--popover-foreground))' },
+        primary: { DEFAULT: 'hsl(var(--primary))', foreground: 'hsl(var(--primary-foreground))' },
+        secondary: { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
+        muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
+        accent: { DEFAULT: 'hsl(var(--accent))', foreground: 'hsl(var(--accent-foreground))' },
+        destructive: { DEFAULT: 'hsl(var(--destructive))', foreground: 'hsl(var(--destructive-foreground))' },
+        warning: { DEFAULT: 'hsl(var(--warning))', foreground: 'hsl(var(--warning-foreground))' },
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        expense: 'hsl(var(--expense))',
+        income: 'hsl(var(--income))',
+        transfer: 'hsl(var(--transfer))',
+      },
+      keyframes: {
+        'accordion-down': { from: { height: '0' }, to: { height: 'var(--radix-accordion-content-height)' } },
+        'accordion-up': { from: { height: 'var(--radix-accordion-content-height)' }, to: { height: '0' } },
+        'slide-up': { from: { transform: 'translateY(100%)' }, to: { transform: 'translateY(0)' } },
+        'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
+      },
+      animation: {
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
+        'slide-up': 'slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-in': 'fade-in 0.2s ease-out',
+      },
+    },
+  },
+  plugins: [require('tailwindcss-animate')],
+};
+export default config;
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}
+</file>
+
+<file path="vite.config.ts">
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+});
+</file>
+
+</files>
