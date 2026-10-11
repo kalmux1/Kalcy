@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Pencil, ArrowRightLeft, X, Check } from 'lucide-react';
+import { Plus, Pencil, ArrowRightLeft, X, Check, Trash2 } from 'lucide-react';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,20 +32,36 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
 ];
 
 export function AccountsTab() {
-  const { accounts, preferences, addAccount, updateAccount } = useStore();
+  const { accounts, preferences, addAccount, updateAccount, deleteAccount } = useStore();
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
 
   const totalBalance = getTotalBalance(accounts);
 
+  const confirmDelete = (acc: Account) => {
+    toast('Delete this account and all its transactions?', {
+      duration: 8000,
+      action: {
+        label: 'Delete',
+        onClick: async () => {
+          await deleteAccount(acc.id);
+          toast.success('Account deleted');
+        },
+      },
+      cancel: { label: 'Cancel', onClick: () => {} },
+    });
+  };
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <div className="px-4 pt-4 pb-2">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Accounts</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{accounts.length} accounts</p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {accounts.length} account{accounts.length !== 1 ? 's' : ''}
+            </p>
           </div>
           <div className="flex gap-2">
             <Button
@@ -54,10 +70,16 @@ export function AccountsTab() {
               className="rounded-xl"
               onClick={() => setTransferOpen(true)}
               disabled={accounts.length < 2}
+              aria-label="Transfer between accounts"
             >
               <ArrowRightLeft className="h-4 w-4" />
             </Button>
-            <Button size="icon" className="rounded-xl" onClick={() => setIsAdding(true)}>
+            <Button
+              size="icon"
+              className="rounded-xl"
+              onClick={() => setIsAdding(true)}
+              aria-label="Add account"
+            >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
@@ -73,7 +95,7 @@ export function AccountsTab() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pt-3 pb-2 no-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pt-3 pb-40">
         <div className="flex flex-col gap-3">
           {accounts.map((acc, i) => (
             <motion.div
@@ -108,12 +130,22 @@ export function AccountsTab() {
                     {formatCurrency(acc.balance, preferences.currencySymbol)}
                   </p>
                 </div>
-                <button
-                  onClick={() => setEditingAccount(acc)}
-                  className="p-2 rounded-xl hover:bg-muted transition-colors"
-                >
-                  <Pencil className="h-4 w-4 text-muted-foreground" />
-                </button>
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => setEditingAccount(acc)}
+                    className="p-2 rounded-xl hover:bg-muted transition-colors"
+                    aria-label="Edit account"
+                  >
+                    <Pencil className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                  <button
+                    onClick={() => confirmDelete(acc)}
+                    className="p-2 rounded-xl hover:bg-destructive/10 transition-colors"
+                    aria-label="Delete account"
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </button>
+                </div>
               </div>
               {!acc.isIncludedInTotal && (
                 <p className="text-xs text-muted-foreground mt-2">Excluded from total</p>
@@ -162,7 +194,7 @@ function AccountSheet({
   onSave: (data: Omit<Account, 'id' | 'createdAt'>, id?: string) => void;
 }) {
   const { preferences } = useStore();
-  const formKey = open ? (account?.id ?? 'new') : 'closed';
+  const formKey = open ? account?.id ?? 'new' : 'closed';
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -171,7 +203,9 @@ function AccountSheet({
           className="mx-auto w-full max-w-md px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 overflow-y-auto no-scrollbar"
           style={{ maxHeight: '85vh' }}
         >
-          <h2 className="text-xl font-bold mb-4">{account ? 'Edit Account' : 'New Account'}</h2>
+          <h2 className="text-xl font-bold mb-4">
+            {account ? 'Edit Account' : 'New Account'}
+          </h2>
           <AccountForm
             key={formKey}
             initialName={account?.name ?? ''}
@@ -183,6 +217,7 @@ function AccountSheet({
             initialColor={account?.color ?? '#22C55E'}
             initialIncluded={account?.isIncludedInTotal ?? true}
             currencySymbol={preferences.currencySymbol}
+            currencyCode={preferences.currency}
             onCancel={() => onOpenChange(false)}
             onSubmit={(data) => onSave(data, account?.id)}
           />
@@ -202,6 +237,7 @@ function AccountForm({
   initialColor,
   initialIncluded,
   currencySymbol,
+  currencyCode,
   onCancel,
   onSubmit,
 }: {
@@ -214,6 +250,7 @@ function AccountForm({
   initialColor: string;
   initialIncluded: boolean;
   currencySymbol: string;
+  currencyCode: string;
   onCancel: () => void;
   onSubmit: (data: Omit<Account, 'id' | 'createdAt'>) => void;
 }) {
@@ -242,7 +279,7 @@ function AccountForm({
       type,
       balance: newBalance,
       initialBalance: newInitial,
-      currency: 'USD',
+      currency: currencyCode,
       icon,
       color,
       isIncludedInTotal,
@@ -285,7 +322,9 @@ function AccountForm({
               onClick={() => setType(t.value)}
               className={cn(
                 'px-3 py-2 rounded-xl text-sm font-medium transition-all',
-                type === t.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                type === t.value
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground'
               )}
             >
               {t.label}
@@ -333,6 +372,7 @@ function AccountForm({
             <button
               key={iconName}
               onClick={() => setIcon(iconName)}
+              aria-label={`Icon ${iconName}`}
               className={cn(
                 'h-10 w-10 rounded-xl flex items-center justify-center transition-all',
                 icon === iconName ? 'bg-primary text-primary-foreground' : 'bg-muted'
@@ -351,6 +391,7 @@ function AccountForm({
             <button
               key={c}
               onClick={() => setColor(c)}
+              aria-label={`Color ${c}`}
               className={cn(
                 'h-8 w-8 rounded-full transition-all',
                 color === c && 'ring-2 ring-offset-2 ring-ring scale-110'

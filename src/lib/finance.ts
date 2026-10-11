@@ -5,18 +5,25 @@ export function formatDateKey(timestamp: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+export function toDateInputValue(timestamp: number): string {
+  return formatDateKey(timestamp);
+}
+
+export function toTimeInputValue(timestamp: number): string {
+  const d = new Date(timestamp);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 export function monthYearKey(timestamp: number): string {
   const d = new Date(timestamp);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-/** Parse 'YYYY-MM-DD' as a LOCAL date (not UTC). */
 export function parseLocalDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d);
 }
 
-/** Get the [start, end) millisecond range for a 'YYYY-MM' month key, in local time. */
 export function getMonthRange(monthYear: string): { start: number; end: number } {
   const [y, m] = monthYear.split('-').map(Number);
   return {
@@ -120,7 +127,6 @@ export function getCategoryBreakdown(
   const total = filtered.reduce((sum, t) => sum + t.amount, 0);
   if (total === 0) return [];
 
-  // Aggregate by ROOT category so subcategories roll up into their parent.
   const byRoot = new Map<string, number>();
   for (const tx of filtered) {
     const root = tx.categoryId ? findRootCategory(categories, tx.categoryId) : undefined;
@@ -183,8 +189,22 @@ export function getMonthTotalSpent(transactions: Transaction[], monthYear: strin
     .reduce((s, t) => s + t.amount, 0);
 }
 
-export function exportToCSV(transactions: Transaction[], accounts: Account[], categories: Category[]): string {
-  const headers = ['Date', 'Type', 'Amount', 'Account', 'To Account', 'Category', 'Note', 'Excluded from Stats', 'Excluded from Budget'];
+/** CSV-safe: neutralise formula-injection prefixes. */
+function csvSafe(value: string): string {
+  const trimmed = value.replace(/\r?\n/g, ' ').replace(/"/g, '""');
+  if (/^[=+\-@\t]/.test(trimmed)) return `'${trimmed}`;
+  return trimmed;
+}
+
+export function exportToCSV(
+  transactions: Transaction[],
+  accounts: Account[],
+  categories: Category[]
+): string {
+  const headers = [
+    'Date', 'Type', 'Amount', 'Account', 'To Account', 'Category',
+    'Note', 'Excluded from Stats', 'Excluded from Budget',
+  ];
   const rows = transactions.map((tx) => {
     const acc = accounts.find((a) => a.id === tx.accountId)?.name ?? '';
     const toAcc = tx.toAccountId ? accounts.find((a) => a.id === tx.toAccountId)?.name ?? '' : '';
@@ -196,10 +216,12 @@ export function exportToCSV(transactions: Transaction[], accounts: Account[], ca
       acc,
       toAcc,
       cat,
-      tx.note.replace(/,/g, ';'),
+      csvSafe(tx.note),
       tx.isExcludedFromStats ? 'yes' : 'no',
       tx.isExcludedFromBudget ? 'yes' : 'no',
-    ].join(',');
+    ]
+      .map((v) => (v.includes(',') || v.includes('"') ? `"${v}"` : v))
+      .join(',');
   });
   return [headers.join(','), ...rows].join('\n');
 }
@@ -226,11 +248,15 @@ export function getCalendarDays(year: number, month: number, weekStartDay: 0 | 1
   return days;
 }
 
-export function getMonthlyTrend(transactions: Transaction[], months: number): { label: string; income: number; expense: number; net: number }[] {
+/** Trend relative to a reference date (defaults to today). */
+export function getMonthlyTrend(
+  transactions: Transaction[],
+  months: number,
+  referenceDate: Date = new Date()
+): { label: string; income: number; expense: number; net: number }[] {
   const result: { label: string; income: number; expense: number; net: number }[] = [];
-  const now = new Date();
   for (let m = months - 1; m >= 0; m--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - m, 1);
+    const date = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - m, 1);
     const myKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     const totals = getMonthlyTotals(transactions, myKey);
     result.push({ label: date.toLocaleDateString('en-US', { month: 'short' }), ...totals });

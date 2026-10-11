@@ -8,7 +8,7 @@ import { auth, googleProvider } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Wallet, Mail, Lock, Sparkles, ArrowRight } from 'lucide-react';
+import { Mail, Lock, Sparkles, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function AuthView() {
@@ -56,13 +56,12 @@ export function AuthView() {
   return (
     <div className="flex flex-col justify-center min-h-[100dvh] px-6 max-w-sm mx-auto">
       <div className="text-center mb-8">
-        <div className="mx-auto h-16 w-16 rounded-3xl bg-primary/10 flex items-center justify-center text-primary mb-4 shadow-inner">
-          <Wallet className="h-8 w-8" />
-        </div>
-        <h1 className="text-2xl font-bold tracking-tight">Kalcy</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Cloud-synced money manager & expense tracker
-        </p>
+        <img
+          src="/kalcy-logo.svg"
+          alt="Kalcy"
+          className="mx-auto h-28 w-auto"
+          draggable={false}
+        />
       </div>
 
       <div className="bg-card border border-border/40 rounded-3xl p-6 shadow-sm">

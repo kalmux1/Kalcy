@@ -14,7 +14,7 @@ import { exportToCSV, downloadCSV } from '@/lib/finance';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import type { Transaction } from '@/lib/types';
-import { Download, RotateCcw, Trash2, Target, LogOut, Cloud } from 'lucide-react';
+import { Download, Trash2, Target, LogOut, Cloud } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function App() {
@@ -22,19 +22,16 @@ export default function App() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
 
-  const {
-    user,
-    setUser,
-    isLoading,
-    initUserData,
-    transactions,
-    accounts,
-    categories,
-    preferences,
-    updatePreferences,
-    resetToSampleData,
-    clearCloudData,
-  } = useStore();
+  const user = useStore((s) => s.user);
+  const setUser = useStore((s) => s.setUser);
+  const isLoading = useStore((s) => s.isLoading);
+  const initUserData = useStore((s) => s.initUserData);
+  const transactions = useStore((s) => s.transactions);
+  const accounts = useStore((s) => s.accounts);
+  const categories = useStore((s) => s.categories);
+  const preferences = useStore((s) => s.preferences);
+  const updatePreferences = useStore((s) => s.updatePreferences);
+  const clearCloudData = useStore((s) => s.clearCloudData);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
@@ -58,7 +55,7 @@ export default function App() {
       <main className="flex h-[100dvh] w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <div className="h-9 w-9 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-xs text-muted-foreground animate-pulse">Syncing BudgetWise...</p>
+          <p className="text-xs text-muted-foreground animate-pulse">Syncing Kalcy...</p>
         </div>
       </main>
     );
@@ -89,14 +86,25 @@ export default function App() {
     toast.success('Signed out');
   };
 
+  const confirmWipe = () => {
+    toast('Delete ALL records? This cannot be undone.', {
+      duration: 10000,
+      action: {
+        label: 'Delete Everything',
+        onClick: async () => {
+          await clearCloudData();
+          toast.success('All data deleted');
+        },
+      },
+      cancel: { label: 'Cancel', onClick: () => {} },
+    });
+  };
+
   return (
     <main className="relative flex flex-col h-[100dvh] max-w-md mx-auto bg-background text-foreground overflow-hidden">
-      <div className="flex-1 overflow-hidden pb-20">
+      <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === 'transactions' && (
-          <TransactionsTab
-            onEditTransaction={handleEditTransaction}
-            onAddTransaction={handleAddTransaction}
-          />
+          <TransactionsTab onEditTransaction={handleEditTransaction} />
         )}
 
         {activeTab === 'stats' && <StatsTab />}
@@ -104,13 +112,16 @@ export default function App() {
         {activeTab === 'accounts' && <AccountsTab />}
 
         {activeTab === 'more' && (
-          <div className="h-full overflow-y-auto px-4 pt-4 pb-12 space-y-6 no-scrollbar">
+          <div className="h-full overflow-y-auto no-scrollbar px-4 pt-4 pb-40 space-y-6">
             <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-bold">More & Budgets</h1>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[200px]">
-                  {user.email}
-                </p>
+              <div className="flex items-center gap-3">
+                <img src="/kalcy-logo.svg" alt="" className="h-10 w-auto" draggable={false} />
+                <div>
+                  <h1 className="text-xl font-bold">More &amp; Budgets</h1>
+                  <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                    {user.email}
+                  </p>
+                </div>
               </div>
               <Button
                 variant="outline"
@@ -207,23 +218,10 @@ export default function App() {
                 </Button>
                 <Button
                   variant="outline"
-                  className="w-full justify-start rounded-xl gap-2 text-sm text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
-                  onClick={async () => {
-                    await resetToSampleData();
-                    toast.success('Sample data populated in Firebase');
-                  }}
-                >
-                  <RotateCcw className="h-4 w-4" /> Seed Sample Cloud Data
-                </Button>
-                <Button
-                  variant="outline"
                   className="w-full justify-start rounded-xl gap-2 text-sm text-destructive hover:text-destructive hover:bg-destructive/10"
-                  onClick={async () => {
-                    await clearCloudData();
-                    toast.success('All cloud records deleted');
-                  }}
+                  onClick={confirmWipe}
                 >
-                  <Trash2 className="h-4 w-4" /> Delete All Cloud Data
+                  <Trash2 className="h-4 w-4" /> Delete All Data
                 </Button>
               </div>
             </div>

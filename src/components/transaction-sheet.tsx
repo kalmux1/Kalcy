@@ -13,7 +13,7 @@ import { CategoryIcon } from './icon-map';
 import { useStore } from '@/lib/store';
 import type { TransactionType, Transaction, Category } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { formatDateLong } from '@/lib/finance';
+import { formatDateLong, toDateInputValue, toTimeInputValue } from '@/lib/finance';
 import { toast } from 'sonner';
 
 interface TransactionSheetProps {
@@ -46,8 +46,8 @@ export function TransactionSheet({
   const [showOptions, setShowOptions] = useState(false);
 
   // Reset form when the sheet opens or the target transaction changes.
-  // NOTE: `accounts` is intentionally excluded from deps — it changes on
-  // every Firestore snapshot and would otherwise wipe the form mid-edit.
+  // `accounts` is intentionally excluded from deps — it changes on every
+  // Firestore snapshot and would otherwise wipe the form mid-edit.
   useEffect(() => {
     if (!open) return;
     const defaultAccounts = useStore.getState().accounts;
@@ -260,20 +260,23 @@ export function TransactionSheet({
           <div className="flex flex-col gap-3 pb-4">
             <input
               type="date"
-              value={new Date(date).toISOString().split('T')[0]}
+              value={toDateInputValue(date)}
               onChange={(e) => {
-                const [y, m, d] = e.target.value.split('-').map(Number);
-                const newDate = new Date(y, m - 1, d);
-                newDate.setHours(new Date(date).getHours(), new Date(date).getMinutes());
+                const parts = e.target.value.split('-').map(Number);
+                if (parts.length !== 3 || parts.some(Number.isNaN)) return;
+                const [y, m, d] = parts;
+                const prev = new Date(date);
+                const newDate = new Date(y, m - 1, d, prev.getHours(), prev.getMinutes());
                 setDate(newDate.getTime());
               }}
               className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-base"
             />
             <input
               type="time"
-              value={new Date(date).toTimeString().slice(0, 5)}
+              value={toTimeInputValue(date)}
               onChange={(e) => {
                 const [h, m] = e.target.value.split(':').map(Number);
+                if (Number.isNaN(h) || Number.isNaN(m)) return;
                 const newDate = new Date(date);
                 newDate.setHours(h, m);
                 setDate(newDate.getTime());

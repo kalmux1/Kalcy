@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Lock the viewport so only inner scroll areas scroll. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 @layer base {
   :root {
     --background: 330 20% 99%;
@@ -28,6 +39,7 @@
     --income: 142 71% 45%;
     --transfer: 212 92% 55%;
     --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
   }
 
   .dark {
@@ -54,6 +66,7 @@
     --income: 142 71% 50%;
     --transfer: 212 92% 60%;
     --warning: 38 92% 55%;
+    --warning-foreground: 0 0% 100%;
   }
 }
 

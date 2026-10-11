@@ -2,6 +2,7 @@
 
 import { motion, type PanInfo } from 'framer-motion';
 import { Pencil, Trash2, ArrowRightLeft } from 'lucide-react';
+import { toast } from 'sonner';
 import { CategoryIcon } from './icon-map';
 import { useStore } from '@/lib/store';
 import type { Transaction } from '@/lib/types';
@@ -19,7 +20,9 @@ export function TransactionItem({ transaction, onEdit, onDelete }: TransactionIt
 
   const category = categories.find((c) => c.id === transaction.categoryId);
   const account = accounts.find((a) => a.id === transaction.accountId);
-  const toAccount = transaction.toAccountId ? accounts.find((a) => a.id === transaction.toAccountId) : null;
+  const toAccount = transaction.toAccountId
+    ? accounts.find((a) => a.id === transaction.toAccountId)
+    : null;
 
   const isExpense = transaction.type === 'expense';
   const isIncome = transaction.type === 'income';
@@ -27,7 +30,14 @@ export function TransactionItem({ transaction, onEdit, onDelete }: TransactionIt
 
   const handleDragEnd = (_e: unknown, info: PanInfo) => {
     if (info.offset.x < -100) {
-      onDelete(transaction.id);
+      toast('Delete this transaction?', {
+        duration: 6000,
+        action: {
+          label: 'Delete',
+          onClick: () => onDelete(transaction.id),
+        },
+        cancel: { label: 'Cancel', onClick: () => {} },
+      });
     } else if (info.offset.x > 100) {
       onEdit(transaction);
     }
@@ -41,17 +51,25 @@ export function TransactionItem({ transaction, onEdit, onDelete }: TransactionIt
       onDragEnd={handleDragEnd}
       className="relative flex items-center gap-3 py-3 px-3 rounded-2xl hover:bg-muted/40 transition-colors cursor-grab active:cursor-grabbing"
     >
-      {/* Swipe action backgrounds */}
-      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 pointer-events-none">
+      {/* Swipe action backgrounds — fade in while dragging */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        whileDrag={{ opacity: 1 }}
+        className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1 pointer-events-none"
+      >
         <div className="h-9 w-9 rounded-xl bg-destructive/90 flex items-center justify-center">
           <Trash2 className="h-4 w-4 text-white" />
         </div>
-      </div>
-      <div className="absolute left-3 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 pointer-events-none">
+      </motion.div>
+      <motion.div
+        initial={{ opacity: 0 }}
+        whileDrag={{ opacity: 1 }}
+        className="absolute left-3 top-1/2 -translate-y-1/2 flex gap-1 pointer-events-none"
+      >
         <div className="h-9 w-9 rounded-xl bg-primary/90 flex items-center justify-center">
           <Pencil className="h-4 w-4 text-white" />
         </div>
-      </div>
+      </motion.div>
 
       {/* Icon */}
       <div
@@ -81,7 +99,9 @@ export function TransactionItem({ transaction, onEdit, onDelete }: TransactionIt
           {transaction.note || category?.name || (isTransfer ? 'Transfer' : 'Transaction')}
         </p>
         <p className="text-xs text-muted-foreground truncate">
-          {isTransfer ? `${account?.name} → ${toAccount?.name}` : `${category?.name ?? 'Uncategorized'} · ${account?.name}`}
+          {isTransfer
+            ? `${account?.name ?? '—'} → ${toAccount?.name ?? '—'}`
+            : `${category?.name ?? 'Uncategorized'} · ${account?.name ?? '—'}`}
         </p>
       </div>
 

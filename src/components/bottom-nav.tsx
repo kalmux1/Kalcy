@@ -21,21 +21,10 @@ const NAV_ITEMS: { key: TabKey; label: string; icon: typeof ListChecks }[] = [
 
 export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pointer-events-none">
-      <div className="w-full max-w-md pointer-events-auto">
-        <div className="relative px-4 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2">
-          {/* Floating FAB */}
-          <motion.button
-            onClick={onAddClick}
-            whileTap={{ scale: 0.9 }}
-            whileHover={{ scale: 1.05 }}
-            className="absolute left-1/2 -top-5 z-50 h-14 w-14 -translate-x-1/2 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center"
-            aria-label="Add transaction"
-          >
-            <Plus className="h-7 w-7" strokeWidth={2.5} />
-          </motion.button>
-
-          {/* Nav bar */}
+    <>
+      {/* Nav bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pointer-events-none">
+        <div className="w-full max-w-md pointer-events-auto px-4 pb-[max(env(safe-area-inset-bottom),0.5rem)]">
           <div className="flex items-center justify-around rounded-3xl border border-border/60 bg-card/95 backdrop-blur-xl shadow-lg shadow-black/5 h-16 px-2">
             {NAV_ITEMS.map((item, index) => {
               const isActive = activeTab === item.key;
@@ -60,7 +49,12 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
                     />
                   )}
                   <Icon className="h-5 w-5 relative z-10" strokeWidth={isActive ? 2.5 : 2} />
-                  <span className={cn('text-[10px] font-medium relative z-10', isActive && 'font-semibold')}>
+                  <span
+                    className={cn(
+                      'text-[10px] font-medium relative z-10',
+                      isActive && 'font-semibold'
+                    )}
+                  >
                     {item.label}
                   </span>
                 </button>
@@ -69,6 +63,19 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
           </div>
         </div>
       </div>
-    </div>
+
+      {/* FAB — standalone fixed element so taps always register,
+          even when content underneath is scrolled. */}
+      <motion.button
+        type="button"
+        onClick={onAddClick}
+        whileTap={{ scale: 0.9 }}
+        aria-label="Add transaction"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem)' }}
+        className="fixed left-1/2 z-50 h-14 w-14 -translate-x-1/2 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center"
+      >
+        <Plus className="h-7 w-7" strokeWidth={2.5} />
+      </motion.button>
+    </>
   );
 }

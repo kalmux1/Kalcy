@@ -21,24 +21,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.remove('dark', 'oled');
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
 
-    let dark = false;
-    if (theme === 'dark') {
-      dark = true;
-      root.classList.add('dark');
-    } else if (theme === 'system') {
-      dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const apply = () => {
+      root.classList.remove('dark');
+      let dark = false;
+      if (theme === 'dark') dark = true;
+      else if (theme === 'system') dark = mq.matches;
       if (dark) root.classList.add('dark');
-    }
+      setIsDark(dark);
+    };
 
-    // Check for OLED dark mode (user setting could be extended)
-    setIsDark(dark);
+    apply();
+
+    if (theme === 'system') {
+      mq.addEventListener('change', apply);
+      return () => mq.removeEventListener('change', apply);
+    }
   }, [theme]);
 
-  const setTheme = (newTheme: ThemeMode) => {
-    updatePreferences({ theme: newTheme });
-  };
+  const setTheme = (newTheme: ThemeMode) => updatePreferences({ theme: newTheme });
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, isDark }}>

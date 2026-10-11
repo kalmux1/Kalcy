@@ -76,6 +76,7 @@ src/
   App.tsx
   index.css
   main.tsx
+  vite-env.d.ts
 .eslintrc.json
 .gitignore
 components.json
@@ -2486,7 +2487,7 @@ import {
   Plane, BedDouble, Gift, Repeat, Sparkles, MoreHorizontal, Banknote,
   Building2, CreditCard, PiggyBank, Wallet, Laptop, TrendingUp, RotateCcw,
   Coffee, Briefcase, DollarSign, PiggyBank as SavingsIcon, Landmark,
-  Target, PiggyBank as Piggy, Coins, Receipt, Zap, type LucideIcon,
+  Target, Coins, Receipt, Zap, type LucideIcon,
 } from 'lucide-react';
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -4403,6 +4404,23 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 );
 </file>
 
+<file path="src/vite-env.d.ts">
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_FIREBASE_API_KEY: string;
+  readonly VITE_FIREBASE_AUTH_DOMAIN: string;
+  readonly VITE_FIREBASE_PROJECT_ID: string;
+  readonly VITE_FIREBASE_STORAGE_BUCKET: string;
+  readonly VITE_FIREBASE_MESSAGING_SENDER_ID: string;
+  readonly VITE_FIREBASE_APP_ID: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+</file>
+
 <file path=".eslintrc.json">
 {
   "extends": "next/core-web-vitals"
@@ -4494,7 +4512,7 @@ next-env.d.ts
 
 <file path="package.json">
 {
-  "name": "Kalcy",
+  "name": "kalcy",
   "private": true,
   "version": "0.1.0",
   "type": "module",
