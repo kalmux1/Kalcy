@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from 'react';
 import { Delete } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
 interface CalculatorNumpadProps {
@@ -110,7 +109,13 @@ export function CalculatorNumpad({ initialAmount, symbol, onChange }: Calculator
     return dec !== undefined ? `${intPart}.${dec}` : intPart;
   };
 
-  const keys: { label: string; action: () => void; type: 'num' | 'op' | 'fn'; span?: string; active?: boolean }[] = [
+  const keys: {
+    label: string;
+    action: () => void;
+    type: 'num' | 'op' | 'fn';
+    span?: string;
+    active?: boolean;
+  }[] = [
     { label: 'AC', action: clearAll, type: 'fn' },
     { label: '÷', action: () => inputOperator('÷'), type: 'op', active: operator === '÷' },
     { label: '×', action: () => inputOperator('×'), type: 'op', active: operator === '×' },
@@ -132,35 +137,38 @@ export function CalculatorNumpad({ initialAmount, symbol, onChange }: Calculator
   ];
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-baseline justify-end gap-1 px-2 py-3 rounded-2xl bg-muted/50">
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-end gap-1 px-3 py-2 rounded-2xl bg-muted/50">
         {operator && storedValue !== null && (
-          <span className="text-muted-foreground text-sm">
+          <span className="text-muted-foreground text-xs">
             {Math.round(storedValue * 100) / 100} {operator}
           </span>
         )}
-        <span className="text-2xl font-bold tabular-nums truncate">
-          {symbol}{formatDisplay(display)}
+        <span className="text-xl font-bold tabular-nums truncate">
+          {symbol}
+          {formatDisplay(display)}
         </span>
       </div>
 
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-4 gap-1">
         {keys.map((key, i) => (
-          <motion.button
+          <button
             key={i}
-            whileTap={{ scale: 0.92 }}
+            type="button"
             onClick={key.action}
             className={cn(
-              'h-14 rounded-2xl flex items-center justify-center text-xl font-semibold transition-colors',
+              'h-12 rounded-2xl flex items-center justify-center text-lg font-semibold transition-all touch-manipulation active:scale-95',
               key.span,
               key.type === 'num' && 'bg-muted/60 hover:bg-muted text-foreground',
-              key.type === 'op' && 'bg-primary/10 hover:bg-primary/20 text-primary font-bold',
-              key.type === 'fn' && 'bg-muted/40 hover:bg-muted/60 text-muted-foreground text-base',
+              key.type === 'op' &&
+                'bg-primary/10 hover:bg-primary/20 text-primary font-bold',
+              key.type === 'fn' &&
+                'bg-muted/40 hover:bg-muted/60 text-muted-foreground text-base',
               key.active && 'bg-primary text-primary-foreground hover:bg-primary'
             )}
           >
             {key.label === '⌫' ? <Delete className="h-5 w-5" /> : key.label}
-          </motion.button>
+          </button>
         ))}
       </div>
     </div>

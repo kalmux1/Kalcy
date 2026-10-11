@@ -52,6 +52,7 @@ interface StoreState {
   deleteBudget: (id: string) => Promise<void>;
 
   updatePreferences: (updates: Partial<Preferences>) => Promise<void>;
+  restoreDefaults: () => Promise<void>;
   resetToSampleData: () => Promise<void>;
   clearCloudData: () => Promise<void>;
 }
@@ -402,6 +403,35 @@ export const useStore = create<StoreState>((set, get) => ({
     );
   },
 
+  /**
+   * Re-seeds the default accounts and categories if they are missing.
+   * Transactions and budgets are left untouched. Used to recover from an
+   * accidental "Delete All Data" without forcing a full reset.
+   */
+  restoreDefaults: async () => {
+    const { user, categories, accounts } = get();
+    if (!user) return;
+
+    const existingCatIds = new Set(categories.map((c) => c.id));
+    const existingAccIds = new Set(accounts.map((a) => a.id));
+
+    const batch = writeBatch(db);
+    SEED_CATEGORIES.forEach((c) => {
+      if (!existingCatIds.has(c.id)) {
+        batch.set(doc(db, 'users', user.uid, 'categories', c.id), c);
+      }
+    });
+    SEED_ACCOUNTS.forEach((a) => {
+      if (!existingAccIds.has(a.id)) {
+        batch.set(doc(db, 'users', user.uid, 'accounts', a.id), {
+          ...a,
+          createdAt: Date.now(),
+        });
+      }
+    });
+    await batch.commit();
+  },
+
   resetToSampleData: async () => {
     const { user, accounts, categories, transactions, budgets } = get();
     if (!user) return;
@@ -454,7 +484,8 @@ export const useStore = create<StoreState>((set, get) => ({
   /**
    * Wipes user data BUT leaves the preferences doc in place — that doc is the
    * "already initialized" marker that stops the seeder from running again on
-   * the next app launch.
+   * the next app launch. Use `restoreDefaults()` to bring back accounts and
+   * categories afterward.
    */
   clearCloudData: async () => {
     const { user, accounts, categories, transactions, budgets } = get();

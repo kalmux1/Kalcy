@@ -9,6 +9,7 @@ import {
   FileText,
   Settings2,
   ArrowRight,
+  Plus,
 } from 'lucide-react';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Switch } from '@/components/ui/switch';
@@ -154,6 +155,11 @@ export function TransactionSheet({
     (c) => c.type === type && !c.isHidden && !c.parentId
   );
 
+  const restoreDefaults = async () => {
+    await useStore.getState().restoreDefaults();
+    toast.success('Default accounts & categories restored');
+  };
+
   const renderStep = () => {
     if (step === 'category') {
       const subs = parentCategory
@@ -162,8 +168,8 @@ export function TransactionSheet({
       const list = parentCategory ? subs : filteredCategories;
 
       return (
-        <div className="flex flex-col h-full">
-          <div className="flex items-center gap-3 px-1 pb-4">
+        <div className="flex flex-col">
+          <div className="flex items-center gap-3 px-1 pb-3">
             <button
               type="button"
               onClick={() => {
@@ -178,58 +184,72 @@ export function TransactionSheet({
               {parentCategory ? parentCategory.name : 'Select Category'}
             </h2>
           </div>
-          <div className="grid grid-cols-4 gap-2 overflow-y-auto no-scrollbar pb-4">
-            {list.map((cat) => {
-              const hasChildren =
-                !parentCategory &&
-                categories.some((c) => c.parentId === cat.id && !c.isHidden);
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => {
-                    if (hasChildren) {
-                      setParentCategory(cat);
-                    } else {
-                      setCategoryId(cat.id);
-                      setParentCategory(null);
-                      setStep('main');
-                    }
-                  }}
-                  className={cn(
-                    'flex flex-col items-center gap-2 p-3 rounded-2xl transition-all touch-manipulation',
-                    categoryId === cat.id
-                      ? 'bg-primary/10 ring-2 ring-primary'
-                      : 'hover:bg-muted active:bg-muted'
-                  )}
-                >
-                  <div
-                    className="h-12 w-12 rounded-2xl flex items-center justify-center"
-                    style={{ backgroundColor: `${cat.color}20` }}
+
+          {list.length === 0 ? (
+            <EmptyState
+              message={
+                parentCategory
+                  ? 'No subcategories.'
+                  : `No ${type} categories available.`
+              }
+              actionLabel={!parentCategory ? 'Restore Defaults' : undefined}
+              onAction={!parentCategory ? restoreDefaults : undefined}
+            />
+          ) : (
+            <div className="grid grid-cols-4 gap-2 pb-4">
+              {list.map((cat) => {
+                const hasChildren =
+                  !parentCategory &&
+                  categories.some((c) => c.parentId === cat.id && !c.isHidden);
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => {
+                      if (hasChildren) {
+                        setParentCategory(cat);
+                      } else {
+                        setCategoryId(cat.id);
+                        setParentCategory(null);
+                        setStep('main');
+                      }
+                    }}
+                    className={cn(
+                      'flex flex-col items-center gap-2 p-3 rounded-2xl transition-all touch-manipulation',
+                      categoryId === cat.id
+                        ? 'bg-primary/10 ring-2 ring-primary'
+                        : 'hover:bg-muted active:bg-muted'
+                    )}
                   >
-                    <span style={{ color: cat.color }}>
-                      <CategoryIcon name={cat.icon} size={22} />
+                    <div
+                      className="h-12 w-12 rounded-2xl flex items-center justify-center"
+                      style={{ backgroundColor: `${cat.color}20` }}
+                    >
+                      <span style={{ color: cat.color }}>
+                        <CategoryIcon name={cat.icon} size={22} />
+                      </span>
+                    </div>
+                    <span className="text-xs font-medium text-center leading-tight">
+                      {cat.name}
                     </span>
-                  </div>
-                  <span className="text-xs font-medium text-center leading-tight">
-                    {cat.name}
-                  </span>
-                  {hasChildren && (
-                    <span className="text-[9px] text-muted-foreground">More ›</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                    {hasChildren && (
+                      <span className="text-[9px] text-muted-foreground">More ›</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       );
     }
 
     if (step === 'account' || step === 'toAccount') {
       const isTo = step === 'toAccount';
+      const currentId = isTo ? toAccountId : accountId;
       return (
-        <div className="flex flex-col h-full">
-          <div className="flex items-center gap-3 px-1 pb-4">
+        <div className="flex flex-col">
+          <div className="flex items-center gap-3 px-1 pb-3">
             <button
               type="button"
               onClick={() => setStep('main')}
@@ -241,57 +261,66 @@ export function TransactionSheet({
               {isTo ? 'To Account' : 'Select Account'}
             </h2>
           </div>
-          <div className="flex flex-col gap-2 overflow-y-auto no-scrollbar pb-4">
-            {accounts.map((acc) => {
-              const isActive = isTo ? toAccountId === acc.id : accountId === acc.id;
-              return (
-                <button
-                  key={acc.id}
-                  type="button"
-                  onClick={() => {
-                    if (isTo) setToAccountId(acc.id);
-                    else setAccountId(acc.id);
-                    setStep('main');
-                  }}
-                  className={cn(
-                    'flex items-center gap-3 p-4 rounded-2xl transition-all touch-manipulation',
-                    isActive
-                      ? 'bg-primary/10 ring-2 ring-primary'
-                      : 'hover:bg-muted active:bg-muted'
-                  )}
-                >
-                  <div
-                    className="h-10 w-10 rounded-xl flex items-center justify-center"
-                    style={{ backgroundColor: `${acc.color}20` }}
+
+          {accounts.length === 0 ? (
+            <EmptyState
+              message="You don't have any accounts yet."
+              actionLabel="Restore Defaults"
+              onAction={restoreDefaults}
+            />
+          ) : (
+            <div className="flex flex-col gap-2 pb-4">
+              {accounts.map((acc) => {
+                const isActive = currentId === acc.id;
+                return (
+                  <button
+                    key={acc.id}
+                    type="button"
+                    onClick={() => {
+                      if (isTo) setToAccountId(acc.id);
+                      else setAccountId(acc.id);
+                      setStep('main');
+                    }}
+                    className={cn(
+                      'flex items-center gap-3 p-3.5 rounded-2xl transition-all touch-manipulation',
+                      isActive
+                        ? 'bg-primary/10 ring-2 ring-primary'
+                        : 'hover:bg-muted active:bg-muted'
+                    )}
                   >
-                    <span style={{ color: acc.color }}>
-                      <CategoryIcon name={acc.icon} size={20} />
+                    <div
+                      className="h-10 w-10 rounded-xl flex items-center justify-center"
+                      style={{ backgroundColor: `${acc.color}20` }}
+                    >
+                      <span style={{ color: acc.color }}>
+                        <CategoryIcon name={acc.icon} size={20} />
+                      </span>
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="font-medium text-sm">{acc.name}</p>
+                      <p className="text-xs text-muted-foreground capitalize">
+                        {acc.type}
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums">
+                      {preferences.currencySymbol}
+                      {acc.balance.toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                      })}
                     </span>
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-medium text-sm">{acc.name}</p>
-                    <p className="text-xs text-muted-foreground capitalize">
-                      {acc.type}
-                    </p>
-                  </div>
-                  <span className="text-sm font-semibold tabular-nums">
-                    {preferences.currencySymbol}
-                    {acc.balance.toLocaleString('en-US', {
-                      minimumFractionDigits: 2,
-                    })}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       );
     }
 
     if (step === 'date') {
       return (
-        <div className="flex flex-col h-full">
-          <div className="flex items-center gap-3 px-1 pb-4">
+        <div className="flex flex-col">
+          <div className="flex items-center gap-3 px-1 pb-3">
             <button
               type="button"
               onClick={() => setStep('main')}
@@ -359,8 +388,8 @@ export function TransactionSheet({
 
     if (step === 'note') {
       return (
-        <div className="flex flex-col h-full">
-          <div className="flex items-center gap-3 px-1 pb-4">
+        <div className="flex flex-col">
+          <div className="flex items-center gap-3 px-1 pb-3">
             <button
               type="button"
               onClick={() => setStep('main')}
@@ -374,7 +403,7 @@ export function TransactionSheet({
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="What was this transaction for?"
-            className="flex-1 min-h-[120px] rounded-2xl text-base resize-none"
+            className="min-h-[120px] rounded-2xl text-base resize-none"
             autoFocus
           />
           <Button
@@ -390,7 +419,7 @@ export function TransactionSheet({
 
     // ---- Main step ----
     return (
-      <div className="flex flex-col h-full overflow-y-auto no-scrollbar">
+      <div className="flex flex-col">
         <div className="flex gap-2 p-1 bg-muted rounded-2xl">
           {(['expense', 'income', 'transfer'] as TransactionType[]).map((t) => (
             <button
@@ -398,7 +427,7 @@ export function TransactionSheet({
               type="button"
               onClick={() => setType(t)}
               className={cn(
-                'flex-1 py-2.5 rounded-xl text-sm font-semibold capitalize transition-all touch-manipulation',
+                'flex-1 py-2 rounded-xl text-sm font-semibold capitalize transition-all touch-manipulation',
                 type === t
                   ? t === 'expense'
                     ? 'bg-expense text-white shadow-sm'
@@ -505,7 +534,7 @@ export function TransactionSheet({
           <button
             type="button"
             onClick={() => setShowOptions(!showOptions)}
-            className="flex items-center gap-2 mt-3 text-sm text-muted-foreground hover:text-foreground transition-colors touch-manipulation"
+            className="flex items-center gap-2 mt-3 mb-2 text-sm text-muted-foreground hover:text-foreground transition-colors touch-manipulation"
           >
             <Settings2 className="h-4 w-4" />
             More options
@@ -520,7 +549,7 @@ export function TransactionSheet({
               exit={{ height: 0, opacity: 0 }}
               className="overflow-hidden"
             >
-              <div className="flex flex-col gap-3 pt-3">
+              <div className="flex flex-col gap-3 pt-1 pb-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="ex-stats" className="text-sm">
                     Exclude from stats
@@ -551,13 +580,11 @@ export function TransactionSheet({
 
   return (
     /*
-      Drawer props explained:
-      - shouldScaleBackground={false}: stops Vaul from applying a scale transform
-        to the page (body) while open. That transform previously leaked onto the
-        fixed + FAB and made it "move" when tapped.
-      - handleOnly: only the pill handle at the top initiates drag-to-dismiss.
-        Taps anywhere else inside the sheet (category/account buttons, numpad,
-        etc.) now reliably fire onClick handlers.
+      - shouldScaleBackground={false}: no <body> scale transform, so the FAB
+        never visually shifts when the drawer opens.
+      - handleOnly: only the pill handle drags; taps inside fire onClick.
+      - Outer flex-col + single overflow-y-auto child: one scroll region, so
+        "More options" is always reachable.
     */
     <Drawer
       open={open}
@@ -565,9 +592,9 @@ export function TransactionSheet({
       shouldScaleBackground={false}
       handleOnly
     >
-      <DrawerContent className="max-h-[92vh] rounded-t-[2rem]">
-        <div className="mx-auto w-full max-w-md px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2">
-          <div className="flex items-center justify-between mb-2">
+      <DrawerContent className="max-h-[92vh] rounded-t-[2rem] flex flex-col overflow-hidden">
+        <div className="mx-auto w-full max-w-md flex-1 flex flex-col min-h-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2">
+          <div className="shrink-0 flex items-center justify-between mb-2">
             <h1 className="text-xl font-bold">
               {editingTransaction ? 'Edit Transaction' : 'Add Transaction'}
             </h1>
@@ -582,15 +609,38 @@ export function TransactionSheet({
             </Button>
           </div>
 
-          <div
-            className="overflow-y-auto no-scrollbar"
-            style={{ maxHeight: 'calc(92vh - 60px)' }}
-          >
+          <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
             {renderStep()}
           </div>
         </div>
       </DrawerContent>
     </Drawer>
+  );
+}
+
+function EmptyState({
+  message,
+  actionLabel,
+  onAction,
+}: {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void | Promise<void>;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-center">
+      <p className="text-sm text-muted-foreground mb-4 max-w-[240px]">{message}</p>
+      {actionLabel && onAction && (
+        <Button
+          type="button"
+          onClick={onAction}
+          className="rounded-2xl gap-1 touch-manipulation"
+        >
+          <Plus className="h-4 w-4" />
+          {actionLabel}
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -611,9 +661,9 @@ function FieldButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-3 p-3.5 rounded-2xl bg-muted/40 hover:bg-muted active:bg-muted transition-colors text-left touch-manipulation"
+      className="flex items-center gap-3 p-3 rounded-2xl bg-muted/40 hover:bg-muted active:bg-muted transition-colors text-left touch-manipulation"
     >
-      <div className="h-10 w-10 rounded-xl bg-card flex items-center justify-center shrink-0">
+      <div className="h-9 w-9 rounded-xl bg-card flex items-center justify-center shrink-0">
         {icon}
       </div>
       <div className="flex-1 min-w-0">
