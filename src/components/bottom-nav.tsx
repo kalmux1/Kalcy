@@ -34,9 +34,10 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
               return (
                 <button
                   key={item.key}
+                  type="button"
                   onClick={() => onTabChange(item.key)}
                   className={cn(
-                    'relative flex flex-col items-center justify-center gap-1 rounded-2xl transition-all py-1.5 flex-1',
+                    'relative flex flex-col items-center justify-center gap-1 rounded-2xl transition-all py-1.5 flex-1 touch-manipulation',
                     isRightOfFAB ? 'pl-5' : 'pr-5',
                     isActive ? 'text-primary' : 'text-muted-foreground'
                   )}
@@ -68,26 +69,26 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
       </div>
 
       {/*
-        FAB — its positioning lives on a static wrapper div, so framer-motion's
-        `transform`-based `whileTap` animation on the inner button cannot
-        clobber the `-translate-x-1/2` centering. Previously the button itself
-        carried both `-translate-x-1/2` and `whileTap={{ scale: 0.9 }}`, which
-        caused the tap target to jump sideways mid-tap and made the button
-        appear unresponsive.
+        FAB:
+        - Centering is done once, on the fixed wrapper, via `-translate-x-1/2`.
+        - The <button> itself has NO translate, so `active:scale-90` scales it
+          cleanly around its own center. Tailwind composes transform via CSS
+          variables, so there is no transform clobbering and no jump.
+        - Framer Motion is intentionally NOT used here; `whileTap` set an inline
+          `transform` that fought with the positioning `translate`.
       */}
       <div
         className="fixed left-1/2 z-50 -translate-x-1/2"
         style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem)' }}
       >
-        <motion.button
+        <button
           type="button"
           onClick={onAddClick}
-          whileTap={{ scale: 0.9 }}
           aria-label="Add transaction"
-          className="h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center"
+          className="h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center transition-transform duration-100 ease-out active:scale-90 touch-manipulation"
         >
           <Plus className="h-7 w-7" strokeWidth={2.5} />
-        </motion.button>
+        </button>
       </div>
     </>
   );

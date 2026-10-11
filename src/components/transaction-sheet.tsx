@@ -2,7 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, Check, Calendar as CalendarIcon, FileText, Settings2, ArrowRight } from 'lucide-react';
+import {
+  ChevronLeft,
+  Check,
+  Calendar as CalendarIcon,
+  FileText,
+  Settings2,
+  ArrowRight,
+} from 'lucide-react';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
@@ -45,9 +52,6 @@ export function TransactionSheet({
   const [isExcludedFromBudget, setIsExcludedFromBudget] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
 
-  // Reset form when the sheet opens or the target transaction changes.
-  // `accounts` is intentionally excluded from deps — it changes on every
-  // Firestore snapshot and would otherwise wipe the form mid-edit.
   useEffect(() => {
     if (!open) return;
     const defaultAccounts = useStore.getState().accounts;
@@ -119,20 +123,36 @@ export function TransactionSheet({
     } else {
       addTransaction(txData);
       toast.success(
-        type === 'expense' ? 'Expense added' : type === 'income' ? 'Income added' : 'Transfer completed'
+        type === 'expense'
+          ? 'Expense added'
+          : type === 'income'
+          ? 'Income added'
+          : 'Transfer completed'
       );
     }
     onOpenChange(false);
   }, [
-    amount, accountId, toAccountId, type, categoryId, date, note,
-    isExcludedFromStats, isExcludedFromBudget,
-    editingTransaction, addTransaction, updateTransaction, onOpenChange,
+    amount,
+    accountId,
+    toAccountId,
+    type,
+    categoryId,
+    date,
+    note,
+    isExcludedFromStats,
+    isExcludedFromBudget,
+    editingTransaction,
+    addTransaction,
+    updateTransaction,
+    onOpenChange,
   ]);
 
   const selectedAccount = accounts.find((a) => a.id === accountId);
   const selectedToAccount = accounts.find((a) => a.id === toAccountId);
   const selectedCategory = categories.find((c) => c.id === categoryId);
-  const filteredCategories = categories.filter((c) => c.type === type && !c.isHidden && !c.parentId);
+  const filteredCategories = categories.filter(
+    (c) => c.type === type && !c.isHidden && !c.parentId
+  );
 
   const renderStep = () => {
     if (step === 'category') {
@@ -145,11 +165,12 @@ export function TransactionSheet({
         <div className="flex flex-col h-full">
           <div className="flex items-center gap-3 px-1 pb-4">
             <button
+              type="button"
               onClick={() => {
                 if (parentCategory) setParentCategory(null);
                 else setStep('main');
               }}
-              className="p-2 -ml-2 rounded-xl hover:bg-muted"
+              className="p-2 -ml-2 rounded-xl hover:bg-muted touch-manipulation"
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
@@ -160,10 +181,12 @@ export function TransactionSheet({
           <div className="grid grid-cols-4 gap-2 overflow-y-auto no-scrollbar pb-4">
             {list.map((cat) => {
               const hasChildren =
-                !parentCategory && categories.some((c) => c.parentId === cat.id && !c.isHidden);
+                !parentCategory &&
+                categories.some((c) => c.parentId === cat.id && !c.isHidden);
               return (
                 <button
                   key={cat.id}
+                  type="button"
                   onClick={() => {
                     if (hasChildren) {
                       setParentCategory(cat);
@@ -174,8 +197,10 @@ export function TransactionSheet({
                     }
                   }}
                   className={cn(
-                    'flex flex-col items-center gap-2 p-3 rounded-2xl transition-all',
-                    categoryId === cat.id ? 'bg-primary/10 ring-2 ring-primary' : 'hover:bg-muted'
+                    'flex flex-col items-center gap-2 p-3 rounded-2xl transition-all touch-manipulation',
+                    categoryId === cat.id
+                      ? 'bg-primary/10 ring-2 ring-primary'
+                      : 'hover:bg-muted active:bg-muted'
                   )}
                 >
                   <div
@@ -186,7 +211,9 @@ export function TransactionSheet({
                       <CategoryIcon name={cat.icon} size={22} />
                     </span>
                   </div>
-                  <span className="text-xs font-medium text-center leading-tight">{cat.name}</span>
+                  <span className="text-xs font-medium text-center leading-tight">
+                    {cat.name}
+                  </span>
                   {hasChildren && (
                     <span className="text-[9px] text-muted-foreground">More ›</span>
                   )}
@@ -203,10 +230,16 @@ export function TransactionSheet({
       return (
         <div className="flex flex-col h-full">
           <div className="flex items-center gap-3 px-1 pb-4">
-            <button onClick={() => setStep('main')} className="p-2 -ml-2 rounded-xl hover:bg-muted">
+            <button
+              type="button"
+              onClick={() => setStep('main')}
+              className="p-2 -ml-2 rounded-xl hover:bg-muted touch-manipulation"
+            >
               <ChevronLeft className="h-5 w-5" />
             </button>
-            <h2 className="text-lg font-semibold">{isTo ? 'To Account' : 'Select Account'}</h2>
+            <h2 className="text-lg font-semibold">
+              {isTo ? 'To Account' : 'Select Account'}
+            </h2>
           </div>
           <div className="flex flex-col gap-2 overflow-y-auto no-scrollbar pb-4">
             {accounts.map((acc) => {
@@ -214,14 +247,17 @@ export function TransactionSheet({
               return (
                 <button
                   key={acc.id}
+                  type="button"
                   onClick={() => {
                     if (isTo) setToAccountId(acc.id);
                     else setAccountId(acc.id);
                     setStep('main');
                   }}
                   className={cn(
-                    'flex items-center gap-3 p-4 rounded-2xl transition-all',
-                    isActive ? 'bg-primary/10 ring-2 ring-primary' : 'hover:bg-muted'
+                    'flex items-center gap-3 p-4 rounded-2xl transition-all touch-manipulation',
+                    isActive
+                      ? 'bg-primary/10 ring-2 ring-primary'
+                      : 'hover:bg-muted active:bg-muted'
                   )}
                 >
                   <div
@@ -234,11 +270,15 @@ export function TransactionSheet({
                   </div>
                   <div className="flex-1 text-left">
                     <p className="font-medium text-sm">{acc.name}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{acc.type}</p>
+                    <p className="text-xs text-muted-foreground capitalize">
+                      {acc.type}
+                    </p>
                   </div>
                   <span className="text-sm font-semibold tabular-nums">
                     {preferences.currencySymbol}
-                    {acc.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    {acc.balance.toLocaleString('en-US', {
+                      minimumFractionDigits: 2,
+                    })}
                   </span>
                 </button>
               );
@@ -252,7 +292,11 @@ export function TransactionSheet({
       return (
         <div className="flex flex-col h-full">
           <div className="flex items-center gap-3 px-1 pb-4">
-            <button onClick={() => setStep('main')} className="p-2 -ml-2 rounded-xl hover:bg-muted">
+            <button
+              type="button"
+              onClick={() => setStep('main')}
+              className="p-2 -ml-2 rounded-xl hover:bg-muted touch-manipulation"
+            >
               <ChevronLeft className="h-5 w-5" />
             </button>
             <h2 className="text-lg font-semibold">Select Date</h2>
@@ -266,7 +310,13 @@ export function TransactionSheet({
                 if (parts.length !== 3 || parts.some(Number.isNaN)) return;
                 const [y, m, d] = parts;
                 const prev = new Date(date);
-                const newDate = new Date(y, m - 1, d, prev.getHours(), prev.getMinutes());
+                const newDate = new Date(
+                  y,
+                  m - 1,
+                  d,
+                  prev.getHours(),
+                  prev.getMinutes()
+                );
                 setDate(newDate.getTime());
               }}
               className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-base"
@@ -287,6 +337,7 @@ export function TransactionSheet({
               {['Today', 'Yesterday', '2 days ago'].map((label, i) => (
                 <Button
                   key={label}
+                  type="button"
                   variant="outline"
                   size="sm"
                   className="rounded-full flex-1"
@@ -310,7 +361,11 @@ export function TransactionSheet({
       return (
         <div className="flex flex-col h-full">
           <div className="flex items-center gap-3 px-1 pb-4">
-            <button onClick={() => setStep('main')} className="p-2 -ml-2 rounded-xl hover:bg-muted">
+            <button
+              type="button"
+              onClick={() => setStep('main')}
+              className="p-2 -ml-2 rounded-xl hover:bg-muted touch-manipulation"
+            >
               <ChevronLeft className="h-5 w-5" />
             </button>
             <h2 className="text-lg font-semibold">Add Note</h2>
@@ -322,7 +377,11 @@ export function TransactionSheet({
             className="flex-1 min-h-[120px] rounded-2xl text-base resize-none"
             autoFocus
           />
-          <Button onClick={() => setStep('main')} className="mt-3 rounded-2xl">
+          <Button
+            type="button"
+            onClick={() => setStep('main')}
+            className="mt-3 rounded-2xl"
+          >
             Done
           </Button>
         </div>
@@ -336,9 +395,10 @@ export function TransactionSheet({
           {(['expense', 'income', 'transfer'] as TransactionType[]).map((t) => (
             <button
               key={t}
+              type="button"
               onClick={() => setType(t)}
               className={cn(
-                'flex-1 py-2.5 rounded-xl text-sm font-semibold capitalize transition-all',
+                'flex-1 py-2.5 rounded-xl text-sm font-semibold capitalize transition-all touch-manipulation',
                 type === t
                   ? t === 'expense'
                     ? 'bg-expense text-white shadow-sm'
@@ -382,7 +442,10 @@ export function TransactionSheet({
               <FieldButton
                 icon={
                   <span style={{ color: selectedToAccount?.color }}>
-                    <CategoryIcon name={selectedToAccount?.icon ?? 'Wallet'} size={20} />
+                    <CategoryIcon
+                      name={selectedToAccount?.icon ?? 'Wallet'}
+                      size={20}
+                    />
                   </span>
                 }
                 label="To"
@@ -440,8 +503,9 @@ export function TransactionSheet({
 
         {type !== 'transfer' && (
           <button
+            type="button"
             onClick={() => setShowOptions(!showOptions)}
-            className="flex items-center gap-2 mt-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-2 mt-3 text-sm text-muted-foreground hover:text-foreground transition-colors touch-manipulation"
           >
             <Settings2 className="h-4 w-4" />
             More options
@@ -458,7 +522,9 @@ export function TransactionSheet({
             >
               <div className="flex flex-col gap-3 pt-3">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="ex-stats" className="text-sm">Exclude from stats</Label>
+                  <Label htmlFor="ex-stats" className="text-sm">
+                    Exclude from stats
+                  </Label>
                   <Switch
                     id="ex-stats"
                     checked={isExcludedFromStats}
@@ -466,7 +532,9 @@ export function TransactionSheet({
                   />
                 </div>
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="ex-budget" className="text-sm">Exclude from budget</Label>
+                  <Label htmlFor="ex-budget" className="text-sm">
+                    Exclude from budget
+                  </Label>
                   <Switch
                     id="ex-budget"
                     checked={isExcludedFromBudget}
@@ -482,20 +550,42 @@ export function TransactionSheet({
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    /*
+      Drawer props explained:
+      - shouldScaleBackground={false}: stops Vaul from applying a scale transform
+        to the page (body) while open. That transform previously leaked onto the
+        fixed + FAB and made it "move" when tapped.
+      - handleOnly: only the pill handle at the top initiates drag-to-dismiss.
+        Taps anywhere else inside the sheet (category/account buttons, numpad,
+        etc.) now reliably fire onClick handlers.
+    */
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      shouldScaleBackground={false}
+      handleOnly
+    >
       <DrawerContent className="max-h-[92vh] rounded-t-[2rem]">
         <div className="mx-auto w-full max-w-md px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2">
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-xl font-bold">
               {editingTransaction ? 'Edit Transaction' : 'Add Transaction'}
             </h1>
-            <Button onClick={handleSave} size="sm" className="rounded-full h-9 px-4 gap-1">
+            <Button
+              type="button"
+              onClick={handleSave}
+              size="sm"
+              className="rounded-full h-9 px-4 gap-1"
+            >
               <Check className="h-4 w-4" />
               Save
             </Button>
           </div>
 
-          <div className="overflow-y-auto no-scrollbar" style={{ maxHeight: 'calc(92vh - 60px)' }}>
+          <div
+            className="overflow-y-auto no-scrollbar"
+            style={{ maxHeight: 'calc(92vh - 60px)' }}
+          >
             {renderStep()}
           </div>
         </div>
@@ -519,8 +609,9 @@ function FieldButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="flex items-center gap-3 p-3.5 rounded-2xl bg-muted/40 hover:bg-muted transition-colors text-left"
+      className="flex items-center gap-3 p-3.5 rounded-2xl bg-muted/40 hover:bg-muted active:bg-muted transition-colors text-left touch-manipulation"
     >
       <div className="h-10 w-10 rounded-xl bg-card flex items-center justify-center shrink-0">
         {icon}
