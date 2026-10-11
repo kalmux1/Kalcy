@@ -48,7 +48,10 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
                       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                     />
                   )}
-                  <Icon className="h-5 w-5 relative z-10" strokeWidth={isActive ? 2.5 : 2} />
+                  <Icon
+                    className="h-5 w-5 relative z-10"
+                    strokeWidth={isActive ? 2.5 : 2}
+                  />
                   <span
                     className={cn(
                       'text-[10px] font-medium relative z-10',
@@ -64,18 +67,28 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
         </div>
       </div>
 
-      {/* FAB — standalone fixed element so taps always register,
-          even when content underneath is scrolled. */}
-      <motion.button
-        type="button"
-        onClick={onAddClick}
-        whileTap={{ scale: 0.9 }}
-        aria-label="Add transaction"
+      {/*
+        FAB — its positioning lives on a static wrapper div, so framer-motion's
+        `transform`-based `whileTap` animation on the inner button cannot
+        clobber the `-translate-x-1/2` centering. Previously the button itself
+        carried both `-translate-x-1/2` and `whileTap={{ scale: 0.9 }}`, which
+        caused the tap target to jump sideways mid-tap and made the button
+        appear unresponsive.
+      */}
+      <div
+        className="fixed left-1/2 z-50 -translate-x-1/2"
         style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem)' }}
-        className="fixed left-1/2 z-50 h-14 w-14 -translate-x-1/2 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center"
       >
-        <Plus className="h-7 w-7" strokeWidth={2.5} />
-      </motion.button>
+        <motion.button
+          type="button"
+          onClick={onAddClick}
+          whileTap={{ scale: 0.9 }}
+          aria-label="Add transaction"
+          className="h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center"
+        >
+          <Plus className="h-7 w-7" strokeWidth={2.5} />
+        </motion.button>
+      </div>
     </>
   );
 }

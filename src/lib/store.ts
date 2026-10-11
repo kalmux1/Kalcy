@@ -2,12 +2,12 @@ import { create } from 'zustand';
 import {
   collection,
   doc,
+  getDoc,
   setDoc,
   deleteDoc,
   updateDoc,
   onSnapshot,
   writeBatch,
-  getDocs,
   increment,
   Unsubscribe,
 } from 'firebase/firestore';
@@ -69,7 +69,9 @@ function genId(p: string) {
 }
 
 /** Compute per-account balance deltas produced by a transaction. */
-function txEffects(tx: Pick<Transaction, 'type' | 'amount' | 'accountId' | 'toAccountId'>): Map<string, number> {
+function txEffects(
+  tx: Pick<Transaction, 'type' | 'amount' | 'accountId' | 'toAccountId'>
+): Map<string, number> {
   const m = new Map<string, number>();
   const add = (id: string | null | undefined, delta: number) => {
     if (!id || delta === 0) return;
@@ -118,33 +120,44 @@ export const useStore = create<StoreState>((set, get) => ({
     clearUnsubs();
     set({ isLoading: true });
 
-    // Seed defaults only if the user has NO accounts AND NO categories.
+    const prefRef = doc(db, 'users', uid, 'profile', 'preferences');
+
+    /**
+     * The preferences doc doubles as the "user has been initialized" marker.
+     * Seeding only runs when this doc is missing (i.e., a brand-new account).
+     *
+     * This prevents sample data from reappearing after the user explicitly
+     * wipes everything via "Delete All Data" — that action deletes
+     * accounts/categories/transactions/budgets but preserves preferences.
+     */
     try {
-      const [catsSnap, accsSnap] = await Promise.all([
-        getDocs(collection(db, 'users', uid, 'categories')),
-        getDocs(collection(db, 'users', uid, 'accounts')),
-      ]);
-      if (catsSnap.empty && accsSnap.empty) {
+      const prefSnap = await getDoc(prefRef);
+      if (!prefSnap.exists()) {
         const batch = writeBatch(db);
-        SEED_CATEGORIES.forEach((c) => batch.set(doc(db, 'users', uid, 'categories', c.id), c));
-        SEED_ACCOUNTS.forEach((a) =>
-          batch.set(doc(db, 'users', uid, 'accounts', a.id), { ...a, createdAt: Date.now() })
+        SEED_CATEGORIES.forEach((c) =>
+          batch.set(doc(db, 'users', uid, 'categories', c.id), c)
         );
+        SEED_ACCOUNTS.forEach((a) =>
+          batch.set(doc(db, 'users', uid, 'accounts', a.id), {
+            ...a,
+            createdAt: Date.now(),
+          })
+        );
+        // Create the marker doc atomically with the seed.
+        batch.set(prefRef, DEFAULT_PREFERENCES);
         await batch.commit();
       }
     } catch (err) {
       console.error('Failed to seed defaults for new user', err);
     }
 
-    const prefRef = doc(db, 'users', uid, 'profile', 'preferences');
+    // Preferences listener — no more writes from inside the listener.
     unsubs.push(
       onSnapshot(
         prefRef,
         (docSnap) => {
           if (docSnap.exists()) {
             set({ preferences: docSnap.data() as Preferences });
-          } else {
-            setDoc(prefRef, DEFAULT_PREFERENCES).catch(console.error);
           }
         },
         (err) => console.error('preferences listener', err)
@@ -163,7 +176,9 @@ export const useStore = create<StoreState>((set, get) => ({
       onSnapshot(
         collection(db, 'users', uid, 'categories'),
         (s) => {
-          const categories = s.docs.map((d) => d.data() as Category).sort((a, b) => a.order - b.order);
+          const categories = s.docs
+            .map((d) => d.data() as Category)
+            .sort((a, b) => a.order - b.order);
           set({ categories });
         },
         (err) => console.error('categories listener', err)
@@ -174,7 +189,9 @@ export const useStore = create<StoreState>((set, get) => ({
       onSnapshot(
         collection(db, 'users', uid, 'transactions'),
         (s) => {
-          const transactions = s.docs.map((d) => d.data() as Transaction).sort((a, b) => b.date - a.date);
+          const transactions = s.docs
+            .map((d) => d.data() as Transaction)
+            .sort((a, b) => b.date - a.date);
           set({ transactions });
         },
         (err) => console.error('transactions listener', err)
@@ -184,7 +201,11 @@ export const useStore = create<StoreState>((set, get) => ({
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'budgets'),
-        (s) => set({ budgets: s.docs.map((d) => d.data() as Budget), isLoading: false }),
+        (s) =>
+          set({
+            budgets: s.docs.map((d) => d.data() as Budget),
+            isLoading: false,
+          }),
         (err) => {
           console.error('budgets listener', err);
           set({ isLoading: false });
@@ -203,7 +224,9 @@ export const useStore = create<StoreState>((set, get) => ({
     batch.set(doc(db, 'users', user.uid, 'transactions', id), newTx);
 
     txEffects(newTx).forEach((delta, accId) => {
-      batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(delta) });
+      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+        balance: increment(delta),
+      });
     });
 
     await batch.commit();
@@ -227,7 +250,9 @@ export const useStore = create<StoreState>((set, get) => ({
     batch.update(doc(db, 'users', user.uid, 'transactions', id), updates);
     net.forEach((delta, accId) => {
       if (delta !== 0) {
-        batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(delta) });
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        });
       }
     });
 
@@ -243,9 +268,10 @@ export const useStore = create<StoreState>((set, get) => ({
     const batch = writeBatch(db);
     batch.delete(doc(db, 'users', user.uid, 'transactions', id));
 
-    // Reverse the effects.
     txEffects(tx).forEach((delta, accId) => {
-      batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(-delta) });
+      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+        balance: increment(-delta),
+      });
     });
 
     await batch.commit();
@@ -255,7 +281,11 @@ export const useStore = create<StoreState>((set, get) => ({
     const { user } = get();
     if (!user) return;
     const id = genId('acc');
-    await setDoc(doc(db, 'users', user.uid, 'accounts', id), { ...acc, id, createdAt: Date.now() });
+    await setDoc(doc(db, 'users', user.uid, 'accounts', id), {
+      ...acc,
+      id,
+      createdAt: Date.now(),
+    });
   },
 
   updateAccount: async (id, updates) => {
@@ -277,7 +307,6 @@ export const useStore = create<StoreState>((set, get) => ({
     transactions
       .filter((t) => t.accountId === id || t.toAccountId === id)
       .forEach((t) => {
-        // Reverse effects on OTHER accounts only.
         txEffects(t).forEach((delta, accId) => {
           if (accId !== id) bump(accId, -delta);
         });
@@ -286,7 +315,9 @@ export const useStore = create<StoreState>((set, get) => ({
 
     balanceDeltas.forEach((delta, accId) => {
       if (delta !== 0) {
-        batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(delta) });
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        });
       }
     });
 
@@ -299,7 +330,11 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!user) return;
     const id = genId('cat');
     const order = categories.filter((c) => c.type === cat.type).length;
-    await setDoc(doc(db, 'users', user.uid, 'categories', id), { ...cat, id, order });
+    await setDoc(doc(db, 'users', user.uid, 'categories', id), {
+      ...cat,
+      id,
+      order,
+    });
   },
 
   updateCategory: async (id, updates) => {
@@ -308,19 +343,27 @@ export const useStore = create<StoreState>((set, get) => ({
     await updateDoc(doc(db, 'users', user.uid, 'categories', id), updates);
   },
 
-  /** Cascade delete subcategories and detach any transactions/budgets referencing them. */
   deleteCategory: async (id) => {
     const { user, categories, transactions, budgets } = get();
     if (!user) return;
 
-    const toDelete = [id, ...categories.filter((c) => c.parentId === id).map((c) => c.id)];
+    const toDelete = [
+      id,
+      ...categories.filter((c) => c.parentId === id).map((c) => c.id),
+    ];
     const batch = writeBatch(db);
 
-    toDelete.forEach((cid) => batch.delete(doc(db, 'users', user.uid, 'categories', cid)));
+    toDelete.forEach((cid) =>
+      batch.delete(doc(db, 'users', user.uid, 'categories', cid))
+    );
 
     transactions
       .filter((t) => t.categoryId && toDelete.includes(t.categoryId))
-      .forEach((t) => batch.update(doc(db, 'users', user.uid, 'transactions', t.id), { categoryId: null }));
+      .forEach((t) =>
+        batch.update(doc(db, 'users', user.uid, 'transactions', t.id), {
+          categoryId: null,
+        })
+      );
 
     budgets
       .filter((b) => b.categoryId && toDelete.includes(b.categoryId))
@@ -353,28 +396,46 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!user) return;
     const prefs = { ...preferences, ...updates };
     if (updates.currency) prefs.currencySymbol = getCurrencySymbol(updates.currency);
-    await setDoc(doc(db, 'users', user.uid, 'profile', 'preferences'), prefs);
+    await setDoc(
+      doc(db, 'users', user.uid, 'profile', 'preferences'),
+      prefs
+    );
   },
 
-  /** Wipe all docs then seed — prevents orphans from previous sample data. */
   resetToSampleData: async () => {
     const { user, accounts, categories, transactions, budgets } = get();
     if (!user) return;
 
     const wipe = writeBatch(db);
-    accounts.forEach((a) => wipe.delete(doc(db, 'users', user.uid, 'accounts', a.id)));
-    categories.forEach((c) => wipe.delete(doc(db, 'users', user.uid, 'categories', c.id)));
-    transactions.forEach((t) => wipe.delete(doc(db, 'users', user.uid, 'transactions', t.id)));
-    budgets.forEach((b) => wipe.delete(doc(db, 'users', user.uid, 'budgets', b.id)));
+    accounts.forEach((a) =>
+      wipe.delete(doc(db, 'users', user.uid, 'accounts', a.id))
+    );
+    categories.forEach((c) =>
+      wipe.delete(doc(db, 'users', user.uid, 'categories', c.id))
+    );
+    transactions.forEach((t) =>
+      wipe.delete(doc(db, 'users', user.uid, 'transactions', t.id))
+    );
+    budgets.forEach((b) =>
+      wipe.delete(doc(db, 'users', user.uid, 'budgets', b.id))
+    );
     await wipe.commit();
 
     const batch = writeBatch(db);
-    SEED_CATEGORIES.forEach((c) => batch.set(doc(db, 'users', user.uid, 'categories', c.id), c));
+    SEED_CATEGORIES.forEach((c) =>
+      batch.set(doc(db, 'users', user.uid, 'categories', c.id), c)
+    );
     SEED_ACCOUNTS.forEach((a) =>
-      batch.set(doc(db, 'users', user.uid, 'accounts', a.id), { ...a, createdAt: Date.now() })
+      batch.set(doc(db, 'users', user.uid, 'accounts', a.id), {
+        ...a,
+        createdAt: Date.now(),
+      })
     );
     SEED_TRANSACTIONS.forEach((t) =>
-      batch.set(doc(db, 'users', user.uid, 'transactions', t.id), { ...t, createdAt: Date.now() })
+      batch.set(doc(db, 'users', user.uid, 'transactions', t.id), {
+        ...t,
+        createdAt: Date.now(),
+      })
     );
     SEED_BUDGETS.forEach((b) =>
       batch.set(doc(db, 'users', user.uid, 'budgets', b.id), {
@@ -382,18 +443,35 @@ export const useStore = create<StoreState>((set, get) => ({
         monthYear: new Date().toISOString().slice(0, 7),
       })
     );
-    batch.set(doc(db, 'users', user.uid, 'profile', 'preferences'), DEFAULT_PREFERENCES);
+    // Ensure the marker doc exists / is refreshed.
+    batch.set(
+      doc(db, 'users', user.uid, 'profile', 'preferences'),
+      DEFAULT_PREFERENCES
+    );
     await batch.commit();
   },
 
+  /**
+   * Wipes user data BUT leaves the preferences doc in place — that doc is the
+   * "already initialized" marker that stops the seeder from running again on
+   * the next app launch.
+   */
   clearCloudData: async () => {
     const { user, accounts, categories, transactions, budgets } = get();
     if (!user) return;
     const batch = writeBatch(db);
-    accounts.forEach((a) => batch.delete(doc(db, 'users', user.uid, 'accounts', a.id)));
-    categories.forEach((c) => batch.delete(doc(db, 'users', user.uid, 'categories', c.id)));
-    transactions.forEach((t) => batch.delete(doc(db, 'users', user.uid, 'transactions', t.id)));
-    budgets.forEach((b) => batch.delete(doc(db, 'users', user.uid, 'budgets', b.id)));
+    accounts.forEach((a) =>
+      batch.delete(doc(db, 'users', user.uid, 'accounts', a.id))
+    );
+    categories.forEach((c) =>
+      batch.delete(doc(db, 'users', user.uid, 'categories', c.id))
+    );
+    transactions.forEach((t) =>
+      batch.delete(doc(db, 'users', user.uid, 'transactions', t.id))
+    );
+    budgets.forEach((b) =>
+      batch.delete(doc(db, 'users', user.uid, 'budgets', b.id))
+    );
     await batch.commit();
   },
 }));
