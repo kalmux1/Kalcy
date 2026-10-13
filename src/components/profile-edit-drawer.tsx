@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import {
   updateProfile,
   updatePassword,
-  sendPasswordResetEmail,
   EmailAuthProvider,
   reauthenticateWithCredential,
 } from 'firebase/auth';
@@ -13,7 +12,7 @@ import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { X, Check, Mail, Lock, User, Send } from 'lucide-react';
+import { X, Check, Mail, Lock, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useStore } from '@/lib/store';
 
@@ -31,7 +30,6 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
-  const [sendingReset, setSendingReset] = useState(false);
 
   // Sync inputs with the current user whenever the drawer opens.
   useEffect(() => {
@@ -42,23 +40,6 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
       setConfirmPassword('');
     }
   }, [open, user?.displayName]);
-
-  const handleSendResetEmail = async () => {
-    if (!auth.currentUser?.email) {
-      toast.error('No email address on this account');
-      return;
-    }
-    try {
-      setSendingReset(true);
-      await sendPasswordResetEmail(auth, auth.currentUser.email);
-      toast.success(`Password reset email sent to ${auth.currentUser.email}`);
-    } catch (err) {
-      const error = err as { message?: string };
-      toast.error(error.message ?? 'Could not send reset email');
-    } finally {
-      setSendingReset(false);
-    }
-  };
 
   const handleSave = async () => {
     if (!auth.currentUser || !user) return;
@@ -281,18 +262,6 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
                     className="mt-1 rounded-xl"
                   />
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleSendResetEmail}
-                  disabled={sendingReset}
-                  className="flex items-center justify-center gap-1.5 text-xs text-primary hover:underline disabled:opacity-50 mt-1"
-                >
-                  <Send className="h-3 w-3" />
-                  {sendingReset
-                    ? 'Sending…'
-                    : "Forgot current password? Send reset email"}
-                </button>
               </div>
             </div>
           </div>

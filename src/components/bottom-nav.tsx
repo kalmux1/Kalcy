@@ -25,42 +25,57 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
       {/* Nav bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pointer-events-none">
         <div className="w-full max-w-md pointer-events-auto px-4 pb-[max(env(safe-area-inset-bottom),0.5rem)]">
-          <div className="flex items-center justify-around rounded-3xl border border-border/60 bg-card/95 backdrop-blur-xl shadow-lg shadow-black/5 h-16 px-2">
-            {NAV_ITEMS.map((item, index) => {
+          <div className="flex items-center rounded-3xl border border-border/60 bg-card/95 backdrop-blur-xl shadow-lg shadow-black/5 h-16 px-2">
+            {NAV_ITEMS.map((item) => {
               const isActive = activeTab === item.key;
               const Icon = item.icon;
-              const isRightOfFAB = index >= 2;
 
               return (
                 <button
                   key={item.key}
                   type="button"
                   onClick={() => onTabChange(item.key)}
-                  className={cn(
-                    'relative flex flex-col items-center justify-center gap-1 rounded-2xl transition-all py-1.5 flex-1 touch-manipulation',
-                    isRightOfFAB ? 'pl-5' : 'pr-5',
-                    isActive ? 'text-primary' : 'text-muted-foreground'
-                  )}
+                  className="relative flex flex-1 items-center justify-center h-full touch-manipulation"
+                  aria-label={item.label}
                 >
-                  {isActive && (
-                    <motion.div
-                      layoutId="nav-pill"
-                      className="absolute inset-0 rounded-2xl bg-primary/10"
-                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    />
-                  )}
-                  <Icon
-                    className="h-5 w-5 relative z-10"
-                    strokeWidth={isActive ? 2.5 : 2}
-                  />
-                  <span
+                  {/*
+                    The pill wraps THIS inner wrapper, which has symmetric
+                    padding on both sides. That keeps the highlight centered
+                    around the icon+label instead of stretching to fill the
+                    whole button.
+                  */}
+                  <div
                     className={cn(
-                      'text-[10px] font-medium relative z-10',
-                      isActive && 'font-semibold'
+                      'relative flex flex-col items-center justify-center gap-1 rounded-2xl px-4 py-1.5',
+                      'transition-colors duration-200',
+                      isActive ? 'text-primary' : 'text-muted-foreground'
                     )}
                   >
-                    {item.label}
-                  </span>
+                    {isActive && (
+                      <motion.div
+                        layoutId="nav-pill"
+                        className="absolute inset-0 rounded-2xl bg-primary/10 will-change-transform"
+                        transition={{
+                          type: 'spring',
+                          stiffness: 380,
+                          damping: 30,
+                          mass: 0.8,
+                        }}
+                      />
+                    )}
+                    <Icon
+                      className="h-5 w-5 relative z-10"
+                      strokeWidth={isActive ? 2.5 : 2}
+                    />
+                    <span
+                      className={cn(
+                        'text-[10px] font-medium relative z-10 leading-none',
+                        isActive && 'font-semibold'
+                      )}
+                    >
+                      {item.label}
+                    </span>
+                  </div>
                 </button>
               );
             })}
@@ -69,13 +84,9 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
       </div>
 
       {/*
-        FAB:
-        - Centering is done once, on the fixed wrapper, via `-translate-x-1/2`.
-        - The <button> itself has NO translate, so `active:scale-90` scales it
-          cleanly around its own center. Tailwind composes transform via CSS
-          variables, so there is no transform clobbering and no jump.
-        - Framer Motion is intentionally NOT used here; `whileTap` set an inline
-          `transform` that fought with the positioning `translate`.
+        FAB — centered horizontally above the nav bar.
+        Uses a single -translate-x-1/2 on the wrapper so the inner button's
+        active:scale-90 works without fighting the positioning transform.
       */}
       <div
         className="fixed left-1/2 z-50 -translate-x-1/2"
