@@ -1,9 +1,5 @@
 import React, { useState } from 'react';
-import {
-  signInWithPopup,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-} from 'firebase/auth';
+import { signInWithPopup, signInWithEmailAndPassword } from 'firebase/auth';
 import { auth, googleProvider } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +8,6 @@ import { Mail, Lock, Sparkles, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function AuthView() {
-  const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -21,7 +16,7 @@ export function AuthView() {
     try {
       setLoading(true);
       await signInWithPopup(auth, googleProvider);
-      toast.success('Signed in successfully');
+      // Allowlist check happens in App.tsx on auth state change.
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || 'Failed to sign in with Google');
@@ -30,7 +25,7 @@ export function AuthView() {
     }
   };
 
-  const handleEmailAuth = async (e: React.FormEvent) => {
+  const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       toast.error('Please enter email and password');
@@ -38,16 +33,19 @@ export function AuthView() {
     }
     try {
       setLoading(true);
-      if (isRegister) {
-        await createUserWithEmailAndPassword(auth, email, password);
-        toast.success('Account created');
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-        toast.success('Signed in successfully');
-      }
+      await signInWithEmailAndPassword(auth, email, password);
+      // Allowlist check happens in App.tsx on auth state change.
     } catch (err: unknown) {
       const error = err as Error;
-      toast.error(error.message || 'Authentication error');
+      // Firebase returns a generic error for unknown/invalid credentials —
+      // don't leak which one was wrong.
+      toast.error(
+        error.message?.includes('user-not-found') ||
+          error.message?.includes('wrong-password') ||
+          error.message?.includes('invalid-credential')
+          ? 'Incorrect email or password'
+          : error.message || 'Sign-in failed'
+      );
     } finally {
       setLoading(false);
     }
@@ -85,13 +83,14 @@ export function AuthView() {
           </span>
         </div>
 
-        <form onSubmit={handleEmailAuth} className="space-y-3">
+        <form onSubmit={handleEmailSignIn} className="space-y-3">
           <div>
             <Label className="text-xs text-muted-foreground">Email</Label>
             <div className="relative mt-1">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 type="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -107,6 +106,7 @@ export function AuthView() {
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 type="password"
+                autoComplete="current-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -121,22 +121,14 @@ export function AuthView() {
             disabled={loading}
             className="w-full rounded-2xl h-11 mt-2 text-sm font-semibold gap-1.5"
           >
-            {isRegister ? 'Create Account' : 'Sign In'}
+            {loading ? 'Signing in…' : 'Sign In'}
             <ArrowRight className="h-4 w-4" />
           </Button>
         </form>
 
-        <div className="mt-4 text-center">
-          <button
-            type="button"
-            onClick={() => setIsRegister(!isRegister)}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-4 hover:underline"
-          >
-            {isRegister
-              ? 'Already have an account? Sign in'
-              : "Don't have an account? Register"}
-          </button>
-        </div>
+        <p className="mt-4 text-center text-[11px] text-muted-foreground">
+          Access is by invitation only. Contact the administrator if you need an account.
+        </p>
       </div>
     </div>
   );

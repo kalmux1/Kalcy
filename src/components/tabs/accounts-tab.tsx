@@ -2,18 +2,36 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Pencil, ArrowRightLeft, X, Check, Trash2 } from 'lucide-react';
+import {
+  Plus,
+  Pencil,
+  ArrowRightLeft,
+  X,
+  Check,
+  Trash2,
+  Wallet,
+  HandCoins,
+} from 'lucide-react';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { CategoryIcon, AVAILABLE_ICONS, CATEGORY_COLORS } from '@/components/icon-map';
+import {
+  CategoryIcon,
+  AVAILABLE_ICONS,
+  CATEGORY_COLORS,
+} from '@/components/icon-map';
 import { useStore } from '@/lib/store';
 import type { Account, AccountType } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/currencies';
-import { getTotalBalance } from '@/lib/finance';
+import {
+  getTotalBalance,
+  getLoansNetWorth,
+  getTotalNetWorth,
+} from '@/lib/finance';
+import { LendingView } from './lending-view';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -31,13 +49,20 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: 'wallet', label: 'Wallet' },
 ];
 
+type AccountsSegment = 'accounts' | 'lending';
+
 export function AccountsTab() {
-  const { accounts, preferences, addAccount, updateAccount, deleteAccount } = useStore();
+  const { accounts, loans, preferences, addAccount, updateAccount, deleteAccount } =
+    useStore();
+  const [segment, setSegment] = useState<AccountsSegment>('accounts');
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
 
-  const totalBalance = getTotalBalance(accounts);
+  const cashBalance = getTotalBalance(accounts);
+  const loansNet = getLoansNetWorth(loans);
+  const netWorth = getTotalNetWorth(accounts, loans);
+  const activeLoans = loans.filter((l) => !l.isSettled && l.remainingAmount > 0);
 
   const confirmDelete = (acc: Account) => {
     toast('Delete this account and all its transactions?', {
@@ -55,107 +80,179 @@ export function AccountsTab() {
 
   return (
     <div className="flex flex-col h-full min-h-0">
+      {/* Header */}
       <div className="px-4 pt-4 pb-2">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Accounts</h1>
+            <h1 className="text-2xl font-bold">
+              {segment === 'accounts' ? 'Accounts' : 'Lending'}
+            </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {accounts.length} account{accounts.length !== 1 ? 's' : ''}
+              {segment === 'accounts'
+                ? `${accounts.length} account${accounts.length !== 1 ? 's' : ''}`
+                : `${activeLoans.length} active loan${
+                    activeLoans.length !== 1 ? 's' : ''
+                  }`}
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              className="rounded-xl"
-              onClick={() => setTransferOpen(true)}
-              disabled={accounts.length < 2}
-              aria-label="Transfer between accounts"
-            >
-              <ArrowRightLeft className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              className="rounded-xl"
-              onClick={() => setIsAdding(true)}
-              aria-label="Add account"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
+          {segment === 'accounts' && (
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                className="rounded-xl"
+                onClick={() => setTransferOpen(true)}
+                disabled={accounts.length < 2}
+                aria-label="Transfer between accounts"
+              >
+                <ArrowRightLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                size="icon"
+                className="rounded-xl"
+                onClick={() => setIsAdding(true)}
+                aria-label="Add account"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="px-4 pt-2">
-        <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20">
-          <p className="text-sm opacity-90 font-medium">Total Net Worth</p>
-          <p className="text-3xl font-bold mt-1 tabular-nums">
-            {formatCurrency(totalBalance, preferences.currencySymbol)}
-          </p>
-        </div>
+      {/* Segment control */}
+      <div className="flex gap-1 mx-4 mb-2 p-1 bg-muted rounded-xl">
+        {(['accounts', 'lending'] as AccountsSegment[]).map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setSegment(s)}
+            className={cn(
+              'flex-1 py-2 rounded-lg text-sm font-medium capitalize transition-all flex items-center justify-center gap-1.5 touch-manipulation',
+              segment === s
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground'
+            )}
+          >
+            {s === 'accounts' ? (
+              <Wallet className="h-3.5 w-3.5" />
+            ) : (
+              <HandCoins className="h-3.5 w-3.5" />
+            )}
+            {s === 'accounts' ? 'Accounts' : 'Lending'}
+          </button>
+        ))}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pt-3 pb-40">
-        <div className="flex flex-col gap-3">
-          {accounts.map((acc, i) => (
-            <motion.div
-              key={acc.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="bg-card rounded-2xl border border-border/40 p-4"
-            >
-              <div className="flex items-start gap-3">
-                <div
-                  className="h-12 w-12 rounded-2xl flex items-center justify-center shrink-0"
-                  style={{ backgroundColor: `${acc.color}1A` }}
-                >
-                  <span style={{ color: acc.color }}>
-                    <CategoryIcon name={acc.icon} size={24} />
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm">{acc.name}</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
-                      {acc.type}
+      {segment === 'accounts' ? (
+        <>
+          {/* Net worth card with loan breakdown */}
+          <div className="px-4 pt-2">
+            <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20">
+              <p className="text-sm opacity-90 font-medium">Total Net Worth</p>
+              <p className="text-3xl font-bold mt-1 tabular-nums">
+                {formatCurrency(netWorth, preferences.currencySymbol)}
+              </p>
+              {loansNet !== 0 && (
+                <div className="mt-3 pt-3 border-t border-white/20 flex flex-col gap-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="opacity-75">Cash &amp; accounts</span>
+                    <span className="tabular-nums">
+                      {formatCurrency(cashBalance, preferences.currencySymbol)}
                     </span>
                   </div>
-                  <p
-                    className={cn(
-                      'text-lg font-bold tabular-nums mt-1',
-                      acc.balance >= 0 ? 'text-foreground' : 'text-expense'
-                    )}
-                  >
-                    {formatCurrency(acc.balance, preferences.currencySymbol)}
+                  <div className="flex justify-between">
+                    <span className="opacity-75">Loans (net)</span>
+                    <span className="tabular-nums">
+                      {loansNet >= 0 ? '+' : ''}
+                      {formatCurrency(loansNet, preferences.currencySymbol)}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pt-3 pb-40">
+            <div className="flex flex-col gap-3">
+              {accounts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                    <Wallet className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm text-muted-foreground max-w-xs">
+                    No accounts yet. Tap + to add one.
                   </p>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setEditingAccount(acc)}
-                    className="p-2 rounded-xl hover:bg-muted transition-colors"
-                    aria-label="Edit account"
+              ) : (
+                accounts.map((acc, i) => (
+                  <motion.div
+                    key={acc.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    className="bg-card rounded-2xl border border-border/40 p-4"
                   >
-                    <Pencil className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => confirmDelete(acc)}
-                    className="p-2 rounded-xl hover:bg-destructive/10 transition-colors"
-                    aria-label="Delete account"
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </button>
-                </div>
-              </div>
-              {!acc.isIncludedInTotal && (
-                <p className="text-xs text-muted-foreground mt-2">Excluded from total</p>
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="h-12 w-12 rounded-2xl flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: `${acc.color}1A` }}
+                      >
+                        <span style={{ color: acc.color }}>
+                          <CategoryIcon name={acc.icon} size={24} />
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-sm">{acc.name}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
+                            {acc.type}
+                          </span>
+                        </div>
+                        <p
+                          className={cn(
+                            'text-lg font-bold tabular-nums mt-1',
+                            acc.balance >= 0 ? 'text-foreground' : 'text-expense'
+                          )}
+                        >
+                          {formatCurrency(acc.balance, preferences.currencySymbol)}
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingAccount(acc)}
+                          className="p-2 rounded-xl hover:bg-muted transition-colors"
+                          aria-label="Edit account"
+                        >
+                          <Pencil className="h-4 w-4 text-muted-foreground" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => confirmDelete(acc)}
+                          className="p-2 rounded-xl hover:bg-destructive/10 transition-colors"
+                          aria-label="Delete account"
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </button>
+                      </div>
+                    </div>
+                    {!acc.isIncludedInTotal && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Excluded from total
+                      </p>
+                    )}
+                  </motion.div>
+                ))
               )}
-            </motion.div>
-          ))}
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pb-40">
+          <LendingView />
         </div>
-      </div>
+      )}
 
       <AccountSheet
         open={isAdding || editingAccount !== null}
@@ -260,7 +357,9 @@ function AccountForm({
 }) {
   const [name, setName] = useState(initialName);
   const [type, setType] = useState<AccountType>(initialType);
-  const [initialBalanceInput, setInitialBalanceInput] = useState(String(initialBalance));
+  const [initialBalanceInput, setInitialBalanceInput] = useState(
+    String(initialBalance)
+  );
   const [icon, setIcon] = useState(initialIcon);
   const [color, setColor] = useState(initialColor);
   const [isIncludedInTotal, setIsIncludedInTotal] = useState(initialIncluded);
@@ -276,7 +375,9 @@ function AccountForm({
       return;
     }
     const newInitial = parsedInitial;
-    const newBalance = isEditing ? currentBalance + (newInitial - initialBalance) : newInitial;
+    const newBalance = isEditing
+      ? currentBalance + (newInitial - initialBalance)
+      : newInitial;
 
     onSubmit({
       name: name.trim(),
@@ -413,7 +514,10 @@ function AccountForm({
 
       <div className="flex items-center justify-between">
         <Label className="text-sm">Include in net worth total</Label>
-        <Switch checked={isIncludedInTotal} onCheckedChange={setIsIncludedInTotal} />
+        <Switch
+          checked={isIncludedInTotal}
+          onCheckedChange={setIsIncludedInTotal}
+        />
       </div>
 
       {/* Sticky footer: stays pinned above the keyboard. */}
@@ -446,7 +550,7 @@ function TransferDialog({
   const [toId, setToId] = useState('');
   const [amount, setAmount] = useState('');
 
-  const handleTransfer = () => {
+  const handleTransfer = async () => {
     const amt = parseFloat(amount) || 0;
     if (amt <= 0) {
       toast.error('Enter a valid amount');
@@ -460,23 +564,28 @@ function TransferDialog({
       toast.error('Choose different accounts');
       return;
     }
-    addTransaction({
-      type: 'transfer',
-      amount: amt,
-      accountId: fromId,
-      toAccountId: toId,
-      categoryId: null,
-      date: Date.now(),
-      note: 'Transfer',
-      receiptUrl: null,
-      isExcludedFromStats: true,
-      isExcludedFromBudget: true,
-    });
-    toast.success('Transfer completed');
-    setAmount('');
-    setFromId('');
-    setToId('');
-    onOpenChange(false);
+    try {
+      await addTransaction({
+        type: 'transfer',
+        amount: amt,
+        accountId: fromId,
+        toAccountId: toId,
+        categoryId: null,
+        date: Date.now(),
+        note: 'Transfer',
+        receiptUrl: null,
+        isExcludedFromStats: true,
+        isExcludedFromBudget: true,
+      });
+      toast.success('Transfer completed');
+      setAmount('');
+      setFromId('');
+      setToId('');
+      onOpenChange(false);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to complete transfer');
+    }
   };
 
   return (
@@ -534,7 +643,11 @@ function TransferDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button type="button" onClick={handleTransfer}>

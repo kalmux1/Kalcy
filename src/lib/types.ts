@@ -1,6 +1,7 @@
 export type TransactionType = 'expense' | 'income' | 'transfer';
 export type AccountType = 'cash' | 'bank' | 'card' | 'savings' | 'wallet';
 export type ThemeMode = 'light' | 'dark' | 'system';
+export type LoanType = 'lent' | 'borrowed'; // lent = they owe me; borrowed = I owe them
 
 export interface AuthUser {
   uid: string;
@@ -46,6 +47,11 @@ export interface Transaction {
   isExcludedFromStats: boolean;
   isExcludedFromBudget: boolean;
   createdAt: number;
+  /**
+   * Optional link to the loan that generated this transaction. Used so that
+   * deleting a loan can also clean up its associated transactions.
+   */
+  linkedLoanId?: string | null;
 }
 
 export interface Budget {
@@ -55,6 +61,30 @@ export interface Budget {
   period: 'monthly';
   carryOver: boolean;
   monthYear: string;
+}
+
+export interface Loan {
+  id: string;
+  personName: string;
+  type: LoanType;
+  principalAmount: number;
+  remainingAmount: number;
+  accountId: string;
+  date: number;
+  dueDate: number | null;
+  note: string;
+  isSettled: boolean;
+  createdAt: number;
+}
+
+export interface LoanPayment {
+  id: string;
+  loanId: string;
+  amount: number;
+  accountId: string;
+  date: number;
+  note: string;
+  createdAt: number;
 }
 
 export interface Preferences {

@@ -12,7 +12,16 @@ import {
   Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { Account, Category, Transaction, Budget, Preferences, AuthUser } from './types';
+import type {
+  Account,
+  Category,
+  Transaction,
+  Budget,
+  Preferences,
+  AuthUser,
+  Loan,
+  LoanPayment,
+} from './types';
 import {
   SEED_CATEGORIES,
   SEED_ACCOUNTS,
@@ -29,6 +38,8 @@ interface StoreState {
   categories: Category[];
   transactions: Transaction[];
   budgets: Budget[];
+  loans: Loan[];
+  loanPayments: LoanPayment[];
   preferences: Preferences;
 
   setUser: (user: AuthUser | null) => void;
@@ -50,6 +61,21 @@ interface StoreState {
   addBudget: (budget: Omit<Budget, 'id'>) => Promise<void>;
   updateBudget: (id: string, updates: Partial<Budget>) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
+
+  /**
+   * `addLoan` computes `remainingAmount` from `principalAmount` internally,
+   * so callers only provide the user-supplied fields.
+   */
+  addLoan: (
+    loan: Omit<Loan, 'id' | 'createdAt' | 'isSettled' | 'remainingAmount'>
+  ) => Promise<void>;
+  updateLoan: (id: string, updates: Partial<Loan>) => Promise<void>;
+  deleteLoan: (id: string) => Promise<void>;
+
+  addLoanPayment: (
+    payment: Omit<LoanPayment, 'id' | 'createdAt'>
+  ) => Promise<void>;
+  deleteLoanPayment: (id: string) => Promise<void>;
 
   updatePreferences: (updates: Partial<Preferences>) => Promise<void>;
   restoreDefaults: () => Promise<void>;
@@ -96,6 +122,8 @@ export const useStore = create<StoreState>((set, get) => ({
   categories: [],
   transactions: [],
   budgets: [],
+  loans: [],
+  loanPayments: [],
   preferences: DEFAULT_PREFERENCES,
 
   setUser: (user) => {
@@ -112,6 +140,8 @@ export const useStore = create<StoreState>((set, get) => ({
       categories: [],
       transactions: [],
       budgets: [],
+      loans: [],
+      loanPayments: [],
       preferences: DEFAULT_PREFERENCES,
       isLoading: false,
     });
@@ -123,14 +153,6 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const prefRef = doc(db, 'users', uid, 'profile', 'preferences');
 
-    /**
-     * The preferences doc doubles as the "user has been initialized" marker.
-     * Seeding only runs when this doc is missing (i.e., a brand-new account).
-     *
-     * This prevents sample data from reappearing after the user explicitly
-     * wipes everything via "Delete All Data" — that action deletes
-     * accounts/categories/transactions/budgets but preserves preferences.
-     */
     try {
       const prefSnap = await getDoc(prefRef);
       if (!prefSnap.exists()) {
@@ -144,7 +166,6 @@ export const useStore = create<StoreState>((set, get) => ({
             createdAt: Date.now(),
           })
         );
-        // Create the marker doc atomically with the seed.
         batch.set(prefRef, DEFAULT_PREFERENCES);
         await batch.commit();
       }
@@ -152,7 +173,6 @@ export const useStore = create<StoreState>((set, get) => ({
       console.error('Failed to seed defaults for new user', err);
     }
 
-    // Preferences listener — no more writes from inside the listener.
     unsubs.push(
       onSnapshot(
         prefRef,
@@ -211,6 +231,32 @@ export const useStore = create<StoreState>((set, get) => ({
           console.error('budgets listener', err);
           set({ isLoading: false });
         }
+      )
+    );
+
+    unsubs.push(
+      onSnapshot(
+        collection(db, 'users', uid, 'loans'),
+        (s) => {
+          const loans = s.docs
+            .map((d) => d.data() as Loan)
+            .sort((a, b) => b.date - a.date);
+          set({ loans });
+        },
+        (err) => console.error('loans listener', err)
+      )
+    );
+
+    unsubs.push(
+      onSnapshot(
+        collection(db, 'users', uid, 'loanPayments'),
+        (s) => {
+          const loanPayments = s.docs
+            .map((d) => d.data() as LoanPayment)
+            .sort((a, b) => b.date - a.date);
+          set({ loanPayments });
+        },
+        (err) => console.error('loanPayments listener', err)
       )
     );
   },
@@ -296,7 +342,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   deleteAccount: async (id) => {
-    const { user, transactions } = get();
+    const { user, transactions, loans } = get();
     if (!user) return;
 
     const batch = writeBatch(db);
@@ -313,6 +359,12 @@ export const useStore = create<StoreState>((set, get) => ({
         });
         batch.delete(doc(db, 'users', user.uid, 'transactions', t.id));
       });
+
+    // Also remove any loans that used this account. Users can recreate them
+    // under a different account if needed.
+    loans
+      .filter((l) => l.accountId === id)
+      .forEach((l) => batch.delete(doc(db, 'users', user.uid, 'loans', l.id)));
 
     balanceDeltas.forEach((delta, accId) => {
       if (delta !== 0) {
@@ -392,22 +444,222 @@ export const useStore = create<StoreState>((set, get) => ({
     await deleteDoc(doc(db, 'users', user.uid, 'budgets', id));
   },
 
+  /* ------------------------------------------------------------------ */
+  /*  Loans                                                             */
+  /* ------------------------------------------------------------------ */
+
+  addLoan: async ({
+    personName,
+    type,
+    principalAmount,
+    accountId,
+    date,
+    dueDate,
+    note,
+  }) => {
+    const { user } = get();
+    if (!user) return;
+
+    const loanId = genId('loan');
+    const txId = genId('t');
+    const now = Date.now();
+
+    const loan: Loan = {
+      id: loanId,
+      personName,
+      type,
+      principalAmount,
+      remainingAmount: principalAmount,
+      accountId,
+      date,
+      dueDate: dueDate ?? null,
+      note,
+      isSettled: false,
+      createdAt: now,
+    };
+
+    // Lent → money leaves the account (expense). Borrowed → money enters (income).
+    const tx: Transaction = {
+      id: txId,
+      type: type === 'lent' ? 'expense' : 'income',
+      amount: principalAmount,
+      accountId,
+      toAccountId: null,
+      categoryId: null,
+      date,
+      note:
+        note ||
+        (type === 'lent'
+          ? `Money lent to ${personName}`
+          : `Money borrowed from ${personName}`),
+      receiptUrl: null,
+      isExcludedFromStats: true,
+      isExcludedFromBudget: true,
+      createdAt: now,
+      linkedLoanId: loanId,
+    };
+
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', user.uid, 'loans', loanId), loan);
+    batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
+    txEffects(tx).forEach((delta, accId) => {
+      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+        balance: increment(delta),
+      });
+    });
+    await batch.commit();
+  },
+
+  updateLoan: async (id, updates) => {
+    const { user } = get();
+    if (!user) return;
+    const patch: Partial<Loan> = { ...updates };
+    // Auto-settle when remaining hits zero.
+    if (typeof patch.remainingAmount === 'number') {
+      patch.isSettled = patch.remainingAmount <= 0;
+    }
+    await updateDoc(doc(db, 'users', user.uid, 'loans', id), patch);
+  },
+
+  deleteLoan: async (id) => {
+    const { user, transactions, loanPayments } = get();
+    if (!user) return;
+
+    const batch = writeBatch(db);
+
+    // Reverse every transaction that was generated by this loan.
+    transactions
+      .filter((t) => t.linkedLoanId === id)
+      .forEach((t) => {
+        batch.delete(doc(db, 'users', user.uid, 'transactions', t.id));
+        txEffects(t).forEach((delta, accId) => {
+          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+            balance: increment(-delta),
+          });
+        });
+      });
+
+    loanPayments
+      .filter((p) => p.loanId === id)
+      .forEach((p) =>
+        batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
+      );
+
+    batch.delete(doc(db, 'users', user.uid, 'loans', id));
+    await batch.commit();
+  },
+
+  addLoanPayment: async ({ loanId, amount, accountId, date, note }) => {
+    const { user, loans } = get();
+    if (!user) return;
+    const loan = loans.find((l) => l.id === loanId);
+    if (!loan) return;
+
+    const paymentId = genId('pay');
+    const txId = genId('t');
+    const now = Date.now();
+
+    const payment: LoanPayment = {
+      id: paymentId,
+      loanId,
+      amount,
+      accountId,
+      date,
+      note,
+      createdAt: now,
+    };
+
+    // Lent and being repaid → income. Borrowed and repaying → expense.
+    const tx: Transaction = {
+      id: txId,
+      type: loan.type === 'lent' ? 'income' : 'expense',
+      amount,
+      accountId,
+      toAccountId: null,
+      categoryId: null,
+      date,
+      note:
+        note ||
+        (loan.type === 'lent'
+          ? `Repayment from ${loan.personName}`
+          : `Repayment to ${loan.personName}`),
+      receiptUrl: null,
+      isExcludedFromStats: true,
+      isExcludedFromBudget: true,
+      createdAt: now,
+      linkedLoanId: loanId,
+    };
+
+    const newRemaining = Math.max(0, loan.remainingAmount - amount);
+
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', user.uid, 'loanPayments', paymentId), payment);
+    batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
+    batch.update(doc(db, 'users', user.uid, 'loans', loanId), {
+      remainingAmount: newRemaining,
+      isSettled: newRemaining <= 0,
+    });
+    txEffects(tx).forEach((delta, accId) => {
+      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+        balance: increment(delta),
+      });
+    });
+    await batch.commit();
+  },
+
+  deleteLoanPayment: async (id) => {
+    const { user, loanPayments, transactions, loans } = get();
+    if (!user) return;
+    const payment = loanPayments.find((p) => p.id === id);
+    if (!payment) return;
+    const loan = loans.find((l) => l.id === payment.loanId);
+    if (!loan) return;
+
+    // Find the matching transaction. We match on linkedLoanId + amount + date,
+    // since loan payments are 1:1 with their transactions.
+    const linked = transactions.find(
+      (t) =>
+        t.linkedLoanId === payment.loanId &&
+        t.amount === payment.amount &&
+        t.date === payment.date &&
+        (t.type === 'income' || t.type === 'expense')
+    );
+
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'users', user.uid, 'loanPayments', id));
+
+    if (linked) {
+      batch.delete(doc(db, 'users', user.uid, 'transactions', linked.id));
+      txEffects(linked).forEach((delta, accId) => {
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(-delta),
+        });
+      });
+    }
+
+    const restored = Math.min(
+      loan.principalAmount,
+      loan.remainingAmount + payment.amount
+    );
+    batch.update(doc(db, 'users', user.uid, 'loans', loan.id), {
+      remainingAmount: restored,
+      isSettled: restored <= 0,
+    });
+
+    await batch.commit();
+  },
+
+  /* ------------------------------------------------------------------ */
+
   updatePreferences: async (updates) => {
     const { user, preferences } = get();
     if (!user) return;
     const prefs = { ...preferences, ...updates };
-    if (updates.currency) prefs.currencySymbol = getCurrencySymbol(updates.currency);
-    await setDoc(
-      doc(db, 'users', user.uid, 'profile', 'preferences'),
-      prefs
-    );
+    if (updates.currency)
+      prefs.currencySymbol = getCurrencySymbol(updates.currency);
+    await setDoc(doc(db, 'users', user.uid, 'profile', 'preferences'), prefs);
   },
 
-  /**
-   * Re-seeds the default accounts and categories if they are missing.
-   * Transactions and budgets are left untouched. Used to recover from an
-   * accidental "Delete All Data" without forcing a full reset.
-   */
   restoreDefaults: async () => {
     const { user, categories, accounts } = get();
     if (!user) return;
@@ -433,7 +685,15 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   resetToSampleData: async () => {
-    const { user, accounts, categories, transactions, budgets } = get();
+    const {
+      user,
+      accounts,
+      categories,
+      transactions,
+      budgets,
+      loans,
+      loanPayments,
+    } = get();
     if (!user) return;
 
     const wipe = writeBatch(db);
@@ -448,6 +708,10 @@ export const useStore = create<StoreState>((set, get) => ({
     );
     budgets.forEach((b) =>
       wipe.delete(doc(db, 'users', user.uid, 'budgets', b.id))
+    );
+    loans.forEach((l) => wipe.delete(doc(db, 'users', user.uid, 'loans', l.id)));
+    loanPayments.forEach((p) =>
+      wipe.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
     );
     await wipe.commit();
 
@@ -473,7 +737,6 @@ export const useStore = create<StoreState>((set, get) => ({
         monthYear: new Date().toISOString().slice(0, 7),
       })
     );
-    // Ensure the marker doc exists / is refreshed.
     batch.set(
       doc(db, 'users', user.uid, 'profile', 'preferences'),
       DEFAULT_PREFERENCES
@@ -481,14 +744,16 @@ export const useStore = create<StoreState>((set, get) => ({
     await batch.commit();
   },
 
-  /**
-   * Wipes user data BUT leaves the preferences doc in place — that doc is the
-   * "already initialized" marker that stops the seeder from running again on
-   * the next app launch. Use `restoreDefaults()` to bring back accounts and
-   * categories afterward.
-   */
   clearCloudData: async () => {
-    const { user, accounts, categories, transactions, budgets } = get();
+    const {
+      user,
+      accounts,
+      categories,
+      transactions,
+      budgets,
+      loans,
+      loanPayments,
+    } = get();
     if (!user) return;
     const batch = writeBatch(db);
     accounts.forEach((a) =>
@@ -502,6 +767,12 @@ export const useStore = create<StoreState>((set, get) => ({
     );
     budgets.forEach((b) =>
       batch.delete(doc(db, 'users', user.uid, 'budgets', b.id))
+    );
+    loans.forEach((l) =>
+      batch.delete(doc(db, 'users', user.uid, 'loans', l.id))
+    );
+    loanPayments.forEach((p) =>
+      batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
     );
     await batch.commit();
   },

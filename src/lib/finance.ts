@@ -1,8 +1,14 @@
-import type { Transaction, Account, Category, Budget } from './types';
+import type { Transaction, Account, Category, Budget, Loan } from './types';
+
+/* -------------------------------------------------------------------------- */
+/*  Date helpers                                                              */
+/* -------------------------------------------------------------------------- */
 
 export function formatDateKey(timestamp: number): string {
   const d = new Date(timestamp);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')}`;
 }
 
 export function toDateInputValue(timestamp: number): string {
@@ -11,7 +17,10 @@ export function toDateInputValue(timestamp: number): string {
 
 export function toTimeInputValue(timestamp: number): string {
   const d = new Date(timestamp);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(
+    2,
+    '0'
+  )}`;
 }
 
 export function monthYearKey(timestamp: number): string {
@@ -42,23 +51,37 @@ export function formatDateLabel(timestamp: number): string {
   if (dateStr === formatDateKey(today.getTime())) return 'Today';
   if (dateStr === formatDateKey(yesterday.getTime())) return 'Yesterday';
 
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 export function formatDateLong(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
   });
 }
 
 export function formatMonthYear(monthYear: string): string {
   const [year, month] = monthYear.split('-');
   return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', {
-    month: 'long', year: 'numeric',
+    month: 'long',
+    year: 'numeric',
   });
 }
 
-export function groupTransactionsByDay(transactions: Transaction[]): Map<string, Transaction[]> {
+/* -------------------------------------------------------------------------- */
+/*  Transaction aggregation                                                   */
+/* -------------------------------------------------------------------------- */
+
+export function groupTransactionsByDay(
+  transactions: Transaction[]
+): Map<string, Transaction[]> {
   const map = new Map<string, Transaction[]>();
   const sorted = [...transactions].sort((a, b) => b.date - a.date);
   for (const tx of sorted) {
@@ -69,41 +92,67 @@ export function groupTransactionsByDay(transactions: Transaction[]): Map<string,
   return map;
 }
 
-export function getTransactionsForMonth(transactions: Transaction[], monthYear: string): Transaction[] {
+export function getTransactionsForMonth(
+  transactions: Transaction[],
+  monthYear: string
+): Transaction[] {
   return transactions.filter((tx) => monthYearKey(tx.date) === monthYear);
 }
 
-export function getDailyTotals(transactions: Transaction[], dayKey: string): { income: number; expense: number } {
-  const dayTxs = transactions.filter((tx) => formatDateKey(tx.date) === dayKey && tx.type !== 'transfer');
+export function getDailyTotals(
+  transactions: Transaction[],
+  dayKey: string
+): { income: number; expense: number } {
+  const dayTxs = transactions.filter(
+    (tx) => formatDateKey(tx.date) === dayKey && tx.type !== 'transfer'
+  );
   return {
     income: dayTxs.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0),
     expense: dayTxs.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0),
   };
 }
 
-export function getMonthlyTotals(transactions: Transaction[], monthYear: string): { income: number; expense: number; net: number } {
+export function getMonthlyTotals(
+  transactions: Transaction[],
+  monthYear: string
+): { income: number; expense: number; net: number } {
   const monthTxs = getTransactionsForMonth(transactions, monthYear).filter(
     (t) => !t.isExcludedFromStats && t.type !== 'transfer'
   );
-  const income = monthTxs.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-  const expense = monthTxs.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const income = monthTxs
+    .filter((t) => t.type === 'income')
+    .reduce((s, t) => s + t.amount, 0);
+  const expense = monthTxs
+    .filter((t) => t.type === 'expense')
+    .reduce((s, t) => s + t.amount, 0);
   return { income, expense, net: income - expense };
 }
 
 export function getTotalBalance(accounts: Account[]): number {
-  return accounts.filter((a) => a.isIncludedInTotal).reduce((sum, a) => sum + a.balance, 0);
+  return accounts
+    .filter((a) => a.isIncludedInTotal)
+    .reduce((sum, a) => sum + a.balance, 0);
 }
 
-export function getCategoryById(categories: Category[], id: string | null): Category | undefined {
+export function getCategoryById(
+  categories: Category[],
+  id: string | null
+): Category | undefined {
   if (!id) return undefined;
   return categories.find((c) => c.id === id);
 }
 
-export function getAccountById(accounts: Account[], id: string): Account | undefined {
+export function getAccountById(
+  accounts: Account[],
+  id: string
+): Account | undefined {
   return accounts.find((a) => a.id === id);
 }
 
-function findRootCategory(categories: Category[], catId: string): Category | undefined {
+function findRootCategory(
+  categories: Category[],
+  catId: string
+): Category | undefined {
   let cat = categories.find((c) => c.id === catId);
   const seen = new Set<string>();
   while (cat?.parentId && !seen.has(cat.id)) {
@@ -120,7 +169,14 @@ export function getCategoryBreakdown(
   categories: Category[],
   type: 'expense' | 'income',
   monthYear?: string
-): { categoryId: string; name: string; color: string; icon: string; amount: number; percentage: number }[] {
+): {
+  categoryId: string;
+  name: string;
+  color: string;
+  icon: string;
+  amount: number;
+  percentage: number;
+}[] {
   let filtered = transactions.filter((t) => t.type === type && !t.isExcludedFromStats);
   if (monthYear) filtered = filtered.filter((t) => monthYearKey(t.date) === monthYear);
 
@@ -149,20 +205,36 @@ export function getCategoryBreakdown(
     .sort((a, b) => b.amount - a.amount);
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Budgets                                                                   */
+/* -------------------------------------------------------------------------- */
+
 export function getBudgetProgress(
   budget: Budget,
   transactions: Transaction[],
   categories: Category[]
-): { spent: number; remaining: number; percentage: number; isOver: boolean; isWarning: boolean } {
+): {
+  spent: number;
+  remaining: number;
+  percentage: number;
+  isOver: boolean;
+  isWarning: boolean;
+} {
   const { start, end } = getMonthRange(budget.monthYear);
 
   const monthTxs = transactions.filter(
-    (t) => t.type === 'expense' && !t.isExcludedFromBudget && t.date >= start && t.date < end
+    (t) =>
+      t.type === 'expense' &&
+      !t.isExcludedFromBudget &&
+      t.date >= start &&
+      t.date < end
   );
 
   let spent: number;
   if (budget.categoryId) {
-    const subcats = categories.filter((c) => c.parentId === budget.categoryId).map((c) => c.id);
+    const subcats = categories
+      .filter((c) => c.parentId === budget.categoryId)
+      .map((c) => c.id);
     const allCatIds = [budget.categoryId, ...subcats];
     spent = monthTxs
       .filter((t) => t.categoryId && allCatIds.includes(t.categoryId))
@@ -182,12 +254,25 @@ export function getBudgetProgress(
   };
 }
 
-export function getMonthTotalSpent(transactions: Transaction[], monthYear: string): number {
+export function getMonthTotalSpent(
+  transactions: Transaction[],
+  monthYear: string
+): number {
   const { start, end } = getMonthRange(monthYear);
   return transactions
-    .filter((t) => t.type === 'expense' && !t.isExcludedFromBudget && t.date >= start && t.date < end)
+    .filter(
+      (t) =>
+        t.type === 'expense' &&
+        !t.isExcludedFromBudget &&
+        t.date >= start &&
+        t.date < end
+    )
     .reduce((s, t) => s + t.amount, 0);
 }
+
+/* -------------------------------------------------------------------------- */
+/*  CSV export                                                                */
+/* -------------------------------------------------------------------------- */
 
 /** CSV-safe: neutralise formula-injection prefixes. */
 function csvSafe(value: string): string {
@@ -202,13 +287,24 @@ export function exportToCSV(
   categories: Category[]
 ): string {
   const headers = [
-    'Date', 'Type', 'Amount', 'Account', 'To Account', 'Category',
-    'Note', 'Excluded from Stats', 'Excluded from Budget',
+    'Date',
+    'Type',
+    'Amount',
+    'Account',
+    'To Account',
+    'Category',
+    'Note',
+    'Excluded from Stats',
+    'Excluded from Budget',
   ];
   const rows = transactions.map((tx) => {
     const acc = accounts.find((a) => a.id === tx.accountId)?.name ?? '';
-    const toAcc = tx.toAccountId ? accounts.find((a) => a.id === tx.toAccountId)?.name ?? '' : '';
-    const cat = tx.categoryId ? categories.find((c) => c.id === tx.categoryId)?.name ?? '' : '';
+    const toAcc = tx.toAccountId
+      ? accounts.find((a) => a.id === tx.toAccountId)?.name ?? ''
+      : '';
+    const cat = tx.categoryId
+      ? categories.find((c) => c.id === tx.categoryId)?.name ?? ''
+      : '';
     return [
       new Date(tx.date).toISOString(),
       tx.type,
@@ -236,7 +332,15 @@ export function downloadCSV(csv: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function getCalendarDays(year: number, month: number, weekStartDay: 0 | 1): (Date | null)[] {
+/* -------------------------------------------------------------------------- */
+/*  Calendar                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export function getCalendarDays(
+  year: number,
+  month: number,
+  weekStartDay: 0 | 1
+): (Date | null)[] {
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
   const days: (Date | null)[] = [];
@@ -254,12 +358,84 @@ export function getMonthlyTrend(
   months: number,
   referenceDate: Date = new Date()
 ): { label: string; income: number; expense: number; net: number }[] {
-  const result: { label: string; income: number; expense: number; net: number }[] = [];
+  const result: {
+    label: string;
+    income: number;
+    expense: number;
+    net: number;
+  }[] = [];
   for (let m = months - 1; m >= 0; m--) {
     const date = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - m, 1);
     const myKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     const totals = getMonthlyTotals(transactions, myKey);
-    result.push({ label: date.toLocaleDateString('en-US', { month: 'short' }), ...totals });
+    result.push({
+      label: date.toLocaleDateString('en-US', { month: 'short' }),
+      ...totals,
+    });
   }
   return result;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Lending / loans                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Summary of all active loans.
+ * - totalLent:     money others currently owe you (a receivable / asset)
+ * - totalBorrowed: money you currently owe others (a payable / liability)
+ * - netReceivable: totalLent − totalBorrowed (positive = net asset position)
+ * - activeCount:   number of unsettled loans
+ *
+ * Settled loans (isSettled === true or remaining <= 0) are ignored.
+ */
+export function getLoansSummary(loans: Loan[]): {
+  totalLent: number;
+  totalBorrowed: number;
+  netReceivable: number;
+  activeCount: number;
+} {
+  let totalLent = 0;
+  let totalBorrowed = 0;
+  let activeCount = 0;
+  for (const loan of loans) {
+    if (loan.isSettled || loan.remainingAmount <= 0) continue;
+    activeCount += 1;
+    if (loan.type === 'lent') totalLent += loan.remainingAmount;
+    else totalBorrowed += loan.remainingAmount;
+  }
+  return {
+    totalLent,
+    totalBorrowed,
+    netReceivable: totalLent - totalBorrowed,
+    activeCount,
+  };
+}
+
+/** Net worth contribution from loans: + receivables, − payables. */
+export function getLoansNetWorth(loans: Loan[]): number {
+  return getLoansSummary(loans).netReceivable;
+}
+
+/**
+ * Full net worth = sum of included account balances + net loan position.
+ *
+ * Rationale: lending cash out doesn't reduce net worth — you gain a receivable
+ * in exchange. Borrowing cash in doesn't increase net worth — you gain a
+ * payable. So accounts and loans offset each other by design.
+ */
+export function getTotalNetWorth(accounts: Account[], loans: Loan[]): number {
+  return getTotalBalance(accounts) + getLoansNetWorth(loans);
+}
+
+/** Paid amount on a loan (principal − remaining), clamped to [0, principal]. */
+export function getLoanPaid(loan: Loan): number {
+  const paid = loan.principalAmount - loan.remainingAmount;
+  return Math.max(0, Math.min(paid, loan.principalAmount));
+}
+
+/** Payment progress as a percentage, clamped to [0, 100]. */
+export function getLoanProgress(loan: Loan): number {
+  if (loan.principalAmount <= 0) return 0;
+  return Math.min(100, (getLoanPaid(loan) / loan.principalAmount) * 100);
 }
