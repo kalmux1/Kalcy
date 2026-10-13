@@ -16,8 +16,69 @@ import { exportToCSV, downloadCSV } from '@/lib/finance';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import type { Transaction } from '@/lib/types';
-import { Download, Trash2, Target, LogOut, Cloud, UserCog } from 'lucide-react';
+import { Download, Trash2, Target, LogOut, Wifi, WifiOff, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
+
+/* ------------------------------------------------------------------ */
+/*  Online/offline indicator                                          */
+/* ------------------------------------------------------------------ */
+
+function useOnlineStatus(): boolean {
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Some browsers don't fire `offline` reliably; poll as a fallback.
+    const interval = setInterval(() => {
+      setIsOnline(navigator.onLine);
+    }, 5000);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      clearInterval(interval);
+    };
+  }, []);
+
+  return isOnline;
+}
+
+function ConnectionStatus() {
+  const isOnline = useOnlineStatus();
+
+  return (
+    <div
+      className={
+        'flex items-center gap-2 p-3 rounded-2xl text-xs font-medium transition-colors duration-300 ' +
+        (isOnline
+          ? 'bg-income/10 text-income'
+          : 'bg-destructive/10 text-destructive')
+      }
+      role="status"
+      aria-live="polite"
+    >
+      {isOnline ? (
+        <Wifi className="h-4 w-4" />
+      ) : (
+        <WifiOff className="h-4 w-4" />
+      )}
+      <span>
+        {isOnline
+          ? 'Connected to the internet'
+          : 'No internet connection'}
+      </span>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('transactions');
@@ -173,10 +234,8 @@ export default function App() {
               </Button>
             </div>
 
-            <div className="flex items-center gap-2 p-3 rounded-2xl bg-primary/10 text-primary text-xs font-medium">
-              <Cloud className="h-4 w-4" />
-              <span>Realtime cloud sync active</span>
-            </div>
+            {/* Connection status indicator */}
+            <ConnectionStatus />
 
             {/* Account / Profile */}
             <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4">
