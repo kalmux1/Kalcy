@@ -114,6 +114,7 @@ export function BudgetsView() {
       </div>
 
       <Button
+        type="button"
         variant="outline"
         className="rounded-2xl border-dashed"
         onClick={() => setIsAdding(true)}
@@ -165,12 +166,15 @@ export function BudgetsView() {
                   </div>
                   <div className="flex gap-1">
                     <button
+                      type="button"
                       onClick={() => setEditing(budget)}
                       className="p-2 rounded-xl hover:bg-muted"
+                      aria-label="Edit budget"
                     >
                       <Pencil className="h-4 w-4 text-muted-foreground" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         toast('Delete this budget?', {
                           duration: 6000,
@@ -185,6 +189,7 @@ export function BudgetsView() {
                         });
                       }}
                       className="p-2 rounded-xl hover:bg-destructive/10"
+                      aria-label="Delete budget"
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </button>
@@ -270,10 +275,13 @@ function BudgetSheet({
   const formKey = open ? budget?.id ?? 'new' : 'closed';
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="rounded-t-[2rem]">
-        <div className="mx-auto w-full max-w-md px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2">
-          <h2 className="text-xl font-bold mb-4">{budget ? 'Edit Budget' : 'New Budget'}</h2>
+    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
+      <DrawerContent className="rounded-t-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
+        <div className="shrink-0 px-4 pt-2 pb-3">
+          <h2 className="text-xl font-bold">{budget ? 'Edit Budget' : 'New Budget'}</h2>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4">
           <BudgetForm
             key={formKey}
             initialAmount={budget?.amount ?? 0}
@@ -339,6 +347,7 @@ function BudgetForm({
         <Label className="text-xs text-muted-foreground">Budget for Category</Label>
         <div className="flex flex-wrap gap-2 mt-1">
           <button
+            type="button"
             onClick={() => setCategoryId(null)}
             className={cn(
               'px-3 py-2 rounded-xl text-sm font-medium transition-all',
@@ -352,6 +361,7 @@ function BudgetForm({
           {expenseCategories.map((cat) => (
             <button
               key={cat.id}
+              type="button"
               onClick={() => setCategoryId(cat.id)}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all',
@@ -377,6 +387,7 @@ function BudgetForm({
           </span>
           <Input
             type="number"
+            inputMode="decimal"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
@@ -393,11 +404,17 @@ function BudgetForm({
         <Switch checked={carryOver} onCheckedChange={setCarryOver} />
       </div>
 
-      <div className="flex gap-2 mt-2">
-        <Button variant="outline" className="flex-1 rounded-xl" onClick={onCancel}>
+      {/* Sticky footer: stays pinned above the keyboard. */}
+      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] bg-background border-t flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1 rounded-xl"
+          onClick={onCancel}
+        >
           <X className="h-4 w-4 mr-1" /> Cancel
         </Button>
-        <Button className="flex-1 rounded-xl" onClick={handleSubmit}>
+        <Button type="button" className="flex-1 rounded-xl" onClick={handleSubmit}>
           <Check className="h-4 w-4 mr-1" /> Save
         </Button>
       </div>

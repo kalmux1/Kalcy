@@ -132,6 +132,7 @@ export function AccountsTab() {
                 </div>
                 <div className="flex flex-col gap-1">
                   <button
+                    type="button"
                     onClick={() => setEditingAccount(acc)}
                     className="p-2 rounded-xl hover:bg-muted transition-colors"
                     aria-label="Edit account"
@@ -139,6 +140,7 @@ export function AccountsTab() {
                     <Pencil className="h-4 w-4 text-muted-foreground" />
                   </button>
                   <button
+                    type="button"
                     onClick={() => confirmDelete(acc)}
                     className="p-2 rounded-xl hover:bg-destructive/10 transition-colors"
                     aria-label="Delete account"
@@ -197,15 +199,17 @@ function AccountSheet({
   const formKey = open ? account?.id ?? 'new' : 'closed';
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="rounded-t-[2rem]">
-        <div
-          className="mx-auto w-full max-w-md px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 overflow-y-auto no-scrollbar"
-          style={{ maxHeight: '85vh' }}
-        >
-          <h2 className="text-xl font-bold mb-4">
+    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
+      <DrawerContent className="rounded-t-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
+        {/* Fixed header */}
+        <div className="shrink-0 px-4 pt-2 pb-3">
+          <h2 className="text-xl font-bold">
             {account ? 'Edit Account' : 'New Account'}
           </h2>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4">
           <AccountForm
             key={formKey}
             initialName={account?.name ?? ''}
@@ -319,6 +323,7 @@ function AccountForm({
           {ACCOUNT_TYPES.map((t) => (
             <button
               key={t.value}
+              type="button"
               onClick={() => setType(t.value)}
               className={cn(
                 'px-3 py-2 rounded-xl text-sm font-medium transition-all',
@@ -341,6 +346,7 @@ function AccountForm({
           </span>
           <Input
             type="number"
+            inputMode="decimal"
             value={initialBalanceInput}
             onChange={(e) => setInitialBalanceInput(e.target.value)}
             placeholder="0.00"
@@ -367,14 +373,16 @@ function AccountForm({
 
       <div>
         <Label className="text-xs text-muted-foreground">Icon</Label>
-        <div className="grid grid-cols-8 gap-2 mt-1">
-          {AVAILABLE_ICONS.slice(0, 16).map((iconName) => (
+        {/* 6 columns + aspect-square + w-full = no fixed width, no overflow. */}
+        <div className="grid grid-cols-6 gap-2 mt-1">
+          {AVAILABLE_ICONS.slice(0, 18).map((iconName) => (
             <button
               key={iconName}
+              type="button"
               onClick={() => setIcon(iconName)}
               aria-label={`Icon ${iconName}`}
               className={cn(
-                'h-10 w-10 rounded-xl flex items-center justify-center transition-all',
+                'aspect-square w-full rounded-xl flex items-center justify-center transition-all',
                 icon === iconName ? 'bg-primary text-primary-foreground' : 'bg-muted'
               )}
             >
@@ -390,10 +398,11 @@ function AccountForm({
           {CATEGORY_COLORS.slice(0, 12).map((c) => (
             <button
               key={c}
+              type="button"
               onClick={() => setColor(c)}
               aria-label={`Color ${c}`}
               className={cn(
-                'h-8 w-8 rounded-full transition-all',
+                'aspect-square w-8 rounded-full transition-all',
                 color === c && 'ring-2 ring-offset-2 ring-ring scale-110'
               )}
               style={{ backgroundColor: c }}
@@ -407,11 +416,17 @@ function AccountForm({
         <Switch checked={isIncludedInTotal} onCheckedChange={setIsIncludedInTotal} />
       </div>
 
-      <div className="flex gap-2 mt-2">
-        <Button variant="outline" className="flex-1 rounded-xl" onClick={onCancel}>
+      {/* Sticky footer: stays pinned above the keyboard. */}
+      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] bg-background border-t flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1 rounded-xl"
+          onClick={onCancel}
+        >
           <X className="h-4 w-4 mr-1" /> Cancel
         </Button>
-        <Button className="flex-1 rounded-xl" onClick={handleSubmit}>
+        <Button type="button" className="flex-1 rounded-xl" onClick={handleSubmit}>
           <Check className="h-4 w-4 mr-1" /> Save
         </Button>
       </div>
@@ -509,6 +524,7 @@ function TransferDialog({
               </span>
               <Input
                 type="number"
+                inputMode="decimal"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
@@ -518,10 +534,10 @@ function TransferDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleTransfer}>
+          <Button type="button" onClick={handleTransfer}>
             <ArrowRightLeft className="h-4 w-4 mr-1" /> Transfer
           </Button>
         </DialogFooter>
