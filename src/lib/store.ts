@@ -62,10 +62,6 @@ interface StoreState {
   updateBudget: (id: string, updates: Partial<Budget>) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
 
-  /**
-   * `addLoan` computes `remainingAmount` from `principalAmount` internally,
-   * so callers only provide the user-supplied fields.
-   */
   addLoan: (
     loan: Omit<Loan, 'id' | 'createdAt' | 'isSettled' | 'remainingAmount'>
   ) => Promise<void>;
@@ -113,6 +109,18 @@ function txEffects(
     add(tx.accountId, +tx.amount);
   }
   return m;
+}
+
+/** Find the initial (principal) transaction for a loan. */
+function findInitialLoanTransaction(
+  loan: Loan,
+  transactions: Transaction[]
+): Transaction | undefined {
+  const initialType: Transaction['type'] =
+    loan.type === 'lent' ? 'expense' : 'income';
+  return transactions.find(
+    (t) => t.linkedLoanId === loan.id && !t.linkedPaymentId && t.type === initialType
+  );
 }
 
 export const useStore = create<StoreState>((set, get) => ({
@@ -342,36 +350,78 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   deleteAccount: async (id) => {
-    const { user, transactions, loans } = get();
+    const { user, transactions, loans, loanPayments } = get();
     if (!user) return;
 
     const batch = writeBatch(db);
     const balanceDeltas = new Map<string, number>();
     const bump = (accId: string, delta: number) => {
+      if (accId === id) return; // effects on the deleted account are irrelevant
+      if (delta === 0) return;
       balanceDeltas.set(accId, (balanceDeltas.get(accId) ?? 0) + delta);
     };
 
-    transactions
-      .filter((t) => t.accountId === id || t.toAccountId === id)
-      .forEach((t) => {
-        txEffects(t).forEach((delta, accId) => {
-          if (accId !== id) bump(accId, -delta);
-        });
-        batch.delete(doc(db, 'users', user.uid, 'transactions', t.id));
-      });
+    // Loans whose "home" account is this account get removed entirely.
+    const loansUsingAccount = loans.filter((l) => l.accountId === id);
+    const deletingLoanIds = new Set(loansUsingAccount.map((l) => l.id));
 
-    // Also remove any loans that used this account. Users can recreate them
-    // under a different account if needed.
-    loans
-      .filter((l) => l.accountId === id)
-      .forEach((l) => batch.delete(doc(db, 'users', user.uid, 'loans', l.id)));
+    // Payments made through this account get removed and their loans restored.
+    const paymentsOnAccount = loanPayments.filter((p) => p.accountId === id);
+    const paymentIdsToDelete = new Set(paymentsOnAccount.map((p) => p.id));
+
+    // Collect every transaction that must be removed.
+    const txIdsToDelete = new Set<string>();
+    transactions.forEach((t) => {
+      if (
+        t.accountId === id ||
+        t.toAccountId === id ||
+        (t.linkedLoanId && deletingLoanIds.has(t.linkedLoanId)) ||
+        (t.linkedPaymentId && paymentIdsToDelete.has(t.linkedPaymentId))
+      ) {
+        txIdsToDelete.add(t.id);
+      }
+    });
+
+    // Reverse effects on surviving accounts.
+    transactions.forEach((t) => {
+      if (txIdsToDelete.has(t.id)) {
+        txEffects(t).forEach((delta, accId) => bump(accId, -delta));
+      }
+    });
+
+    // Restore remainingAmount on loans whose payment is being removed but
+    // whose loan is NOT itself being deleted.
+    paymentsOnAccount.forEach((p) => {
+      if (deletingLoanIds.has(p.loanId)) return;
+      const loan = loans.find((l) => l.id === p.loanId);
+      if (!loan) return;
+      const restored = Math.min(
+        loan.principalAmount,
+        loan.remainingAmount + p.amount
+      );
+      batch.update(doc(db, 'users', user.uid, 'loans', loan.id), {
+        remainingAmount: restored,
+        isSettled: restored <= 0,
+      });
+    });
+
+    // Deletions
+    txIdsToDelete.forEach((txId) =>
+      batch.delete(doc(db, 'users', user.uid, 'transactions', txId))
+    );
+    loansUsingAccount.forEach((l) =>
+      batch.delete(doc(db, 'users', user.uid, 'loans', l.id))
+    );
+    loanPayments.forEach((p) => {
+      if (deletingLoanIds.has(p.loanId) || paymentIdsToDelete.has(p.id)) {
+        batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id));
+      }
+    });
 
     balanceDeltas.forEach((delta, accId) => {
-      if (delta !== 0) {
-        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-          balance: increment(delta),
-        });
-      }
+      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+        balance: increment(delta),
+      });
     });
 
     batch.delete(doc(db, 'users', user.uid, 'accounts', id));
@@ -478,7 +528,6 @@ export const useStore = create<StoreState>((set, get) => ({
       createdAt: now,
     };
 
-    // Lent → money leaves the account (expense). Borrowed → money enters (income).
     const tx: Transaction = {
       id: txId,
       type: type === 'lent' ? 'expense' : 'income',
@@ -497,6 +546,7 @@ export const useStore = create<StoreState>((set, get) => ({
       isExcludedFromBudget: true,
       createdAt: now,
       linkedLoanId: loanId,
+      linkedPaymentId: null,
     };
 
     const batch = writeBatch(db);
@@ -511,14 +561,74 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   updateLoan: async (id, updates) => {
-    const { user } = get();
+    const { user, loans, transactions } = get();
     if (!user) return;
+    const loan = loans.find((l) => l.id === id);
+    if (!loan) return;
+
+    const initialTx = findInitialLoanTransaction(loan, transactions);
     const patch: Partial<Loan> = { ...updates };
-    // Auto-settle when remaining hits zero.
-    if (typeof patch.remainingAmount === 'number') {
-      patch.isSettled = patch.remainingAmount <= 0;
+    const txPatch: Partial<Transaction> = {};
+    const balanceDeltas = new Map<string, number>();
+    const bump = (accId: string, delta: number) => {
+      if (delta === 0) return;
+      balanceDeltas.set(accId, (balanceDeltas.get(accId) ?? 0) + delta);
+    };
+
+    // --- Principal change: recompute remaining, update linked tx + account ---
+    if (
+      typeof updates.principalAmount === 'number' &&
+      updates.principalAmount !== loan.principalAmount
+    ) {
+      const paid = loan.principalAmount - loan.remainingAmount;
+      const newRemaining = Math.max(0, updates.principalAmount - paid);
+      patch.remainingAmount = newRemaining;
+
+      if (initialTx) {
+        txPatch.amount = updates.principalAmount;
+        const delta = updates.principalAmount - loan.principalAmount;
+        const signedDelta = loan.type === 'lent' ? -delta : delta;
+        bump(loan.accountId, signedDelta);
+      }
     }
-    await updateDoc(doc(db, 'users', user.uid, 'loans', id), patch);
+
+    // --- Account change: move linked tx between accounts ---
+    if (
+      updates.accountId &&
+      updates.accountId !== loan.accountId &&
+      initialTx
+    ) {
+      txPatch.accountId = updates.accountId;
+      const amount = txPatch.amount ?? loan.principalAmount;
+      const signedDelta = loan.type === 'lent' ? -amount : amount;
+      // Reverse old effect on the previous account, apply new on the new one.
+      bump(loan.accountId, -signedDelta);
+      bump(updates.accountId, signedDelta);
+    }
+
+    // --- Date change: keep linked tx in sync ---
+    if (typeof updates.date === 'number' && initialTx) {
+      txPatch.date = updates.date;
+    }
+
+    // --- Auto-settle ---
+    const finalRemaining = patch.remainingAmount ?? loan.remainingAmount;
+    patch.isSettled = finalRemaining <= 0;
+
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', user.uid, 'loans', id), patch);
+    if (initialTx && Object.keys(txPatch).length > 0) {
+      batch.update(
+        doc(db, 'users', user.uid, 'transactions', initialTx.id),
+        txPatch
+      );
+    }
+    balanceDeltas.forEach((delta, accId) => {
+      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+        balance: increment(delta),
+      });
+    });
+    await batch.commit();
   },
 
   deleteLoan: async (id) => {
@@ -527,7 +637,6 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const batch = writeBatch(db);
 
-    // Reverse every transaction that was generated by this loan.
     transactions
       .filter((t) => t.linkedLoanId === id)
       .forEach((t) => {
@@ -569,7 +678,6 @@ export const useStore = create<StoreState>((set, get) => ({
       createdAt: now,
     };
 
-    // Lent and being repaid → income. Borrowed and repaying → expense.
     const tx: Transaction = {
       id: txId,
       type: loan.type === 'lent' ? 'income' : 'expense',
@@ -588,6 +696,7 @@ export const useStore = create<StoreState>((set, get) => ({
       isExcludedFromBudget: true,
       createdAt: now,
       linkedLoanId: loanId,
+      linkedPaymentId: paymentId,
     };
 
     const newRemaining = Math.max(0, loan.remainingAmount - amount);
@@ -615,15 +724,18 @@ export const useStore = create<StoreState>((set, get) => ({
     const loan = loans.find((l) => l.id === payment.loanId);
     if (!loan) return;
 
-    // Find the matching transaction. We match on linkedLoanId + amount + date,
-    // since loan payments are 1:1 with their transactions.
-    const linked = transactions.find(
-      (t) =>
-        t.linkedLoanId === payment.loanId &&
-        t.amount === payment.amount &&
-        t.date === payment.date &&
-        (t.type === 'income' || t.type === 'expense')
-    );
+    // Primary match: deterministic linkedPaymentId.
+    // Fallback (legacy data): match on linkedLoanId + amount + date.
+    const linked =
+      transactions.find((t) => t.linkedPaymentId === id) ??
+      transactions.find(
+        (t) =>
+          t.linkedLoanId === payment.loanId &&
+          !t.linkedPaymentId &&
+          t.amount === payment.amount &&
+          t.date === payment.date &&
+          (t.type === 'income' || t.type === 'expense')
+      );
 
     const batch = writeBatch(db);
     batch.delete(doc(db, 'users', user.uid, 'loanPayments', id));
@@ -773,6 +885,13 @@ export const useStore = create<StoreState>((set, get) => ({
     );
     loanPayments.forEach((p) =>
       batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
+    );
+    // Firestore rules forbid deleting profile/preferences (it's the "seeded"
+    // marker). Reset it to defaults instead so a subsequent sign-in does not
+    // re-seed sample data, which is what "Delete All" should mean.
+    batch.set(
+      doc(db, 'users', user.uid, 'profile', 'preferences'),
+      DEFAULT_PREFERENCES
     );
     await batch.commit();
   },

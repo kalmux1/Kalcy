@@ -52,6 +52,12 @@ export interface Transaction {
    * deleting a loan can also clean up its associated transactions.
    */
   linkedLoanId?: string | null;
+  /**
+   * Optional link to the specific loan payment that generated this
+   * transaction. Used by deleteLoanPayment for deterministic matching.
+   * Only present on transactions created by addLoanPayment.
+   */
+  linkedPaymentId?: string | null;
 }
 
 export interface Budget {

@@ -52,8 +52,14 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
 type AccountsSegment = 'accounts' | 'lending';
 
 export function AccountsTab() {
-  const { accounts, loans, preferences, addAccount, updateAccount, deleteAccount } =
-    useStore();
+  const {
+    accounts,
+    loans,
+    preferences,
+    addAccount,
+    updateAccount,
+    deleteAccount,
+  } = useStore();
   const [segment, setSegment] = useState<AccountsSegment>('accounts');
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -62,7 +68,9 @@ export function AccountsTab() {
   const cashBalance = getTotalBalance(accounts);
   const loansNet = getLoansNetWorth(loans);
   const netWorth = getTotalNetWorth(accounts, loans);
-  const activeLoans = loans.filter((l) => !l.isSettled && l.remainingAmount > 0);
+  const activeLoans = loans.filter(
+    (l) => !l.isSettled && l.remainingAmount > 0
+  );
 
   const confirmDelete = (acc: Account) => {
     toast('Delete this account and all its transactions?', {
@@ -70,8 +78,13 @@ export function AccountsTab() {
       action: {
         label: 'Delete',
         onClick: async () => {
-          await deleteAccount(acc.id);
-          toast.success('Account deleted');
+          try {
+            await deleteAccount(acc.id);
+            toast.success('Account deleted');
+          } catch (err) {
+            console.error(err);
+            toast.error('Failed to delete account');
+          }
         },
       },
       cancel: { label: 'Cancel', onClick: () => {} },
@@ -80,7 +93,6 @@ export function AccountsTab() {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Header */}
       <div className="px-4 pt-4 pb-2">
         <div className="flex items-center justify-between">
           <div>
@@ -89,7 +101,9 @@ export function AccountsTab() {
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {segment === 'accounts'
-                ? `${accounts.length} account${accounts.length !== 1 ? 's' : ''}`
+                ? `${accounts.length} account${
+                    accounts.length !== 1 ? 's' : ''
+                  }`
                 : `${activeLoans.length} active loan${
                     activeLoans.length !== 1 ? 's' : ''
                   }`}
@@ -120,7 +134,6 @@ export function AccountsTab() {
         </div>
       </div>
 
-      {/* Segment control */}
       <div className="flex gap-1 mx-4 mb-2 p-1 bg-muted rounded-xl">
         {(['accounts', 'lending'] as AccountsSegment[]).map((s) => (
           <button
@@ -146,7 +159,6 @@ export function AccountsTab() {
 
       {segment === 'accounts' ? (
         <>
-          {/* Net worth card with loan breakdown */}
           <div className="px-4 pt-2">
             <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20">
               <p className="text-sm opacity-90 font-medium">Total Net Worth</p>
@@ -158,7 +170,10 @@ export function AccountsTab() {
                   <div className="flex justify-between">
                     <span className="opacity-75">Cash &amp; accounts</span>
                     <span className="tabular-nums">
-                      {formatCurrency(cashBalance, preferences.currencySymbol)}
+                      {formatCurrency(
+                        cashBalance,
+                        preferences.currencySymbol
+                      )}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -204,7 +219,9 @@ export function AccountsTab() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm">{acc.name}</span>
+                          <span className="font-semibold text-sm">
+                            {acc.name}
+                          </span>
                           <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
                             {acc.type}
                           </span>
@@ -212,10 +229,15 @@ export function AccountsTab() {
                         <p
                           className={cn(
                             'text-lg font-bold tabular-nums mt-1',
-                            acc.balance >= 0 ? 'text-foreground' : 'text-expense'
+                            acc.balance >= 0
+                              ? 'text-foreground'
+                              : 'text-expense'
                           )}
                         >
-                          {formatCurrency(acc.balance, preferences.currencySymbol)}
+                          {formatCurrency(
+                            acc.balance,
+                            preferences.currencySymbol
+                          )}
                         </p>
                       </div>
                       <div className="flex flex-col gap-1">
@@ -263,16 +285,21 @@ export function AccountsTab() {
             setEditingAccount(null);
           }
         }}
-        onSave={(data, id) => {
-          if (id) {
-            updateAccount(id, data);
-            toast.success('Account updated');
-          } else {
-            addAccount(data);
-            toast.success('Account added');
+        onSave={async (data, id) => {
+          try {
+            if (id) {
+              await updateAccount(id, data);
+              toast.success('Account updated');
+            } else {
+              await addAccount(data);
+              toast.success('Account added');
+            }
+            setIsAdding(false);
+            setEditingAccount(null);
+          } catch (err) {
+            console.error(err);
+            toast.error('Failed to save account');
           }
-          setIsAdding(false);
-          setEditingAccount(null);
         }}
       />
 
@@ -290,7 +317,10 @@ function AccountSheet({
   open: boolean;
   account: Account | null;
   onOpenChange: (open: boolean) => void;
-  onSave: (data: Omit<Account, 'id' | 'createdAt'>, id?: string) => void;
+  onSave: (
+    data: Omit<Account, 'id' | 'createdAt'>,
+    id?: string
+  ) => void | Promise<void>;
 }) {
   const { preferences } = useStore();
   const formKey = open ? account?.id ?? 'new' : 'closed';
@@ -298,14 +328,12 @@ function AccountSheet({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
       <DrawerContent className="rounded-t-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        {/* Fixed header */}
         <div className="shrink-0 px-4 pt-2 pb-3">
           <h2 className="text-xl font-bold">
             {account ? 'Edit Account' : 'New Account'}
           </h2>
         </div>
 
-        {/* Scrollable body */}
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4">
           <AccountForm
             key={formKey}
@@ -364,7 +392,6 @@ function AccountForm({
   const [color, setColor] = useState(initialColor);
   const [isIncludedInTotal, setIsIncludedInTotal] = useState(initialIncluded);
 
-  // Preview of what the *current* balance will be after saving.
   const parsedInitial = parseFloat(initialBalanceInput) || 0;
   const previewDelta = parsedInitial - initialBalance;
   const previewBalance = isEditing ? currentBalance + previewDelta : parsedInitial;
@@ -440,7 +467,9 @@ function AccountForm({
       </div>
 
       <div>
-        <Label className="text-xs text-muted-foreground">Initial Balance</Label>
+        <Label className="text-xs text-muted-foreground">
+          Initial Balance
+        </Label>
         <div className="relative mt-1">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
             {currencySymbol}
@@ -474,7 +503,6 @@ function AccountForm({
 
       <div>
         <Label className="text-xs text-muted-foreground">Icon</Label>
-        {/* 6 columns + aspect-square + w-full = no fixed width, no overflow. */}
         <div className="grid grid-cols-6 gap-2 mt-1">
           {AVAILABLE_ICONS.slice(0, 18).map((iconName) => (
             <button
@@ -484,7 +512,9 @@ function AccountForm({
               aria-label={`Icon ${iconName}`}
               className={cn(
                 'aspect-square w-full rounded-xl flex items-center justify-center transition-all',
-                icon === iconName ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                icon === iconName
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted'
               )}
             >
               <CategoryIcon name={iconName} size={18} />
@@ -520,7 +550,6 @@ function AccountForm({
         />
       </div>
 
-      {/* Sticky footer: stays pinned above the keyboard. */}
       <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] bg-background border-t flex gap-2">
         <Button
           type="button"
@@ -530,7 +559,11 @@ function AccountForm({
         >
           <X className="h-4 w-4 mr-1" /> Cancel
         </Button>
-        <Button type="button" className="flex-1 rounded-xl" onClick={handleSubmit}>
+        <Button
+          type="button"
+          className="flex-1 rounded-xl"
+          onClick={handleSubmit}
+        >
           <Check className="h-4 w-4 mr-1" /> Save
         </Button>
       </div>
@@ -549,8 +582,10 @@ function TransferDialog({
   const [fromId, setFromId] = useState('');
   const [toId, setToId] = useState('');
   const [amount, setAmount] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const handleTransfer = async () => {
+    if (submitting) return;
     const amt = parseFloat(amount) || 0;
     if (amt <= 0) {
       toast.error('Enter a valid amount');
@@ -565,6 +600,7 @@ function TransferDialog({
       return;
     }
     try {
+      setSubmitting(true);
       await addTransaction({
         type: 'transfer',
         amount: amt,
@@ -585,6 +621,8 @@ function TransferDialog({
     } catch (err) {
       console.error(err);
       toast.error('Failed to complete transfer');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -605,7 +643,8 @@ function TransferDialog({
               <option value="">Select account</option>
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name} ({formatCurrency(a.balance, preferences.currencySymbol)})
+                  {a.name} (
+                  {formatCurrency(a.balance, preferences.currencySymbol)})
                 </option>
               ))}
             </select>
@@ -620,7 +659,8 @@ function TransferDialog({
               <option value="">Select account</option>
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name} ({formatCurrency(a.balance, preferences.currencySymbol)})
+                  {a.name} (
+                  {formatCurrency(a.balance, preferences.currencySymbol)})
                 </option>
               ))}
             </select>
@@ -647,11 +687,17 @@ function TransferDialog({
             type="button"
             variant="outline"
             onClick={() => onOpenChange(false)}
+            disabled={submitting}
           >
             Cancel
           </Button>
-          <Button type="button" onClick={handleTransfer}>
-            <ArrowRightLeft className="h-4 w-4 mr-1" /> Transfer
+          <Button
+            type="button"
+            onClick={handleTransfer}
+            disabled={submitting}
+          >
+            <ArrowRightLeft className="h-4 w-4 mr-1" />{' '}
+            {submitting ? 'Transferring…' : 'Transfer'}
           </Button>
         </DialogFooter>
       </DialogContent>

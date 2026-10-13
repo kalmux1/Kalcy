@@ -27,16 +27,28 @@ export function AuthView({ notice }: AuthViewProps) {
       await signInWithEmailAndPassword(auth, email, password);
       // Allowlist check happens in App.tsx on auth state change.
     } catch (err: unknown) {
-      const error = err as Error;
-      // Firebase returns a generic error for unknown/invalid credentials —
-      // don't leak which one was wrong.
-      toast.error(
-        error.message?.includes('user-not-found') ||
-          error.message?.includes('wrong-password') ||
-          error.message?.includes('invalid-credential')
-          ? 'Incorrect email or password'
-          : error.message || 'Sign-in failed'
-      );
+      const error = err as { code?: string; message?: string };
+      const code = error?.code ?? '';
+
+      // Map Firebase auth error codes to friendly, non-leaking messages.
+      if (
+        code === 'auth/user-not-found' ||
+        code === 'auth/wrong-password' ||
+        code === 'auth/invalid-credential' ||
+        code === 'auth/invalid-login-credentials'
+      ) {
+        toast.error('Incorrect email or password');
+      } else if (code === 'auth/invalid-email') {
+        toast.error('Please enter a valid email address');
+      } else if (code === 'auth/too-many-requests') {
+        toast.error('Too many attempts. Please try again later.');
+      } else if (code === 'auth/user-disabled') {
+        toast.error('This account has been disabled.');
+      } else if (code === 'auth/network-request-failed') {
+        toast.error('Network error. Check your connection and try again.');
+      } else {
+        toast.error(error?.message ?? 'Sign-in failed');
+      }
     } finally {
       setLoading(false);
     }

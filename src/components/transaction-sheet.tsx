@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft,
@@ -21,7 +21,11 @@ import { CategoryIcon } from './icon-map';
 import { useStore } from '@/lib/store';
 import type { TransactionType, Transaction, Category } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { formatDateLong, toDateInputValue, toTimeInputValue } from '@/lib/finance';
+import {
+  formatDateLong,
+  toDateInputValue,
+  toTimeInputValue,
+} from '@/lib/finance';
 import { toast } from 'sonner';
 
 interface TransactionSheetProps {
@@ -39,51 +43,80 @@ export function TransactionSheet({
   editingTransaction,
   defaultType = 'expense',
 }: TransactionSheetProps) {
-  const { accounts, categories, preferences, addTransaction, updateTransaction } = useStore();
+  /*
+    We remount the inner content whenever the sheet opens or the edited
+    transaction changes. This guarantees that every piece of local state
+    (including the CalculatorNumpad's display) starts from the correct
+    values, without a stale-state sync effect.
+  */
+  const innerKey = `${open ? 'o' : 'c'}-${
+    editingTransaction?.id ?? 'new'
+  }-${defaultType}`;
+
+  return (
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      shouldScaleBackground={false}
+      handleOnly
+    >
+      <DrawerContent className="max-h-[92vh] rounded-t-[2rem] flex flex-col overflow-hidden">
+        <TransactionSheetContent
+          key={innerKey}
+          editingTransaction={editingTransaction ?? null}
+          defaultType={defaultType}
+          onClose={() => onOpenChange(false)}
+        />
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+function TransactionSheetContent({
+  editingTransaction,
+  defaultType,
+  onClose,
+}: {
+  editingTransaction: Transaction | null;
+  defaultType: TransactionType;
+  onClose: () => void;
+}) {
+  const accounts = useStore((s) => s.accounts);
+  const categories = useStore((s) => s.categories);
+  const preferences = useStore((s) => s.preferences);
+  const addTransaction = useStore((s) => s.addTransaction);
+  const updateTransaction = useStore((s) => s.updateTransaction);
+
   const [step, setStep] = useState<Step>('main');
-  const [type, setType] = useState<TransactionType>(defaultType);
-  const [amount, setAmount] = useState(0);
-  const [accountId, setAccountId] = useState('');
-  const [toAccountId, setToAccountId] = useState('');
-  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [type, setType] = useState<TransactionType>(
+    editingTransaction?.type ?? defaultType
+  );
+  const [amount, setAmount] = useState<number>(editingTransaction?.amount ?? 0);
+  const [accountId, setAccountId] = useState<string>(
+    editingTransaction?.accountId ?? accounts[0]?.id ?? ''
+  );
+  const [toAccountId, setToAccountId] = useState<string>(
+    editingTransaction?.toAccountId ?? accounts[1]?.id ?? ''
+  );
+  const [categoryId, setCategoryId] = useState<string | null>(
+    editingTransaction?.categoryId ?? null
+  );
   const [parentCategory, setParentCategory] = useState<Category | null>(null);
-  const [date, setDate] = useState(Date.now());
-  const [note, setNote] = useState('');
-  const [isExcludedFromStats, setIsExcludedFromStats] = useState(false);
-  const [isExcludedFromBudget, setIsExcludedFromBudget] = useState(false);
+  const [date, setDate] = useState<number>(
+    editingTransaction?.date ?? Date.now()
+  );
+  const [note, setNote] = useState(editingTransaction?.note ?? '');
+  const [isExcludedFromStats, setIsExcludedFromStats] = useState(
+    editingTransaction?.isExcludedFromStats ?? false
+  );
+  const [isExcludedFromBudget, setIsExcludedFromBudget] = useState(
+    editingTransaction?.isExcludedFromBudget ?? false
+  );
   const [showOptions, setShowOptions] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
-    const defaultAccounts = useStore.getState().accounts;
-    if (editingTransaction) {
-      setType(editingTransaction.type);
-      setAmount(editingTransaction.amount);
-      setAccountId(editingTransaction.accountId);
-      setToAccountId(editingTransaction.toAccountId ?? '');
-      setCategoryId(editingTransaction.categoryId);
-      setDate(editingTransaction.date);
-      setNote(editingTransaction.note);
-      setIsExcludedFromStats(editingTransaction.isExcludedFromStats);
-      setIsExcludedFromBudget(editingTransaction.isExcludedFromBudget);
-    } else {
-      setType(defaultType);
-      setAmount(0);
-      setAccountId(defaultAccounts[0]?.id ?? '');
-      setToAccountId(defaultAccounts[1]?.id ?? '');
-      setCategoryId(null);
-      setDate(Date.now());
-      setNote('');
-      setIsExcludedFromStats(false);
-      setIsExcludedFromBudget(false);
-    }
-    setStep('main');
-    setShowOptions(false);
-    setParentCategory(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingTransaction, defaultType]);
-
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
+    if (saving) return;
     if (amount <= 0) {
       toast.error('Please enter an amount');
       return;
@@ -118,21 +151,30 @@ export function TransactionSheet({
       isExcludedFromBudget: type === 'transfer' ? true : isExcludedFromBudget,
     };
 
-    if (editingTransaction) {
-      updateTransaction(editingTransaction.id, txData);
-      toast.success('Transaction updated');
-    } else {
-      addTransaction(txData);
-      toast.success(
-        type === 'expense'
-          ? 'Expense added'
-          : type === 'income'
-          ? 'Income added'
-          : 'Transfer completed'
-      );
+    try {
+      setSaving(true);
+      if (editingTransaction) {
+        await updateTransaction(editingTransaction.id, txData);
+        toast.success('Transaction updated');
+      } else {
+        await addTransaction(txData);
+        toast.success(
+          type === 'expense'
+            ? 'Expense added'
+            : type === 'income'
+            ? 'Income added'
+            : 'Transfer completed'
+        );
+      }
+      onClose();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to save transaction');
+    } finally {
+      setSaving(false);
     }
-    onOpenChange(false);
   }, [
+    saving,
     amount,
     accountId,
     toAccountId,
@@ -145,7 +187,7 @@ export function TransactionSheet({
     editingTransaction,
     addTransaction,
     updateTransaction,
-    onOpenChange,
+    onClose,
   ]);
 
   const selectedAccount = accounts.find((a) => a.id === accountId);
@@ -156,14 +198,21 @@ export function TransactionSheet({
   );
 
   const restoreDefaults = async () => {
-    await useStore.getState().restoreDefaults();
-    toast.success('Default accounts & categories restored');
+    try {
+      await useStore.getState().restoreDefaults();
+      toast.success('Default accounts & categories restored');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to restore defaults');
+    }
   };
 
   const renderStep = () => {
     if (step === 'category') {
       const subs = parentCategory
-        ? categories.filter((c) => c.parentId === parentCategory.id && !c.isHidden)
+        ? categories.filter(
+            (c) => c.parentId === parentCategory.id && !c.isHidden
+          )
         : [];
       const list = parentCategory ? subs : filteredCategories;
 
@@ -233,7 +282,9 @@ export function TransactionSheet({
                       {cat.name}
                     </span>
                     {hasChildren && (
-                      <span className="text-[9px] text-muted-foreground">More ›</span>
+                      <span className="text-[9px] text-muted-foreground">
+                        More ›
+                      </span>
                     )}
                   </button>
                 );
@@ -456,7 +507,10 @@ export function TransactionSheet({
               <FieldButton
                 icon={
                   <span style={{ color: selectedAccount?.color }}>
-                    <CategoryIcon name={selectedAccount?.icon ?? 'Wallet'} size={20} />
+                    <CategoryIcon
+                      name={selectedAccount?.icon ?? 'Wallet'}
+                      size={20}
+                    />
                   </span>
                 }
                 label="From"
@@ -504,7 +558,10 @@ export function TransactionSheet({
               <FieldButton
                 icon={
                   <span style={{ color: selectedAccount?.color }}>
-                    <CategoryIcon name={selectedAccount?.icon ?? 'Wallet'} size={20} />
+                    <CategoryIcon
+                      name={selectedAccount?.icon ?? 'Wallet'}
+                      size={20}
+                    />
                   </span>
                 }
                 label="Account"
@@ -579,42 +636,27 @@ export function TransactionSheet({
   };
 
   return (
-    /*
-      - shouldScaleBackground={false}: no <body> scale transform, so the FAB
-        never visually shifts when the drawer opens.
-      - handleOnly: only the pill handle drags; taps inside fire onClick.
-      - Outer flex-col + single overflow-y-auto child: one scroll region, so
-        "More options" is always reachable.
-    */
-    <Drawer
-      open={open}
-      onOpenChange={onOpenChange}
-      shouldScaleBackground={false}
-      handleOnly
-    >
-      <DrawerContent className="max-h-[92vh] rounded-t-[2rem] flex flex-col overflow-hidden">
-        <div className="mx-auto w-full max-w-md flex-1 flex flex-col min-h-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2">
-          <div className="shrink-0 flex items-center justify-between mb-2">
-            <h1 className="text-xl font-bold">
-              {editingTransaction ? 'Edit Transaction' : 'Add Transaction'}
-            </h1>
-            <Button
-              type="button"
-              onClick={handleSave}
-              size="sm"
-              className="rounded-full h-9 px-4 gap-1"
-            >
-              <Check className="h-4 w-4" />
-              Save
-            </Button>
-          </div>
+    <div className="mx-auto w-full max-w-md flex-1 flex flex-col min-h-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2">
+      <div className="shrink-0 flex items-center justify-between mb-2">
+        <h1 className="text-xl font-bold">
+          {editingTransaction ? 'Edit Transaction' : 'Add Transaction'}
+        </h1>
+        <Button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          size="sm"
+          className="rounded-full h-9 px-4 gap-1"
+        >
+          <Check className="h-4 w-4" />
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
-            {renderStep()}
-          </div>
-        </div>
-      </DrawerContent>
-    </Drawer>
+      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+        {renderStep()}
+      </div>
+    </div>
   );
 }
 
@@ -629,7 +671,9 @@ function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
-      <p className="text-sm text-muted-foreground mb-4 max-w-[240px]">{message}</p>
+      <p className="text-sm text-muted-foreground mb-4 max-w-[240px]">
+        {message}
+      </p>
       {actionLabel && onAction && (
         <Button
           type="button"

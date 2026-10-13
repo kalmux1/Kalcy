@@ -28,6 +28,7 @@ import {
   formatMonthYear,
   monthYearKey,
   getTotalBalance,
+  parseLocalDate,
 } from '@/lib/finance';
 
 type ViewMode = 'daily' | 'calendar' | 'monthly' | 'summary';
@@ -36,7 +37,6 @@ interface TransactionsTabProps {
   onEditTransaction: (tx: Transaction) => void;
 }
 
-/** Time-of-day greeting. */
 function getGreeting(): string {
   const hour = new Date().getHours();
   if (hour < 12) return 'Good Morning';
@@ -49,9 +49,9 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
   const user = useStore((s) => s.user);
   const [viewMode, setViewMode] = useState<ViewMode>('daily');
   const [selectedMonth, setSelectedMonth] = useState(() => new Date());
-  const [calendarSelectedDate, setCalendarSelectedDate] = useState<string | null>(
-    null
-  );
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState<
+    string | null
+  >(null);
 
   const monthYear = monthYearKey(selectedMonth.getTime());
   const monthTxs = useMemo(
@@ -64,7 +64,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
   );
   const totalBalance = useMemo(() => getTotalBalance(accounts), [accounts]);
 
-  // Fall back to the local-part of the email if no display name is set.
   const firstName =
     user?.displayName?.trim().split(' ')[0] ||
     user?.email?.split('@')[0] ||
@@ -87,7 +86,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Greeting */}
       <div className="px-4 pt-4 pb-1">
         <p className="text-sm text-muted-foreground">
           {greeting}
@@ -98,7 +96,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
         </h1>
       </div>
 
-      {/* Balance Card */}
       <div className="px-4 pt-3">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -120,7 +117,10 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
                 <div>
                   <p className="text-xs opacity-75">Expense</p>
                   <p className="text-sm font-semibold tabular-nums">
-                    {formatCurrencyCompact(totals.expense, preferences.currencySymbol)}
+                    {formatCurrencyCompact(
+                      totals.expense,
+                      preferences.currencySymbol
+                    )}
                   </p>
                 </div>
               </div>
@@ -131,7 +131,10 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
                 <div>
                   <p className="text-xs opacity-75">Income</p>
                   <p className="text-sm font-semibold tabular-nums">
-                    {formatCurrencyCompact(totals.income, preferences.currencySymbol)}
+                    {formatCurrencyCompact(
+                      totals.income,
+                      preferences.currencySymbol
+                    )}
                   </p>
                 </div>
               </div>
@@ -140,7 +143,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
         </motion.div>
       </div>
 
-      {/* Month selector */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
         <button
           onClick={() => changeMonth(-1)}
@@ -159,7 +161,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
         </button>
       </div>
 
-      {/* View mode tabs */}
       <div className="flex gap-1 px-4 pb-3 overflow-x-auto no-scrollbar">
         {viewModes.map((mode) => {
           const Icon = mode.icon;
@@ -182,7 +183,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
         })}
       </div>
 
-      {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pb-40">
         <AnimatePresence mode="wait">
           <motion.div
@@ -245,7 +245,10 @@ function DailyView({
   onDelete: (id: string) => void;
   symbol: string;
 }) {
-  const grouped = useMemo(() => groupTransactionsByDay(transactions), [transactions]);
+  const grouped = useMemo(
+    () => groupTransactionsByDay(transactions),
+    [transactions]
+  );
 
   if (grouped.size === 0) {
     return <EmptyState message="No transactions this month. Tap + to add one." />;
@@ -259,7 +262,8 @@ function DailyView({
           <div key={dayKey}>
             <div className="flex items-center justify-between px-1 py-2">
               <span className="text-sm font-semibold">
-                {formatDateLabel(new Date(dayKey).getTime())}
+                {/* parseLocalDate: avoid the UTC shift from `new Date('YYYY-MM-DD')` */}
+                {formatDateLabel(parseLocalDate(dayKey).getTime())}
               </span>
               <div className="flex gap-3 text-xs">
                 {totals.income > 0 && (
@@ -403,13 +407,18 @@ function CalendarView({
       </div>
 
       {selectedDate && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
           <div className="flex items-center justify-between px-1 py-2">
             <span className="text-sm font-semibold">
-              {formatDateLabel(new Date(selectedDate).getTime())}
+              {/* parseLocalDate: avoid the UTC shift from `new Date('YYYY-MM-DD')` */}
+              {formatDateLabel(parseLocalDate(selectedDate).getTime())}
             </span>
             <span className="text-xs text-muted-foreground">
-              {selectedTxs.length} transaction{selectedTxs.length !== 1 ? 's' : ''}
+              {selectedTxs.length} transaction
+              {selectedTxs.length !== 1 ? 's' : ''}
             </span>
           </div>
           {selectedTxs.length > 0 ? (
@@ -471,7 +480,10 @@ function MonthlyView({
     return result;
   }, [transactions, selectedMonth]);
 
-  const maxVal = Math.max(...monthsData.map((d) => Math.max(d.income, d.expense)), 1);
+  const maxVal = Math.max(
+    ...monthsData.map((d) => Math.max(d.income, d.expense)),
+    1
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -517,9 +529,14 @@ function MonthlyView({
       </div>
 
       {monthsData.map((d) => (
-        <div key={d.monthYear} className="bg-card rounded-2xl border border-border/40 p-4">
+        <div
+          key={d.monthYear}
+          className="bg-card rounded-2xl border border-border/40 p-4"
+        >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-semibold">{formatMonthYear(d.monthYear)}</span>
+            <span className="text-sm font-semibold">
+              {formatMonthYear(d.monthYear)}
+            </span>
             <span
               className={cn(
                 'text-sm font-bold tabular-nums',
@@ -571,7 +588,9 @@ function SummaryView({
     .filter((a) => a.isIncludedInTotal && a.balance < 0)
     .reduce((s, a) => s + Math.abs(a.balance), 0);
   const savingsRate =
-    totals.income > 0 ? ((totals.income - totals.expense) / totals.income) * 100 : 0;
+    totals.income > 0
+      ? ((totals.income - totals.expense) / totals.income) * 100
+      : 0;
 
   return (
     <div className="flex flex-col gap-3">
@@ -627,7 +646,9 @@ function SummaryView({
           </div>
           <div className="border-t pt-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Savings Rate</span>
+              <span className="text-sm text-muted-foreground">
+                Savings Rate
+              </span>
               <span
                 className={cn(
                   'text-sm font-bold tabular-nums',
@@ -692,7 +713,13 @@ function SummaryRow({
       >
         {label}
       </span>
-      <span className={cn('text-sm tabular-nums', color, bold && 'font-bold text-base')}>
+      <span
+        className={cn(
+          'text-sm tabular-nums',
+          color,
+          bold && 'font-bold text-base'
+        )}
+      >
         {value}
       </span>
     </div>

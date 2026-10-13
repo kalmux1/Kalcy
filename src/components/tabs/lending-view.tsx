@@ -55,8 +55,13 @@ export function LendingView() {
         action: {
           label: 'Delete',
           onClick: async () => {
-            await deleteLoan(loan.id);
-            toast.success('Loan deleted');
+            try {
+              await deleteLoan(loan.id);
+              toast.success('Loan deleted');
+            } catch (err) {
+              console.error(err);
+              toast.error('Failed to delete loan');
+            }
           },
         },
         cancel: { label: 'Cancel', onClick: () => {} },
@@ -66,7 +71,6 @@ export function LendingView() {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Summary */}
       <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20">
         <div className="flex items-center gap-2 mb-2">
           <HandCoins className="h-5 w-5" />
@@ -167,7 +171,6 @@ export function LendingView() {
         </>
       )}
 
-      {/* Add / edit loan */}
       <LoanSheet
         open={isAdding || editing !== null}
         loan={editing}
@@ -178,19 +181,23 @@ export function LendingView() {
           }
         }}
         onSave={async (data, id) => {
-          if (id) {
-            await updateLoan(id, data);
-            toast.success('Loan updated');
-          } else {
-            await addLoan(data);
-            toast.success('Loan added');
+          try {
+            if (id) {
+              await updateLoan(id, data);
+              toast.success('Loan updated');
+            } else {
+              await addLoan(data);
+              toast.success('Loan added');
+            }
+            setIsAdding(false);
+            setEditing(null);
+          } catch (err) {
+            console.error(err);
+            toast.error('Failed to save loan');
           }
-          setIsAdding(false);
-          setEditing(null);
         }}
       />
 
-      {/* Loan detail / payments */}
       <LoanDetailSheet
         loan={detail}
         payments={loanPayments}
@@ -198,12 +205,22 @@ export function LendingView() {
           if (!open) setDetail(null);
         }}
         onAddPayment={async (data) => {
-          await addLoanPayment(data);
-          toast.success('Payment recorded');
+          try {
+            await addLoanPayment(data);
+            toast.success('Payment recorded');
+          } catch (err) {
+            console.error(err);
+            toast.error('Failed to record payment');
+          }
         }}
         onDeletePayment={async (id) => {
-          await deleteLoanPayment(id);
-          toast.success('Payment removed');
+          try {
+            await deleteLoanPayment(id);
+            toast.success('Payment removed');
+          } catch (err) {
+            console.error(err);
+            toast.error('Failed to remove payment');
+          }
         }}
       />
     </div>
@@ -332,10 +349,6 @@ function LoanCard({
     </motion.div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  Loan sheet (add / edit)                                            */
-/* ------------------------------------------------------------------ */
 
 type LoanFormData = Omit<
   Loan,
@@ -466,7 +479,9 @@ function LoanForm({
 
       <div>
         <Label className="text-xs text-muted-foreground">
-          {type === 'lent' ? 'Who did you lend to?' : 'Who did you borrow from?'}
+          {type === 'lent'
+            ? 'Who did you lend to?'
+            : 'Who did you borrow from?'}
         </Label>
         <Input
           value={personName}
@@ -522,7 +537,9 @@ function LoanForm({
           />
         </div>
         <div>
-          <Label className="text-xs text-muted-foreground">Due (optional)</Label>
+          <Label className="text-xs text-muted-foreground">
+            Due (optional)
+          </Label>
           <Input
             type="date"
             value={dueDate}
@@ -551,17 +568,17 @@ function LoanForm({
         >
           <X className="h-4 w-4 mr-1" /> Cancel
         </Button>
-        <Button type="button" className="flex-1 rounded-xl" onClick={handleSubmit}>
+        <Button
+          type="button"
+          className="flex-1 rounded-xl"
+          onClick={handleSubmit}
+        >
           <Check className="h-4 w-4 mr-1" /> Save
         </Button>
       </div>
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  Loan detail sheet (payments)                                       */
-/* ------------------------------------------------------------------ */
 
 function LoanDetailSheet({
   loan,
@@ -588,8 +605,11 @@ function LoanDetailSheet({
   const [payAccountId, setPayAccountId] = useState('');
   const [payDate, setPayDate] = useState(toDateInputValue(Date.now()));
   const [payNote, setPayNote] = useState('');
+  const [submittingPayment, setSubmittingPayment] = useState(false);
 
-  const loanPayments = loan ? payments.filter((p) => p.loanId === loan.id) : [];
+  const loanPayments = loan
+    ? payments.filter((p) => p.loanId === loan.id)
+    : [];
   const isLent = loan?.type === 'lent';
   const open = loan !== null;
 
@@ -602,7 +622,7 @@ function LoanDetailSheet({
   };
 
   const submitPayment = async () => {
-    if (!loan) return;
+    if (!loan || submittingPayment) return;
     const amt = parseFloat(payAmount) || 0;
     if (amt <= 0) {
       toast.error('Enter a valid amount');
@@ -617,14 +637,19 @@ function LoanDetailSheet({
       return;
     }
     const [y, m, d] = payDate.split('-').map(Number);
-    await onAddPayment({
-      loanId: loan.id,
-      amount: amt,
-      accountId: payAccountId,
-      date: new Date(y, m - 1, d).getTime(),
-      note: payNote.trim(),
-    });
-    resetPaymentForm();
+    try {
+      setSubmittingPayment(true);
+      await onAddPayment({
+        loanId: loan.id,
+        amount: amt,
+        accountId: payAccountId,
+        date: new Date(y, m - 1, d).getTime(),
+        note: payNote.trim(),
+      });
+      resetPaymentForm();
+    } finally {
+      setSubmittingPayment(false);
+    }
   };
 
   return (
@@ -665,7 +690,6 @@ function LoanDetailSheet({
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4">
-              {/* Amount summary */}
               <div className="rounded-2xl bg-muted/40 p-4 mb-4">
                 <div className="flex items-baseline justify-between">
                   <span className="text-xs text-muted-foreground">
@@ -707,7 +731,6 @@ function LoanDetailSheet({
                 )}
               </div>
 
-              {/* Add payment */}
               {!adding ? (
                 <Button
                   type="button"
@@ -762,7 +785,9 @@ function LoanDetailSheet({
                           onClick={() =>
                             setPayAmount(
                               String(
-                                Math.round(loan.remainingAmount * f * 100) / 100
+                                Math.round(
+                                  loan.remainingAmount * f * 100
+                                ) / 100
                               )
                             )
                           }
@@ -792,7 +817,9 @@ function LoanDetailSheet({
                   </div>
 
                   <div>
-                    <Label className="text-xs text-muted-foreground">Date</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      Date
+                    </Label>
                     <Input
                       type="date"
                       value={payDate}
@@ -802,7 +829,9 @@ function LoanDetailSheet({
                   </div>
 
                   <div>
-                    <Label className="text-xs text-muted-foreground">Note</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      Note
+                    </Label>
                     <Input
                       value={payNote}
                       onChange={(e) => setPayNote(e.target.value)}
@@ -814,14 +843,15 @@ function LoanDetailSheet({
                   <Button
                     type="button"
                     onClick={submitPayment}
+                    disabled={submittingPayment}
                     className="w-full rounded-xl"
                   >
-                    <Check className="h-4 w-4 mr-1" /> Save Payment
+                    <Check className="h-4 w-4 mr-1" />{' '}
+                    {submittingPayment ? 'Saving…' : 'Save Payment'}
                   </Button>
                 </div>
               )}
 
-              {/* Payment history */}
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1 mb-2">
                   Payment History ({loanPayments.length})
