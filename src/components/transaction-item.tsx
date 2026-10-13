@@ -15,7 +15,11 @@ interface TransactionItemProps {
   onDelete: (id: string) => void;
 }
 
-export function TransactionItem({ transaction, onEdit, onDelete }: TransactionItemProps) {
+export function TransactionItem({
+  transaction,
+  onEdit,
+  onDelete,
+}: TransactionItemProps) {
   const { categories, accounts, preferences } = useStore();
 
   const category = categories.find((c) => c.id === transaction.categoryId);
@@ -89,14 +93,20 @@ export function TransactionItem({ transaction, onEdit, onDelete }: TransactionIt
             <CategoryIcon name={category.icon} size={20} />
           </span>
         ) : (
-          <CategoryIcon name="MoreHorizontal" size={20} className="text-muted-foreground" />
+          <CategoryIcon
+            name="MoreHorizontal"
+            size={20}
+            className="text-muted-foreground"
+          />
         )}
       </div>
 
       {/* Details */}
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">
-          {transaction.note || category?.name || (isTransfer ? 'Transfer' : 'Transaction')}
+          {transaction.note ||
+            category?.name ||
+            (isTransfer ? 'Transfer' : 'Transaction')}
         </p>
         <p className="text-xs text-muted-foreground truncate">
           {isTransfer
@@ -105,22 +115,36 @@ export function TransactionItem({ transaction, onEdit, onDelete }: TransactionIt
         </p>
       </div>
 
-      {/* Amount */}
-      <div className="text-right shrink-0">
-        <p
-          className={cn(
-            'text-sm font-semibold tabular-nums',
-            isExpense && 'text-expense',
-            isIncome && 'text-income',
-            isTransfer && 'text-transfer'
+      {/* Amount + edit button */}
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="text-right">
+          <p
+            className={cn(
+              'text-sm font-semibold tabular-nums',
+              isExpense && 'text-expense',
+              isIncome && 'text-income',
+              isTransfer && 'text-transfer'
+            )}
+          >
+            {isExpense ? '-' : isIncome ? '+' : ''}
+            {formatCurrency(transaction.amount, preferences.currencySymbol)}
+          </p>
+          {transaction.isExcludedFromStats && (
+            <p className="text-[10px] text-muted-foreground">excl. stats</p>
           )}
+        </div>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit(transaction);
+          }}
+          aria-label="Edit transaction"
+          className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors touch-manipulation"
         >
-          {isExpense ? '-' : isIncome ? '+' : ''}
-          {formatCurrency(transaction.amount, preferences.currencySymbol)}
-        </p>
-        {transaction.isExcludedFromStats && (
-          <p className="text-[10px] text-muted-foreground">excl. stats</p>
-        )}
+          <Pencil className="h-4 w-4" />
+        </button>
       </div>
     </motion.div>
   );
