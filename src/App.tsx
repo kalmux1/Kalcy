@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { getDoc, doc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 import { TransactionsTab } from '@/components/tabs/transactions-tab';
 import { StatsTab } from '@/components/tabs/stats-tab';
 import { AccountsTab } from '@/components/tabs/accounts-tab';
@@ -8,19 +9,22 @@ import { BudgetsView } from '@/components/tabs/budgets-view';
 import { BottomNav, type TabKey } from '@/components/bottom-nav';
 import { TransactionSheet } from '@/components/transaction-sheet';
 import { AuthView } from '@/components/auth-view';
+import { ProfileEditDrawer } from '@/components/profile-edit-drawer';
 import { useStore } from '@/lib/store';
 import { CURRENCIES } from '@/lib/currencies';
 import { exportToCSV, downloadCSV } from '@/lib/finance';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import type { Transaction } from '@/lib/types';
-import { Download, Trash2, Target, LogOut, Cloud } from 'lucide-react';
+import { Download, Trash2, Target, LogOut, Cloud, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('transactions');
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
 
   const user = useStore((s) => s.user);
   const setUser = useStore((s) => s.setUser);
@@ -35,18 +39,47 @@ export default function App() {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser) {
-        setUser({
-          uid: fbUser.uid,
-          email: fbUser.email,
-          displayName: fbUser.displayName,
-          photoURL: fbUser.photoURL,
-        });
-        await initUserData(fbUser.uid);
-      } else {
+      if (!fbUser) {
         setUser(null);
+        return;
       }
+
+      setAuthNotice(null);
+
+      const email = fbUser.email?.toLowerCase() ?? '';
+      if (!email) {
+        await signOut(auth);
+        setAuthNotice('Your account has no email address attached.');
+        return;
+      }
+
+      try {
+        const allowSnap = await getDoc(doc(db, 'allowlist', email));
+        const allowed = allowSnap.exists() && allowSnap.data()?.enabled === true;
+
+        if (!allowed) {
+          await signOut(auth);
+          setAuthNotice(
+            'Access denied. Your account is not authorised to use Kalcy.'
+          );
+          return;
+        }
+      } catch (err) {
+        console.error('Allowlist check failed', err);
+        await signOut(auth);
+        setAuthNotice('Could not verify access. Please try again.');
+        return;
+      }
+
+      setUser({
+        uid: fbUser.uid,
+        email: fbUser.email,
+        displayName: fbUser.displayName,
+        photoURL: fbUser.photoURL,
+      });
+      await initUserData(fbUser.uid);
     });
+
     return () => unsub();
   }, [setUser, initUserData]);
 
@@ -55,14 +88,16 @@ export default function App() {
       <main className="flex h-[100dvh] w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <div className="h-9 w-9 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-xs text-muted-foreground animate-pulse">Syncing Kalcy...</p>
+          <p className="text-xs text-muted-foreground animate-pulse">
+            {authNotice ? '' : 'Verifying access...'}
+          </p>
         </div>
       </main>
     );
   }
 
   if (!user) {
-    return <AuthView />;
+    return <AuthView notice={authNotice} />;
   }
 
   const handleEditTransaction = (tx: Transaction) => {
@@ -115,11 +150,16 @@ export default function App() {
           <div className="h-full overflow-y-auto no-scrollbar px-4 pt-4 pb-40 space-y-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <img src="/kalcy-logo.svg" alt="" className="h-10 w-auto" draggable={false} />
+                <img
+                  src="/kalcy-logo.svg"
+                  alt=""
+                  className="h-10 w-auto"
+                  draggable={false}
+                />
                 <div>
                   <h1 className="text-xl font-bold">More &amp; Budgets</h1>
                   <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                    {user.email}
+                    {user.displayName || user.email}
                   </p>
                 </div>
               </div>
@@ -136,6 +176,18 @@ export default function App() {
             <div className="flex items-center gap-2 p-3 rounded-2xl bg-primary/10 text-primary text-xs font-medium">
               <Cloud className="h-4 w-4" />
               <span>Realtime cloud sync active</span>
+            </div>
+
+            {/* Account / Profile */}
+            <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4">
+              <h2 className="text-base font-semibold">Account</h2>
+              <Button
+                variant="outline"
+                className="w-full justify-start rounded-xl gap-2 text-sm"
+                onClick={() => setIsProfileOpen(true)}
+              >
+                <UserCog className="h-4 w-4" /> Edit Profile &amp; Password
+              </Button>
             </div>
 
             <div className="space-y-3">
@@ -243,6 +295,8 @@ export default function App() {
         }}
         editingTransaction={editingTx}
       />
+
+      <ProfileEditDrawer open={isProfileOpen} onOpenChange={setIsProfileOpen} />
     </main>
   );
 }

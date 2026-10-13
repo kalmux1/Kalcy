@@ -36,11 +36,22 @@ interface TransactionsTabProps {
   onEditTransaction: (tx: Transaction) => void;
 }
 
+/** Time-of-day greeting. */
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
 export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
   const { transactions, accounts, preferences, deleteTransaction } = useStore();
+  const user = useStore((s) => s.user);
   const [viewMode, setViewMode] = useState<ViewMode>('daily');
   const [selectedMonth, setSelectedMonth] = useState(() => new Date());
-  const [calendarSelectedDate, setCalendarSelectedDate] = useState<string | null>(null);
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState<string | null>(
+    null
+  );
 
   const monthYear = monthYearKey(selectedMonth.getTime());
   const monthTxs = useMemo(
@@ -52,6 +63,13 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
     [transactions, monthYear]
   );
   const totalBalance = useMemo(() => getTotalBalance(accounts), [accounts]);
+
+  // Fall back to the local-part of the email if no display name is set.
+  const firstName =
+    user?.displayName?.trim().split(' ')[0] ||
+    user?.email?.split('@')[0] ||
+    '';
+  const greeting = getGreeting();
 
   const changeMonth = (dir: number) => {
     const d = new Date(selectedMonth);
@@ -69,8 +87,19 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
 
   return (
     <div className="flex flex-col h-full min-h-0">
+      {/* Greeting */}
+      <div className="px-4 pt-4 pb-1">
+        <p className="text-sm text-muted-foreground">
+          {greeting}
+          {firstName ? ',' : ''}
+        </p>
+        <h1 className="text-2xl font-bold truncate">
+          {firstName ? `${firstName} 👋` : 'Hello 👋'}
+        </h1>
+      </div>
+
       {/* Balance Card */}
-      <div className="px-4 pt-4">
+      <div className="px-4 pt-3">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -141,7 +170,9 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
               onClick={() => setViewMode(mode.key)}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap',
-                isActive ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                isActive
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground'
               )}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -245,7 +276,12 @@ function DailyView({
             </div>
             <div className="bg-card rounded-2xl border border-border/40 px-1">
               {txs.map((tx) => (
-                <TransactionItem key={tx.id} transaction={tx} onEdit={onEdit} onDelete={onDelete} />
+                <TransactionItem
+                  key={tx.id}
+                  transaction={tx}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                />
               ))}
             </div>
           </div>
@@ -275,7 +311,12 @@ function CalendarView({
   symbol: string;
 }) {
   const days = useMemo(
-    () => getCalendarDays(selectedMonth.getFullYear(), selectedMonth.getMonth(), weekStartDay),
+    () =>
+      getCalendarDays(
+        selectedMonth.getFullYear(),
+        selectedMonth.getMonth(),
+        weekStartDay
+      ),
     [selectedMonth, weekStartDay]
   );
   const weekDays =
@@ -374,7 +415,12 @@ function CalendarView({
           {selectedTxs.length > 0 ? (
             <div className="bg-card rounded-2xl border border-border/40 px-1">
               {selectedTxs.map((tx) => (
-                <TransactionItem key={tx.id} transaction={tx} onEdit={onEdit} onDelete={onDelete} />
+                <TransactionItem
+                  key={tx.id}
+                  transaction={tx}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                />
               ))}
             </div>
           ) : (
@@ -398,13 +444,29 @@ function MonthlyView({
   selectedMonth: Date;
 }) {
   const monthsData = useMemo(() => {
-    const result: { label: string; monthYear: string; income: number; expense: number; net: number }[] =
-      [];
+    const result: {
+      label: string;
+      monthYear: string;
+      income: number;
+      expense: number;
+      net: number;
+    }[] = [];
     for (let m = 5; m >= 0; m--) {
-      const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - m, 1);
-      const myKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const d = new Date(
+        selectedMonth.getFullYear(),
+        selectedMonth.getMonth() - m,
+        1
+      );
+      const myKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+        2,
+        '0'
+      )}`;
       const totals = getMonthlyTotals(transactions, myKey);
-      result.push({ label: d.toLocaleDateString('en-US', { month: 'short' }), monthYear: myKey, ...totals });
+      result.push({
+        label: d.toLocaleDateString('en-US', { month: 'short' }),
+        monthYear: myKey,
+        ...totals,
+      });
     }
     return result;
   }, [transactions, selectedMonth]);
@@ -436,7 +498,9 @@ function MonthlyView({
                   title={`Expense: ${formatCurrency(d.expense, symbol)}`}
                 />
               </div>
-              <span className="text-[10px] text-muted-foreground font-medium">{d.label}</span>
+              <span className="text-[10px] text-muted-foreground font-medium">
+                {d.label}
+              </span>
             </div>
           ))}
         </div>
@@ -469,11 +533,15 @@ function MonthlyView({
           <div className="flex justify-between text-xs">
             <span className="text-muted-foreground">
               Income:{' '}
-              <span className="text-income font-medium">{formatCurrency(d.income, symbol)}</span>
+              <span className="text-income font-medium">
+                {formatCurrency(d.income, symbol)}
+              </span>
             </span>
             <span className="text-muted-foreground">
               Expense:{' '}
-              <span className="text-expense font-medium">{formatCurrency(d.expense, symbol)}</span>
+              <span className="text-expense font-medium">
+                {formatCurrency(d.expense, symbol)}
+              </span>
             </span>
           </div>
         </div>
@@ -512,7 +580,9 @@ function SummaryView({
           <Wallet className="h-5 w-5 text-primary" />
           <h3 className="text-sm font-semibold">Net Worth</h3>
         </div>
-        <p className="text-3xl font-bold tabular-nums">{formatCurrency(totalBalance, symbol)}</p>
+        <p className="text-3xl font-bold tabular-nums">
+          {formatCurrency(totalBalance, symbol)}
+        </p>
         <div className="grid grid-cols-2 gap-3 mt-4">
           <div className="rounded-xl bg-income/10 p-3">
             <p className="text-xs text-muted-foreground">Total Assets</p>
@@ -530,7 +600,9 @@ function SummaryView({
       </div>
 
       <div className="bg-card rounded-2xl border border-border/40 p-5">
-        <h3 className="text-sm font-semibold mb-3">{formatMonthYear(monthYear)} Summary</h3>
+        <h3 className="text-sm font-semibold mb-3">
+          {formatMonthYear(monthYear)} Summary
+        </h3>
         <div className="flex flex-col gap-3">
           <SummaryRow
             label="Total Income"
@@ -545,7 +617,10 @@ function SummaryView({
           <div className="border-t pt-3">
             <SummaryRow
               label="Net Cash Flow"
-              value={`${totals.net >= 0 ? '+' : ''}${formatCurrency(totals.net, symbol)}`}
+              value={`${totals.net >= 0 ? '+' : ''}${formatCurrency(
+                totals.net,
+                symbol
+              )}`}
               color={totals.net >= 0 ? 'text-income' : 'text-expense'}
               bold
             />
@@ -609,7 +684,12 @@ function SummaryRow({
 }) {
   return (
     <div className="flex items-center justify-between">
-      <span className={cn('text-sm text-muted-foreground', bold && 'text-foreground font-medium')}>
+      <span
+        className={cn(
+          'text-sm text-muted-foreground',
+          bold && 'text-foreground font-medium'
+        )}
+      >
         {label}
       </span>
       <span className={cn('text-sm tabular-nums', color, bold && 'font-bold text-base')}>
