@@ -1,29 +1,20 @@
 import React, { useState } from 'react';
-import { signInWithPopup, signInWithEmailAndPassword } from 'firebase/auth';
-import { auth, googleProvider } from '@/lib/firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Mail, Lock, Sparkles, ArrowRight } from 'lucide-react';
+import { Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
-export function AuthView() {
+interface AuthViewProps {
+  notice?: string | null;
+}
+
+export function AuthView({ notice }: AuthViewProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const handleGoogleSignIn = async () => {
-    try {
-      setLoading(true);
-      await signInWithPopup(auth, googleProvider);
-      // Allowlist check happens in App.tsx on auth state change.
-    } catch (err: unknown) {
-      const error = err as Error;
-      toast.error(error.message || 'Failed to sign in with Google');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,26 +53,15 @@ export function AuthView() {
         />
       </div>
 
-      <div className="bg-card border border-border/40 rounded-3xl p-6 shadow-sm">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleGoogleSignIn}
-          disabled={loading}
-          className="w-full rounded-2xl h-11 text-sm font-medium gap-2 mb-4"
-        >
-          <Sparkles className="h-4 w-4 text-amber-500" />
-          Continue with Google
-        </Button>
-
-        <div className="relative my-4 text-center">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-border" />
-          </div>
-          <span className="relative bg-card px-2 text-xs uppercase text-muted-foreground">
-            Or with email
-          </span>
+      {notice && (
+        <div className="flex items-start gap-2 mb-4 p-3 rounded-2xl bg-destructive/10 text-destructive text-xs">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>{notice}</span>
         </div>
+      )}
+
+      <div className="bg-card border border-border/40 rounded-3xl p-6 shadow-sm">
+        <h2 className="text-lg font-semibold mb-4 text-center">Sign In</h2>
 
         <form onSubmit={handleEmailSignIn} className="space-y-3">
           <div>
@@ -127,7 +107,8 @@ export function AuthView() {
         </form>
 
         <p className="mt-4 text-center text-[11px] text-muted-foreground">
-          Access is by invitation only. Contact the administrator if you need an account.
+          Access is by invitation only. Contact the administrator if you need an
+          account.
         </p>
       </div>
     </div>
