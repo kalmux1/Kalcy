@@ -730,7 +730,11 @@ The SDK-level persistence is what makes the app **truly offline-capable** — Wo
 
 ## License
 
-Private / unlicensed — this repository is not published under an open-source license.
+This project is **open source** and released under the [MIT License](LICENSE).
+
+You are free to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software — as long as the original copyright notice and permission notice are included in all copies or substantial portions of the software.
+
+See the [`LICENSE`](LICENSE) file for the full text.
 
 ---
 
