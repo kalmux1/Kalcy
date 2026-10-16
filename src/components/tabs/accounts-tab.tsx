@@ -11,6 +11,7 @@ import {
   Trash2,
   Wallet,
   HandCoins,
+  LineChart,
 } from 'lucide-react';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
@@ -29,9 +30,11 @@ import { formatCurrency } from '@/lib/currencies';
 import {
   getTotalBalance,
   getLoansNetWorth,
+  getInvestmentsNetWorth,
   getTotalNetWorth,
 } from '@/lib/finance';
 import { LendingView } from './lending-view';
+import { InvestmentsView } from './investments-view';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -49,12 +52,13 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: 'wallet', label: 'Wallet' },
 ];
 
-type AccountsSegment = 'accounts' | 'lending';
+type AccountsSegment = 'accounts' | 'lending' | 'investments';
 
 export function AccountsTab() {
   const {
     accounts,
     loans,
+    investments,
     preferences,
     addAccount,
     updateAccount,
@@ -67,10 +71,13 @@ export function AccountsTab() {
 
   const cashBalance = getTotalBalance(accounts);
   const loansNet = getLoansNetWorth(loans);
-  const netWorth = getTotalNetWorth(accounts, loans);
+  const investmentsNet = getInvestmentsNetWorth(investments);
+  const netWorth = getTotalNetWorth(accounts, loans, investments);
+
   const activeLoans = loans.filter(
     (l) => !l.isSettled && l.remainingAmount > 0
   );
+  const activeInvestments = investments.filter((i) => i.status === 'active');
 
   const confirmDelete = (acc: Account) => {
     toast('Delete this account and all its transactions?', {
@@ -91,23 +98,33 @@ export function AccountsTab() {
     });
   };
 
+  const subtitle = (() => {
+    if (segment === 'accounts') {
+      return `${accounts.length} account${accounts.length !== 1 ? 's' : ''}`;
+    }
+    if (segment === 'lending') {
+      return `${activeLoans.length} active loan${
+        activeLoans.length !== 1 ? 's' : ''
+      }`;
+    }
+    return `${activeInvestments.length} active position${
+      activeInvestments.length !== 1 ? 's' : ''
+    }`;
+  })();
+
+  const heading = (() => {
+    if (segment === 'accounts') return 'Accounts';
+    if (segment === 'lending') return 'Lending';
+    return 'Investments';
+  })();
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="px-4 pt-4 pb-2">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">
-              {segment === 'accounts' ? 'Accounts' : 'Lending'}
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {segment === 'accounts'
-                ? `${accounts.length} account${
-                    accounts.length !== 1 ? 's' : ''
-                  }`
-                : `${activeLoans.length} active loan${
-                    activeLoans.length !== 1 ? 's' : ''
-                  }`}
-            </p>
+            <h1 className="text-2xl font-bold">{heading}</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
           </div>
           {segment === 'accounts' && (
             <div className="flex gap-2">
@@ -134,30 +151,39 @@ export function AccountsTab() {
         </div>
       </div>
 
+      {/* Segment switcher — Accounts / Lending / Investments */}
       <div className="flex gap-1 mx-4 mb-2 p-1 bg-muted rounded-xl">
-        {(['accounts', 'lending'] as AccountsSegment[]).map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setSegment(s)}
-            className={cn(
-              'flex-1 py-2 rounded-lg text-sm font-medium capitalize transition-all flex items-center justify-center gap-1.5 touch-manipulation',
-              segment === s
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground'
-            )}
-          >
-            {s === 'accounts' ? (
-              <Wallet className="h-3.5 w-3.5" />
-            ) : (
-              <HandCoins className="h-3.5 w-3.5" />
-            )}
-            {s === 'accounts' ? 'Accounts' : 'Lending'}
-          </button>
-        ))}
+        {(['accounts', 'lending', 'investments'] as AccountsSegment[]).map(
+          (s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setSegment(s)}
+              className={cn(
+                'flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-all flex items-center justify-center gap-1 touch-manipulation',
+                segment === s
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground'
+              )}
+            >
+              {s === 'accounts' ? (
+                <Wallet className="h-3.5 w-3.5" />
+              ) : s === 'lending' ? (
+                <HandCoins className="h-3.5 w-3.5" />
+              ) : (
+                <LineChart className="h-3.5 w-3.5" />
+              )}
+              {s === 'accounts'
+                ? 'Accounts'
+                : s === 'lending'
+                ? 'Lending'
+                : 'Invest'}
+            </button>
+          )
+        )}
       </div>
 
-      {segment === 'accounts' ? (
+      {segment === 'accounts' && (
         <>
           <div className="px-4 pt-2">
             <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20">
@@ -165,24 +191,34 @@ export function AccountsTab() {
               <p className="text-3xl font-bold mt-1 tabular-nums">
                 {formatCurrency(netWorth, preferences.currencySymbol)}
               </p>
-              {loansNet !== 0 && (
+              {(loansNet !== 0 || investmentsNet !== 0) && (
                 <div className="mt-3 pt-3 border-t border-white/20 flex flex-col gap-1 text-xs">
                   <div className="flex justify-between">
                     <span className="opacity-75">Cash &amp; accounts</span>
                     <span className="tabular-nums">
-                      {formatCurrency(
-                        cashBalance,
-                        preferences.currencySymbol
-                      )}
+                      {formatCurrency(cashBalance, preferences.currencySymbol)}
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-75">Loans (net)</span>
-                    <span className="tabular-nums">
-                      {loansNet >= 0 ? '+' : ''}
-                      {formatCurrency(loansNet, preferences.currencySymbol)}
-                    </span>
-                  </div>
+                  {loansNet !== 0 && (
+                    <div className="flex justify-between">
+                      <span className="opacity-75">Loans (net)</span>
+                      <span className="tabular-nums">
+                        {loansNet >= 0 ? '+' : ''}
+                        {formatCurrency(loansNet, preferences.currencySymbol)}
+                      </span>
+                    </div>
+                  )}
+                  {investmentsNet !== 0 && (
+                    <div className="flex justify-between">
+                      <span className="opacity-75">Investments</span>
+                      <span className="tabular-nums">
+                        {formatCurrency(
+                          investmentsNet,
+                          preferences.currencySymbol
+                        )}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -270,9 +306,17 @@ export function AccountsTab() {
             </div>
           </div>
         </>
-      ) : (
+      )}
+
+      {segment === 'lending' && (
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pb-40">
           <LendingView />
+        </div>
+      )}
+
+      {segment === 'investments' && (
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pb-40">
+          <InvestmentsView />
         </div>
       )}
 

@@ -3,6 +3,60 @@ export type AccountType = 'cash' | 'bank' | 'card' | 'savings' | 'wallet';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type LoanType = 'lent' | 'borrowed'; // lent = they owe me; borrowed = I owe them
 
+/* ------------------------------------------------------------------ */
+/*  Investments                                                       */
+/* ------------------------------------------------------------------ */
+
+export type InvestmentType =
+  | 'stocks'
+  | 'ipo'
+  | 'mutual_fund'
+  | 'etf'
+  | 'crypto'
+  | 'bond'
+  | 'fixed_deposit'
+  | 'real_estate'
+  | 'gold'
+  | 'other';
+
+export type InvestmentStatus = 'active' | 'sold';
+
+export interface Investment {
+  id: string;
+  /** Human-readable name, e.g. "Reliance Industries" or "Zomato IPO". */
+  name: string;
+  /** Ticker or short code, e.g. "RELIANCE", "ZOMATO". Optional but recommended. */
+  symbol: string;
+  type: InvestmentType;
+  /** Number of shares / units / coins / grams purchased. */
+  units: number;
+  /** Purchase price per unit. */
+  buyPrice: number;
+  /** Current market price per unit. Seeded to buyPrice on creation. */
+  currentPrice: number;
+  /** Denormalized: units * buyPrice. Kept in sync by the store. */
+  investedAmount: number;
+  /** Denormalized: units * currentPrice. Kept in sync by the store. */
+  currentValue: number;
+  /** Account used to fund the purchase, and to credit proceeds on sale. */
+  accountId: string;
+  /** Purchase timestamp (epoch ms). */
+  date: number;
+  /** Sale timestamp (epoch ms). null while active. */
+  soldDate: number | null;
+  /** Sale price per unit. null while active. */
+  soldPrice: number | null;
+  status: InvestmentStatus;
+  note: string;
+  createdAt: number;
+  /** Transaction created when the position was purchased. */
+  linkedTransactionId?: string | null;
+  /** Transaction created when the position was sold (if applicable). */
+  linkedSellTransactionId?: string | null;
+}
+
+/* ------------------------------------------------------------------ */
+
 export interface AuthUser {
   uid: string;
   email: string | null;

@@ -21,6 +21,7 @@ import type {
   AuthUser,
   Loan,
   LoanPayment,
+  Investment,
 } from './types';
 import {
   SEED_CATEGORIES,
@@ -40,6 +41,7 @@ interface StoreState {
   budgets: Budget[];
   loans: Loan[];
   loanPayments: LoanPayment[];
+  investments: Investment[];
   preferences: Preferences;
 
   setUser: (user: AuthUser | null) => void;
@@ -72,6 +74,22 @@ interface StoreState {
     payment: Omit<LoanPayment, 'id' | 'createdAt'>
   ) => Promise<void>;
   deleteLoanPayment: (id: string) => Promise<void>;
+
+  /* Investments */
+  addInvestment: (inv: {
+    name: string;
+    symbol: string;
+    type: Investment['type'];
+    units: number;
+    buyPrice: number;
+    accountId: string;
+    date: number;
+    note: string;
+  }) => Promise<void>;
+  updateInvestment: (id: string, updates: Partial<Investment>) => Promise<void>;
+  updateInvestmentPrice: (id: string, price: number) => Promise<void>;
+  sellInvestment: (id: string, soldPrice: number, soldDate: number) => Promise<void>;
+  deleteInvestment: (id: string) => Promise<void>;
 
   updatePreferences: (updates: Partial<Preferences>) => Promise<void>;
   restoreDefaults: () => Promise<void>;
@@ -132,6 +150,7 @@ export const useStore = create<StoreState>((set, get) => ({
   budgets: [],
   loans: [],
   loanPayments: [],
+  investments: [],
   preferences: DEFAULT_PREFERENCES,
 
   setUser: (user) => {
@@ -150,6 +169,7 @@ export const useStore = create<StoreState>((set, get) => ({
       budgets: [],
       loans: [],
       loanPayments: [],
+      investments: [],
       preferences: DEFAULT_PREFERENCES,
       isLoading: false,
     });
@@ -267,6 +287,19 @@ export const useStore = create<StoreState>((set, get) => ({
         (err) => console.error('loanPayments listener', err)
       )
     );
+
+    unsubs.push(
+      onSnapshot(
+        collection(db, 'users', uid, 'investments'),
+        (s) => {
+          const investments = s.docs
+            .map((d) => d.data() as Investment)
+            .sort((a, b) => b.date - a.date);
+          set({ investments });
+        },
+        (err) => console.error('investments listener', err)
+      )
+    );
   },
 
   addTransaction: async (tx) => {
@@ -350,7 +383,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   deleteAccount: async (id) => {
-    const { user, transactions, loans, loanPayments } = get();
+    const { user, transactions, loans, loanPayments, investments } = get();
     if (!user) return;
 
     const batch = writeBatch(db);
@@ -369,6 +402,9 @@ export const useStore = create<StoreState>((set, get) => ({
     const paymentsOnAccount = loanPayments.filter((p) => p.accountId === id);
     const paymentIdsToDelete = new Set(paymentsOnAccount.map((p) => p.id));
 
+    // Investments funded by this account are removed along with their txs.
+    const investmentsOnAccount = investments.filter((i) => i.accountId === id);
+
     // Collect every transaction that must be removed.
     const txIdsToDelete = new Set<string>();
     transactions.forEach((t) => {
@@ -380,6 +416,10 @@ export const useStore = create<StoreState>((set, get) => ({
       ) {
         txIdsToDelete.add(t.id);
       }
+    });
+    investmentsOnAccount.forEach((inv) => {
+      if (inv.linkedTransactionId) txIdsToDelete.add(inv.linkedTransactionId);
+      if (inv.linkedSellTransactionId) txIdsToDelete.add(inv.linkedSellTransactionId);
     });
 
     // Reverse effects on surviving accounts.
@@ -417,6 +457,9 @@ export const useStore = create<StoreState>((set, get) => ({
         batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id));
       }
     });
+    investmentsOnAccount.forEach((inv) =>
+      batch.delete(doc(db, 'users', user.uid, 'investments', inv.id))
+    );
 
     balanceDeltas.forEach((delta, accId) => {
       batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
@@ -762,6 +805,182 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   /* ------------------------------------------------------------------ */
+  /*  Investments                                                       */
+  /* ------------------------------------------------------------------ */
+
+  addInvestment: async ({
+    name,
+    symbol,
+    type,
+    units,
+    buyPrice,
+    accountId,
+    date,
+    note,
+  }) => {
+    const { user } = get();
+    if (!user) return;
+
+    const invId = genId('inv');
+    const txId = genId('t');
+    const now = Date.now();
+    const investedAmount = units * buyPrice;
+
+    const investment: Investment = {
+      id: invId,
+      name,
+      symbol,
+      type,
+      units,
+      buyPrice,
+      currentPrice: buyPrice, // seeded to buy price
+      investedAmount,
+      currentValue: investedAmount,
+      accountId,
+      date,
+      soldDate: null,
+      soldPrice: null,
+      status: 'active',
+      note,
+      createdAt: now,
+      linkedTransactionId: txId,
+      linkedSellTransactionId: null,
+    };
+
+    const tx: Transaction = {
+      id: txId,
+      type: 'expense',
+      amount: investedAmount,
+      accountId,
+      toAccountId: null,
+      categoryId: null,
+      date,
+      note: note || `Investment: ${name}${symbol ? ` (${symbol})` : ''}`,
+      receiptUrl: null,
+      isExcludedFromStats: true,
+      isExcludedFromBudget: true,
+      createdAt: now,
+      linkedLoanId: null,
+      linkedPaymentId: null,
+    };
+
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', user.uid, 'investments', invId), investment);
+    batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
+    txEffects(tx).forEach((delta, accId) => {
+      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+        balance: increment(delta),
+      });
+    });
+    await batch.commit();
+  },
+
+  updateInvestment: async (id, updates) => {
+    const { user, investments } = get();
+    if (!user) return;
+    const inv = investments.find((i) => i.id === id);
+    if (!inv) return;
+
+    // Recompute denormalized values whenever the underlying fields change.
+    const patch: Partial<Investment> = { ...updates };
+    const newUnits = updates.units ?? inv.units;
+    const newPrice = updates.currentPrice ?? inv.currentPrice;
+    const newBuyPrice = updates.buyPrice ?? inv.buyPrice;
+
+    if (updates.units !== undefined || updates.currentPrice !== undefined) {
+      patch.currentValue = newUnits * newPrice;
+    }
+    if (updates.units !== undefined || updates.buyPrice !== undefined) {
+      patch.investedAmount = newUnits * newBuyPrice;
+    }
+
+    await updateDoc(doc(db, 'users', user.uid, 'investments', id), patch);
+  },
+
+  updateInvestmentPrice: async (id, price) => {
+    const { user, investments } = get();
+    if (!user) return;
+    const inv = investments.find((i) => i.id === id);
+    if (!inv) return;
+    await updateDoc(doc(db, 'users', user.uid, 'investments', id), {
+      currentPrice: price,
+      currentValue: inv.units * price,
+    });
+  },
+
+  sellInvestment: async (id, soldPrice, soldDate) => {
+    const { user, investments } = get();
+    if (!user) return;
+    const inv = investments.find((i) => i.id === id);
+    if (!inv || inv.status === 'sold') return;
+
+    const proceeds = soldPrice * inv.units;
+    const txId = genId('t');
+    const now = Date.now();
+
+    const tx: Transaction = {
+      id: txId,
+      type: 'income',
+      amount: proceeds,
+      accountId: inv.accountId,
+      toAccountId: null,
+      categoryId: null,
+      date: soldDate,
+      note: `Sold: ${inv.name}${inv.symbol ? ` (${inv.symbol})` : ''}`,
+      receiptUrl: null,
+      isExcludedFromStats: true,
+      isExcludedFromBudget: true,
+      createdAt: now,
+      linkedLoanId: null,
+      linkedPaymentId: null,
+    };
+
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', user.uid, 'investments', id), {
+      status: 'sold',
+      soldPrice,
+      soldDate,
+      currentPrice: soldPrice,
+      currentValue: proceeds,
+      linkedSellTransactionId: txId,
+    });
+    batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
+    txEffects(tx).forEach((delta, accId) => {
+      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+        balance: increment(delta),
+      });
+    });
+    await batch.commit();
+  },
+
+  deleteInvestment: async (id) => {
+    const { user, investments, transactions } = get();
+    if (!user) return;
+    const inv = investments.find((i) => i.id === id);
+    if (!inv) return;
+
+    const batch = writeBatch(db);
+
+    const reverseTx = (txId?: string | null) => {
+      if (!txId) return;
+      const tx = transactions.find((t) => t.id === txId);
+      if (!tx) return;
+      batch.delete(doc(db, 'users', user.uid, 'transactions', tx.id));
+      txEffects(tx).forEach((delta, accId) => {
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(-delta),
+        });
+      });
+    };
+
+    reverseTx(inv.linkedTransactionId);
+    reverseTx(inv.linkedSellTransactionId);
+
+    batch.delete(doc(db, 'users', user.uid, 'investments', id));
+    await batch.commit();
+  },
+
+  /* ------------------------------------------------------------------ */
 
   updatePreferences: async (updates) => {
     const { user, preferences } = get();
@@ -805,6 +1024,7 @@ export const useStore = create<StoreState>((set, get) => ({
       budgets,
       loans,
       loanPayments,
+      investments,
     } = get();
     if (!user) return;
 
@@ -824,6 +1044,9 @@ export const useStore = create<StoreState>((set, get) => ({
     loans.forEach((l) => wipe.delete(doc(db, 'users', user.uid, 'loans', l.id)));
     loanPayments.forEach((p) =>
       wipe.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
+    );
+    investments.forEach((i) =>
+      wipe.delete(doc(db, 'users', user.uid, 'investments', i.id))
     );
     await wipe.commit();
 
@@ -865,6 +1088,7 @@ export const useStore = create<StoreState>((set, get) => ({
       budgets,
       loans,
       loanPayments,
+      investments,
     } = get();
     if (!user) return;
     const batch = writeBatch(db);
@@ -885,6 +1109,9 @@ export const useStore = create<StoreState>((set, get) => ({
     );
     loanPayments.forEach((p) =>
       batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
+    );
+    investments.forEach((i) =>
+      batch.delete(doc(db, 'users', user.uid, 'investments', i.id))
     );
     // Firestore rules forbid deleting profile/preferences (it's the "seeded"
     // marker). Reset it to defaults instead so a subsequent sign-in does not

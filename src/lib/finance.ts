@@ -1,4 +1,11 @@
-import type { Transaction, Account, Category, Budget, Loan } from './types';
+import type {
+  Transaction,
+  Account,
+  Category,
+  Budget,
+  Loan,
+  Investment,
+} from './types';
 
 /* -------------------------------------------------------------------------- */
 /*  Date helpers                                                              */
@@ -418,17 +425,8 @@ export function getLoansNetWorth(loans: Loan[]): number {
 }
 
 /**
- * Full net worth = sum of included account balances + net loan position.
- *
- * Rationale: lending cash out doesn't reduce net worth — you gain a receivable
- * in exchange. Borrowing cash in doesn't increase net worth — you gain a
- * payable. So accounts and loans offset each other by design.
+ * Paid amount on a loan (principal − remaining), clamped to [0, principal].
  */
-export function getTotalNetWorth(accounts: Account[], loans: Loan[]): number {
-  return getTotalBalance(accounts) + getLoansNetWorth(loans);
-}
-
-/** Paid amount on a loan (principal − remaining), clamped to [0, principal]. */
 export function getLoanPaid(loan: Loan): number {
   const paid = loan.principalAmount - loan.remainingAmount;
   return Math.max(0, Math.min(paid, loan.principalAmount));
@@ -438,4 +436,92 @@ export function getLoanPaid(loan: Loan): number {
 export function getLoanProgress(loan: Loan): number {
   if (loan.principalAmount <= 0) return 0;
   return Math.min(100, (getLoanPaid(loan) / loan.principalAmount) * 100);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Investments                                                               */
+/* -------------------------------------------------------------------------- */
+
+export function getInvestmentsSummary(investments: Investment[]): {
+  totalInvested: number;
+  currentValue: number;
+  unrealizedPnl: number;
+  realizedPnl: number;
+  totalPnl: number;
+  totalPnlPercent: number;
+  activeCount: number;
+  soldCount: number;
+} {
+  let totalInvested = 0;
+  let currentValue = 0;
+  let realizedPnl = 0;
+  let activeCount = 0;
+  let soldCount = 0;
+
+  for (const inv of investments) {
+    if (inv.status === 'active') {
+      totalInvested += inv.investedAmount;
+      currentValue += inv.currentValue;
+      activeCount += 1;
+    } else if (inv.status === 'sold' && inv.soldPrice !== null) {
+      const proceeds = inv.soldPrice * inv.units;
+      realizedPnl += proceeds - inv.investedAmount;
+      soldCount += 1;
+    }
+  }
+
+  const unrealizedPnl = currentValue - totalInvested;
+  const totalPnl = unrealizedPnl + realizedPnl;
+  const totalPnlPercent =
+    totalInvested > 0 ? (unrealizedPnl / totalInvested) * 100 : 0;
+
+  return {
+    totalInvested,
+    currentValue,
+    unrealizedPnl,
+    realizedPnl,
+    totalPnl,
+    totalPnlPercent,
+    activeCount,
+    soldCount,
+  };
+}
+
+/** Net worth contribution from active investments (market value). */
+export function getInvestmentsNetWorth(investments: Investment[]): number {
+  return investments
+    .filter((i) => i.status === 'active')
+    .reduce((s, i) => s + i.currentValue, 0);
+}
+
+/**
+ * Full net worth = accounts balance + net loan position + investments value.
+ *
+ * Buying an investment moves cash → asset, so it should not change net worth
+ * at the moment of purchase. Price appreciation (currentPrice > buyPrice) is
+ * what moves net worth up; depreciation moves it down.
+ */
+export function getTotalNetWorth(
+  accounts: Account[],
+  loans: Loan[],
+  investments: Investment[]
+): number {
+  return (
+    getTotalBalance(accounts) +
+    getLoansNetWorth(loans) +
+    getInvestmentsNetWorth(investments)
+  );
+}
+
+/** Investment P&L per unit, in currency. */
+export function getInvestmentPnl(inv: Investment): {
+  pnl: number;
+  pnlPercent: number;
+  marketValue: number;
+} {
+  const marketValue = inv.units * inv.currentPrice;
+  const pnl = marketValue - inv.investedAmount;
+  const pnlPercent =
+    inv.investedAmount > 0 ? (pnl / inv.investedAmount) * 100 : 0;
+  return { pnl, pnlPercent, marketValue };
 }
