@@ -12,7 +12,7 @@ import { formatCurrency } from '@/lib/currencies';
 interface TransactionItemProps {
   transaction: Transaction;
   onEdit: (tx: Transaction) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void | Promise<void>;
 }
 
 export function TransactionItem({
@@ -20,7 +20,7 @@ export function TransactionItem({
   onEdit,
   onDelete,
 }: TransactionItemProps) {
-  const { categories, accounts, preferences } = useStore();
+  const { categories, accounts, preferences, investments } = useStore();
 
   const category = categories.find((c) => c.id === transaction.categoryId);
   const account = accounts.find((a) => a.id === transaction.accountId);
@@ -32,19 +32,69 @@ export function TransactionItem({
   const isIncome = transaction.type === 'income';
   const isTransfer = transaction.type === 'transfer';
 
+  /*
+    Linked transactions are owned by a loan or an investment. Deleting them
+    directly from here would reverse the cash movement but leave the parent
+    (Loan.remainingAmount, Investment.linkedTransactionId, the loanPayments
+    record, …) in a corrupt state. So we block it and point the user at the
+    correct screen.
+  */
+  const linkedToLoan = !!(
+    transaction.linkedLoanId || transaction.linkedPaymentId
+  );
+  const linkedToInvestment = investments.some(
+    (i) =>
+      i.linkedTransactionId === transaction.id ||
+      i.linkedSellTransactionId === transaction.id
+  );
+  const isLinked = linkedToLoan || linkedToInvestment;
+
+  const showLinkedError = () => {
+    toast.error(
+      'This transaction is linked to a loan or investment. Delete it from the Lending or Investments tab instead.'
+    );
+  };
+
+  const handleDelete = async () => {
+    if (isLinked) {
+      showLinkedError();
+      return;
+    }
+    try {
+      await onDelete(transaction.id);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to delete transaction'
+      );
+    }
+  };
+
+  const requestDelete = () => {
+    if (isLinked) {
+      showLinkedError();
+      return;
+    }
+    toast('Delete this transaction?', {
+      duration: 6000,
+      action: {
+        label: 'Delete',
+        onClick: handleDelete,
+      },
+      cancel: { label: 'Cancel', onClick: () => {} },
+    });
+  };
+
   const handleDragEnd = (_e: unknown, info: PanInfo) => {
     if (info.offset.x < -100) {
-      toast('Delete this transaction?', {
-        duration: 6000,
-        action: {
-          label: 'Delete',
-          onClick: () => onDelete(transaction.id),
-        },
-        cancel: { label: 'Cancel', onClick: () => {} },
-      });
+      requestDelete();
     } else if (info.offset.x > 100) {
       onEdit(transaction);
     }
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    requestDelete();
   };
 
   return (
@@ -115,9 +165,9 @@ export function TransactionItem({
         </p>
       </div>
 
-      {/* Amount + edit button */}
-      <div className="flex items-center gap-2 shrink-0">
-        <div className="text-right">
+      {/* Amount + edit + delete */}
+      <div className="flex items-center gap-1 shrink-0">
+        <div className="text-right mr-0.5">
           <p
             className={cn(
               'text-sm font-semibold tabular-nums',
@@ -141,9 +191,18 @@ export function TransactionItem({
             onEdit(transaction);
           }}
           aria-label="Edit transaction"
-          className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors touch-manipulation"
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors touch-manipulation"
         >
           <Pencil className="h-4 w-4" />
+        </button>
+
+        <button
+          type="button"
+          onClick={handleDeleteClick}
+          aria-label="Delete transaction"
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors touch-manipulation"
+        >
+          <Trash2 className="h-4 w-4" />
         </button>
       </div>
     </motion.div>

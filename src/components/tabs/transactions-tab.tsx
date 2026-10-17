@@ -85,57 +85,54 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
   ];
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="px-4 pt-4 pb-1">
-        <p className="text-sm text-muted-foreground">
-          {greeting}
-          {firstName ? ',' : ''}
-        </p>
-        <h1 className="text-2xl font-bold truncate">
-          {firstName ? `${firstName} 👋` : 'Hello 👋'}
-        </h1>
-      </div>
+    <div className="flex flex-col h-full min-h-0 w-full max-w-7xl mx-auto">
+      {/* Header & Balance Container */}
+      <div className="px-4 md:px-8 pt-4 md:pt-8 flex flex-col gap-4">
+        <div>
+          <p className="text-sm text-muted-foreground">
+            {greeting}
+            {firstName ? ',' : ''}
+          </p>
+          <h1 className="text-2xl md:text-3xl font-bold truncate">
+            {firstName ? `${firstName} 👋` : 'Hello 👋'}
+          </h1>
+        </div>
 
-      <div className="px-4 pt-3">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20"
+          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-6 shadow-lg shadow-primary/20 w-full"
         >
           <div className="absolute -top-8 -right-8 h-32 w-32 rounded-full bg-white/10" />
           <div className="absolute -bottom-12 -left-4 h-24 w-24 rounded-full bg-white/5" />
-          <div className="relative">
-            <p className="text-sm opacity-90 font-medium">Total Balance</p>
-            <p className="text-3xl font-bold mt-1 tabular-nums">
-              {formatCurrency(totalBalance, preferences.currencySymbol)}
-            </p>
-            <div className="flex gap-4 mt-4">
-              <div className="flex items-center gap-1.5">
-                <div className="h-7 w-7 rounded-full bg-white/20 flex items-center justify-center">
+          <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6 md:gap-8">
+            <div>
+              <p className="text-sm opacity-90 font-medium">Total Balance</p>
+              <p className="text-3xl md:text-5xl font-bold mt-1 tabular-nums">
+                {formatCurrency(totalBalance, preferences.currencySymbol)}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-xl">
+                <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
                   <TrendingDown className="h-4 w-4" />
                 </div>
-                <div>
-                  <p className="text-xs opacity-75">Expense</p>
-                  <p className="text-sm font-semibold tabular-nums">
-                    {formatCurrencyCompact(
-                      totals.expense,
-                      preferences.currencySymbol
-                    )}
-                  </p>
+                <div className="flex flex-col">
+                  <span className="text-[10px] md:text-xs opacity-75">Expense</span>
+                  <span className="text-sm md:text-base font-semibold tabular-nums">
+                    {formatCurrencyCompact(totals.expense, preferences.currencySymbol)}
+                  </span>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="h-7 w-7 rounded-full bg-white/20 flex items-center justify-center">
+              <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-xl">
+                <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
                   <TrendingUp className="h-4 w-4" />
                 </div>
-                <div>
-                  <p className="text-xs opacity-75">Income</p>
-                  <p className="text-sm font-semibold tabular-nums">
-                    {formatCurrencyCompact(
-                      totals.income,
-                      preferences.currencySymbol
-                    )}
-                  </p>
+                <div className="flex flex-col">
+                  <span className="text-[10px] md:text-xs opacity-75">Income</span>
+                  <span className="text-sm md:text-base font-semibold tabular-nums">
+                    {formatCurrencyCompact(totals.income, preferences.currencySymbol)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -143,47 +140,53 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
         </motion.div>
       </div>
 
-      <div className="flex items-center justify-between px-4 pt-4 pb-2">
-        <button
-          onClick={() => changeMonth(-1)}
-          className="p-2 rounded-xl hover:bg-muted"
-          aria-label="Previous month"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <h2 className="text-base font-semibold">{formatMonthYear(monthYear)}</h2>
-        <button
-          onClick={() => changeMonth(1)}
-          className="p-2 rounded-xl hover:bg-muted"
-          aria-label="Next month"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </button>
+      {/* Controls Container */}
+      <div className="px-4 md:px-8 pt-6 pb-2 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center justify-between w-full md:w-auto md:gap-6">
+          <button
+            onClick={() => changeMonth(-1)}
+            className="p-2 rounded-xl hover:bg-muted"
+            aria-label="Previous month"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <h2 className="text-base md:text-xl font-semibold min-w-[150px] text-center">
+            {formatMonthYear(monthYear)}
+          </h2>
+          <button
+            onClick={() => changeMonth(1)}
+            className="p-2 rounded-xl hover:bg-muted"
+            aria-label="Next month"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex gap-1 p-1 bg-muted rounded-xl overflow-x-auto no-scrollbar">
+          {viewModes.map((mode) => {
+            const Icon = mode.icon;
+            const isActive = viewMode === mode.key;
+            return (
+              <button
+                key={mode.key}
+                onClick={() => setViewMode(mode.key)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-all whitespace-nowrap',
+                  isActive
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {mode.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex gap-1 px-4 pb-3 overflow-x-auto no-scrollbar">
-        {viewModes.map((mode) => {
-          const Icon = mode.icon;
-          const isActive = viewMode === mode.key;
-          return (
-            <button
-              key={mode.key}
-              onClick={() => setViewMode(mode.key)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap',
-                isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground'
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {mode.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pb-40">
+      {/* List Container */}
+      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 md:px-8 pb-40 md:pb-8">
         <AnimatePresence mode="wait">
           <motion.div
             key={viewMode}
@@ -255,14 +258,13 @@ function DailyView({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 items-start">
       {Array.from(grouped.entries()).map(([dayKey, txs]) => {
         const totals = getDailyTotals(transactions, dayKey);
         return (
-          <div key={dayKey}>
+          <div key={dayKey} className="flex flex-col">
             <div className="flex items-center justify-between px-1 py-2">
               <span className="text-sm font-semibold">
-                {/* parseLocalDate: avoid the UTC shift from `new Date('YYYY-MM-DD')` */}
                 {formatDateLabel(parseLocalDate(dayKey).getTime())}
               </span>
               <div className="flex gap-3 text-xs">
@@ -335,8 +337,8 @@ function CalendarView({
     : [];
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="bg-card rounded-2xl border border-border/40 p-3">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 items-start">
+      <div className="bg-card rounded-2xl border border-border/40 p-3 md:p-4">
         <div className="grid grid-cols-7 gap-1 mb-2">
           {weekDays.map((d) => (
             <div
@@ -408,12 +410,12 @@ function CalendarView({
 
       {selectedDate && (
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, x: 10 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="lg:mt-0 mt-2"
         >
           <div className="flex items-center justify-between px-1 py-2">
             <span className="text-sm font-semibold">
-              {/* parseLocalDate: avoid the UTC shift from `new Date('YYYY-MM-DD')` */}
               {formatDateLabel(parseLocalDate(selectedDate).getTime())}
             </span>
             <span className="text-xs text-muted-foreground">
@@ -486,15 +488,17 @@ function MonthlyView({
   );
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="bg-card rounded-2xl border border-border/40 p-4">
-        <h3 className="text-sm font-semibold mb-4">6-Month Overview</h3>
-        <div className="flex items-end justify-between gap-2 h-32">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+      <div className="bg-card rounded-2xl border border-border/40 p-4 md:p-6 lg:col-span-1">
+        <h3 className="text-sm md:text-base font-semibold mb-6">
+          6-Month Overview
+        </h3>
+        <div className="flex items-end justify-between gap-2 h-40 md:h-56">
           {monthsData.map((d, i) => (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1">
-              <div className="w-full flex flex-col items-center gap-0.5 justify-end h-24">
+            <div key={i} className="flex-1 flex flex-col items-center gap-2">
+              <div className="w-full flex flex-col items-center gap-0.5 justify-end h-32 md:h-44">
                 <div
-                  className="w-full max-w-[24px] rounded-t-lg bg-income transition-all"
+                  className="w-full max-w-[32px] rounded-t-lg bg-income transition-all"
                   style={{
                     height: `${(d.income / maxVal) * 50}%`,
                     minHeight: d.income > 0 ? '4px' : '0',
@@ -502,7 +506,7 @@ function MonthlyView({
                   title={`Income: ${formatCurrency(d.income, symbol)}`}
                 />
                 <div
-                  className="w-full max-w-[24px] rounded-b-lg bg-expense transition-all"
+                  className="w-full max-w-[32px] rounded-b-lg bg-expense transition-all"
                   style={{
                     height: `${(d.expense / maxVal) * 50}%`,
                     minHeight: d.expense > 0 ? '4px' : '0',
@@ -510,59 +514,61 @@ function MonthlyView({
                   title={`Expense: ${formatCurrency(d.expense, symbol)}`}
                 />
               </div>
-              <span className="text-[10px] text-muted-foreground font-medium">
+              <span className="text-[10px] md:text-xs text-muted-foreground font-medium">
                 {d.label}
               </span>
             </div>
           ))}
         </div>
-        <div className="flex items-center justify-center gap-4 mt-3">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-center gap-6 mt-4">
+          <div className="flex items-center gap-2">
             <div className="h-3 w-3 rounded bg-income" />
-            <span className="text-xs text-muted-foreground">Income</span>
+            <span className="text-xs md:text-sm text-muted-foreground">Income</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <div className="h-3 w-3 rounded bg-expense" />
-            <span className="text-xs text-muted-foreground">Expense</span>
+            <span className="text-xs md:text-sm text-muted-foreground">Expense</span>
           </div>
         </div>
       </div>
 
-      {monthsData.map((d) => (
-        <div
-          key={d.monthYear}
-          className="bg-card rounded-2xl border border-border/40 p-4"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-semibold">
-              {formatMonthYear(d.monthYear)}
-            </span>
-            <span
-              className={cn(
-                'text-sm font-bold tabular-nums',
-                d.net >= 0 ? 'text-income' : 'text-expense'
-              )}
-            >
-              {d.net >= 0 ? '+' : ''}
-              {formatCurrency(d.net, symbol)}
-            </span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">
-              Income:{' '}
-              <span className="text-income font-medium">
-                {formatCurrency(d.income, symbol)}
+      <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 content-start">
+        {monthsData.map((d) => (
+          <div
+            key={d.monthYear}
+            className="bg-card rounded-2xl border border-border/40 p-4"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold">
+                {formatMonthYear(d.monthYear)}
               </span>
-            </span>
-            <span className="text-muted-foreground">
-              Expense:{' '}
-              <span className="text-expense font-medium">
-                {formatCurrency(d.expense, symbol)}
+              <span
+                className={cn(
+                  'text-sm font-bold tabular-nums',
+                  d.net >= 0 ? 'text-income' : 'text-expense'
+                )}
+              >
+                {d.net >= 0 ? '+' : ''}
+                {formatCurrency(d.net, symbol)}
               </span>
-            </span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">
+                Income:{' '}
+                <span className="text-income font-medium">
+                  {formatCurrency(d.income, symbol)}
+                </span>
+              </span>
+              <span className="text-muted-foreground">
+                Expense:{' '}
+                <span className="text-expense font-medium">
+                  {formatCurrency(d.expense, symbol)}
+                </span>
+              </span>
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -593,36 +599,36 @@ function SummaryView({
       : 0;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="bg-card rounded-2xl border border-border/40 p-5">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+      <div className="bg-card rounded-2xl border border-border/40 p-5 md:p-6 lg:col-span-1">
         <div className="flex items-center gap-2 mb-3">
           <Wallet className="h-5 w-5 text-primary" />
-          <h3 className="text-sm font-semibold">Net Worth</h3>
+          <h3 className="text-sm md:text-base font-semibold">Net Worth</h3>
         </div>
-        <p className="text-3xl font-bold tabular-nums">
+        <p className="text-3xl md:text-4xl font-bold tabular-nums">
           {formatCurrency(totalBalance, symbol)}
         </p>
-        <div className="grid grid-cols-2 gap-3 mt-4">
-          <div className="rounded-xl bg-income/10 p-3">
+        <div className="flex flex-col gap-3 mt-6">
+          <div className="rounded-xl bg-income/10 p-3 md:p-4">
             <p className="text-xs text-muted-foreground">Total Assets</p>
-            <p className="text-lg font-bold text-income tabular-nums">
+            <p className="text-lg md:text-xl font-bold text-income tabular-nums">
               {formatCurrency(totalAssets, symbol)}
             </p>
           </div>
-          <div className="rounded-xl bg-expense/10 p-3">
+          <div className="rounded-xl bg-expense/10 p-3 md:p-4">
             <p className="text-xs text-muted-foreground">Liabilities</p>
-            <p className="text-lg font-bold text-expense tabular-nums">
+            <p className="text-lg md:text-xl font-bold text-expense tabular-nums">
               {formatCurrency(totalLiabilities, symbol)}
             </p>
           </div>
         </div>
       </div>
 
-      <div className="bg-card rounded-2xl border border-border/40 p-5">
-        <h3 className="text-sm font-semibold mb-3">
+      <div className="bg-card rounded-2xl border border-border/40 p-5 md:p-6 lg:col-span-1">
+        <h3 className="text-sm md:text-base font-semibold mb-4">
           {formatMonthYear(monthYear)} Summary
         </h3>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           <SummaryRow
             label="Total Income"
             value={formatCurrency(totals.income, symbol)}
@@ -633,7 +639,7 @@ function SummaryView({
             value={formatCurrency(totals.expense, symbol)}
             color="text-expense"
           />
-          <div className="border-t pt-3">
+          <div className="border-t pt-4">
             <SummaryRow
               label="Net Cash Flow"
               value={`${totals.net >= 0 ? '+' : ''}${formatCurrency(
@@ -644,7 +650,7 @@ function SummaryView({
               bold
             />
           </div>
-          <div className="border-t pt-3">
+          <div className="border-t pt-4">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
                 Savings Rate
@@ -662,16 +668,18 @@ function SummaryView({
         </div>
       </div>
 
-      <div className="bg-card rounded-2xl border border-border/40 p-5">
-        <h3 className="text-sm font-semibold mb-3">Accounts Breakdown</h3>
+      <div className="bg-card rounded-2xl border border-border/40 p-5 md:p-6 lg:col-span-1">
+        <h3 className="text-sm md:text-base font-semibold mb-3">
+          Accounts Breakdown
+        </h3>
         <div className="flex flex-col gap-2">
           {accounts.map((acc) => (
             <div
               key={acc.id}
               className="flex items-center justify-between py-2 border-b last:border-0"
             >
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium capitalize text-muted-foreground">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-medium capitalize text-muted-foreground w-12">
                   {acc.type}
                 </span>
                 <span className="text-sm font-medium">{acc.name}</span>

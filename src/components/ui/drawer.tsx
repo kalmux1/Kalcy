@@ -43,14 +43,14 @@ const DrawerContent = React.forwardRef<
     <DrawerPrimitive.Content
       ref={ref}
       className={cn(
-        // `max-h-[90dvh]` keeps the drawer inside the *visual* viewport when
-        // the mobile keyboard is open, instead of overflowing past it.
         'fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto max-h-[90dvh] flex-col rounded-t-[10px] border bg-background',
+        // Desktop responsive styles
+        'md:inset-x-auto md:bottom-auto md:top-[50%] md:left-[50%] md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md md:rounded-[2rem] md:border-border/60 md:shadow-2xl md:mt-0',
         className
       )}
       {...props}
     >
-      <div className="mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted" />
+      <div className="mx-auto mt-4 mb-2 h-2 w-[100px] shrink-0 rounded-full bg-muted md:hidden" />
       {children}
     </DrawerPrimitive.Content>
   </DrawerPortal>

@@ -16,8 +16,22 @@ import { exportToCSV, downloadCSV } from '@/lib/finance';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import type { Transaction } from '@/lib/types';
-import { Download, Trash2, Target, LogOut, Wifi, WifiOff, UserCog } from 'lucide-react';
+import {
+  Download,
+  Trash2,
+  Target,
+  LogOut,
+  Wifi,
+  WifiOff,
+  UserCog,
+  Plus,
+  Wallet,
+  BarChart3,
+  ListChecks,
+  Settings,
+} from 'lucide-react';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 /* ------------------------------------------------------------------ */
 /*  Online/offline indicator                                          */
@@ -35,7 +49,6 @@ function useOnlineStatus(): boolean {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Some browsers don't fire `offline` reliably; poll as a fallback.
     const interval = setInterval(() => {
       setIsOnline(navigator.onLine);
     }, 5000);
@@ -70,15 +83,20 @@ function ConnectionStatus() {
         <WifiOff className="h-4 w-4" />
       )}
       <span>
-        {isOnline
-          ? 'Connected to the internet'
-          : 'No internet connection'}
+        {isOnline ? 'Connected to the internet' : 'No internet connection'}
       </span>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
+
+const NAV_ITEMS = [
+  { key: 'transactions', label: 'Transactions', icon: ListChecks },
+  { key: 'stats', label: 'Statistics', icon: BarChart3 },
+  { key: 'accounts', label: 'Accounts', icon: Wallet },
+  { key: 'more', label: 'More & Budgets', icon: Settings },
+] as const;
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('transactions');
@@ -197,154 +215,226 @@ export default function App() {
   };
 
   return (
-    <main className="relative flex flex-col h-[100dvh] max-w-md mx-auto bg-background text-foreground overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-hidden">
-        {activeTab === 'transactions' && (
-          <TransactionsTab onEditTransaction={handleEditTransaction} />
-        )}
+    <main className="flex h-[100dvh] w-full bg-background text-foreground overflow-hidden">
+      {/* ================= DESKTOP SIDEBAR ================= */}
+      <aside className="hidden md:flex w-64 flex-col border-r border-border/40 bg-card h-full shrink-0">
+        <div className="p-6 flex items-center gap-3">
+          <img src="/kalcy-logo.svg" alt="Kalcy" className="h-8 w-auto" />
+          <h1 className="text-xl font-bold">Kalcy</h1>
+        </div>
 
-        {activeTab === 'stats' && <StatsTab />}
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2">
+          {NAV_ITEMS.map((item) => {
+            const isActive = activeTab === item.key;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.key}
+                onClick={() => setActiveTab(item.key as TabKey)}
+                className={cn(
+                  'flex w-full items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium',
+                  isActive
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-muted'
+                )}
+              >
+                <Icon className="h-5 w-5" />
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
 
-        {activeTab === 'accounts' && <AccountsTab />}
+        <div className="p-4 border-t border-border/40 space-y-3">
+          <Button
+            onClick={handleAddTransaction}
+            className="w-full rounded-xl gap-2 font-semibold"
+          >
+            <Plus className="h-4 w-4" /> New Transaction
+          </Button>
+          <div className="flex items-center gap-3 px-2">
+            <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
+              {(user.displayName || user.email || '?').charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold truncate">
+                {user.displayName || 'User'}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {user.email}
+              </p>
+            </div>
+          </div>
+        </div>
+      </aside>
 
-        {activeTab === 'more' && (
-          <div className="h-full overflow-y-auto no-scrollbar px-4 pt-4 pb-40 space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <img
-                  src="/kalcy-logo.svg"
-                  alt=""
-                  className="h-10 w-auto"
-                  draggable={false}
-                />
-                <div>
-                  <h1 className="text-xl font-bold">More &amp; Budgets</h1>
-                  <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                    {user.displayName || user.email}
-                  </p>
+      {/* ================= MAIN CONTENT ================= */}
+      <div className="flex-1 flex flex-col min-w-0 h-full relative">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {activeTab === 'transactions' && (
+            <TransactionsTab onEditTransaction={handleEditTransaction} />
+          )}
+          {activeTab === 'stats' && <StatsTab />}
+          {activeTab === 'accounts' && <AccountsTab />}
+
+          {activeTab === 'more' && (
+            <div className="h-full overflow-y-auto no-scrollbar px-4 pt-4 pb-40 md:pb-10 space-y-6 max-w-4xl mx-auto w-full">
+              {/* Header (Mobile only) */}
+              <div className="flex md:hidden items-center justify-between mb-2">
+                <div className="flex items-center gap-3">
+                  <img src="/kalcy-logo.svg" alt="" className="h-10 w-auto" />
+                  <div>
+                    <h1 className="text-xl font-bold">More</h1>
+                    <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                      {user.displayName || user.email}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSignOut}
-                className="rounded-xl h-8 text-xs gap-1"
-              >
-                <LogOut className="h-3.5 w-3.5" /> Sign Out
-              </Button>
-            </div>
-
-            {/* Connection status indicator */}
-            <ConnectionStatus />
-
-            {/* Account / Profile */}
-            <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4">
-              <h2 className="text-base font-semibold">Account</h2>
-              <Button
-                variant="outline"
-                className="w-full justify-start rounded-xl gap-2 text-sm"
-                onClick={() => setIsProfileOpen(true)}
-              >
-                <UserCog className="h-4 w-4" /> Edit Profile &amp; Password
-              </Button>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Target className="h-4 w-4 text-primary" />
-                <h2 className="text-base font-semibold">Monthly Budgets</h2>
-              </div>
-              <BudgetsView />
-            </div>
-
-            <div className="space-y-4 bg-card border border-border/40 rounded-3xl p-4">
-              <h2 className="text-base font-semibold">Preferences</h2>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Currency</Label>
-                <select
-                  value={preferences.currency}
-                  onChange={(e) => updatePreferences({ currency: e.target.value })}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSignOut}
+                  className="rounded-xl h-8 text-xs gap-1"
                 >
-                  {CURRENCIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.name} ({c.symbol})
-                    </option>
-                  ))}
-                </select>
+                  <LogOut className="h-3.5 w-3.5" /> Sign Out
+                </Button>
               </div>
 
-              <div className="space-y-1.5 pt-2">
-                <Label className="text-xs text-muted-foreground">Week Starts On</Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant={preferences.weekStartDay === 1 ? 'default' : 'outline'}
-                    size="sm"
-                    className="flex-1 rounded-xl"
-                    onClick={() => updatePreferences({ weekStartDay: 1 })}
-                  >
-                    Monday
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={preferences.weekStartDay === 0 ? 'default' : 'outline'}
-                    size="sm"
-                    className="flex-1 rounded-xl"
-                    onClick={() => updatePreferences({ weekStartDay: 0 })}
-                  >
-                    Sunday
-                  </Button>
-                </div>
-              </div>
+              {/* Connection status indicator */}
+              <ConnectionStatus />
 
-              <div className="space-y-1.5 pt-2">
-                <Label className="text-xs text-muted-foreground">Theme Mode</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['light', 'dark', 'system'] as const).map((mode) => (
-                    <Button
-                      key={mode}
-                      type="button"
-                      variant={preferences.theme === mode ? 'default' : 'outline'}
-                      size="sm"
-                      className="capitalize rounded-xl text-xs"
-                      onClick={() => updatePreferences({ theme: mode })}
-                    >
-                      {mode}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4">
-              <h2 className="text-base font-semibold">Cloud Actions</h2>
-              <div className="flex flex-col gap-2">
+              {/* Account / Profile */}
+              <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm">
+                <h2 className="text-base font-semibold">Account</h2>
                 <Button
                   variant="outline"
                   className="w-full justify-start rounded-xl gap-2 text-sm"
-                  onClick={handleExportCSV}
+                  onClick={() => setIsProfileOpen(true)}
                 >
-                  <Download className="h-4 w-4" /> Export All Data (CSV)
+                  <UserCog className="h-4 w-4" /> Edit Profile &amp; Password
                 </Button>
+                {/* Desktop Sign Out */}
                 <Button
                   variant="outline"
-                  className="w-full justify-start rounded-xl gap-2 text-sm text-destructive hover:text-destructive hover:bg-destructive/10"
-                  onClick={confirmWipe}
+                  onClick={handleSignOut}
+                  className="hidden md:flex w-full justify-start rounded-xl gap-2 text-sm text-destructive hover:text-destructive hover:bg-destructive/10"
                 >
-                  <Trash2 className="h-4 w-4" /> Delete All Data
+                  <LogOut className="h-4 w-4" /> Sign Out
                 </Button>
               </div>
-            </div>
-          </div>
-        )}
-      </div>
 
-      <BottomNav
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        onAddClick={handleAddTransaction}
-      />
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4 text-primary" />
+                  <h2 className="text-base font-semibold">Monthly Budgets</h2>
+                </div>
+                <BudgetsView />
+              </div>
+
+              <div className="space-y-4 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm max-w-2xl">
+                <h2 className="text-base font-semibold">Preferences</h2>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    Currency
+                  </Label>
+                  <select
+                    value={preferences.currency}
+                    onChange={(e) =>
+                      updatePreferences({ currency: e.target.value })
+                    }
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {CURRENCIES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.name} ({c.symbol})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5 pt-2">
+                  <Label className="text-xs text-muted-foreground">
+                    Week Starts On
+                  </Label>
+                  <div className="flex gap-2 max-w-sm">
+                    <Button
+                      type="button"
+                      variant={
+                        preferences.weekStartDay === 1 ? 'default' : 'outline'
+                      }
+                      size="sm"
+                      className="flex-1 rounded-xl"
+                      onClick={() => updatePreferences({ weekStartDay: 1 })}
+                    >
+                      Monday
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={
+                        preferences.weekStartDay === 0 ? 'default' : 'outline'
+                      }
+                      size="sm"
+                      className="flex-1 rounded-xl"
+                      onClick={() => updatePreferences({ weekStartDay: 0 })}
+                    >
+                      Sunday
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 pt-2">
+                  <Label className="text-xs text-muted-foreground">
+                    Theme Mode
+                  </Label>
+                  <div className="grid grid-cols-3 gap-2 max-w-sm">
+                    {(['light', 'dark', 'system'] as const).map((mode) => (
+                      <Button
+                        key={mode}
+                        type="button"
+                        variant={
+                          preferences.theme === mode ? 'default' : 'outline'
+                        }
+                        size="sm"
+                        className="capitalize rounded-xl text-xs"
+                        onClick={() => updatePreferences({ theme: mode })}
+                      >
+                        {mode}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm max-w-2xl">
+                <h2 className="text-base font-semibold">Cloud Actions</h2>
+                <div className="flex flex-col gap-2 max-w-sm">
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start rounded-xl gap-2 text-sm"
+                    onClick={handleExportCSV}
+                  >
+                    <Download className="h-4 w-4" /> Export All Data (CSV)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start rounded-xl gap-2 text-sm text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={confirmWipe}
+                  >
+                    <Trash2 className="h-4 w-4" /> Delete All Data
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ================= MOBILE BOTTOM NAV & FAB ================= */}
+        <BottomNav
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onAddClick={handleAddTransaction}
+        />
+      </div>
 
       <TransactionSheet
         open={isSheetOpen}

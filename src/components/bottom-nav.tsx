@@ -21,7 +21,7 @@ const NAV_ITEMS: { key: TabKey; label: string; icon: typeof ListChecks }[] = [
 
 export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps) {
   return (
-    <>
+    <div className="md:hidden">
       {/* Nav bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pointer-events-none">
         <div className="w-full max-w-md pointer-events-auto px-4 pb-[max(env(safe-area-inset-bottom),0.5rem)]">
@@ -38,12 +38,6 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
                   className="relative flex flex-1 items-center justify-center h-full touch-manipulation"
                   aria-label={item.label}
                 >
-                  {/*
-                    The pill wraps THIS inner wrapper, which has symmetric
-                    padding on both sides. That keeps the highlight centered
-                    around the icon+label instead of stretching to fill the
-                    whole button.
-                  */}
                   <div
                     className={cn(
                       'relative flex flex-col items-center justify-center gap-1 rounded-2xl px-4 py-1.5',
@@ -83,11 +77,7 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
         </div>
       </div>
 
-      {/*
-        FAB — centered horizontally above the nav bar.
-        Uses a single -translate-x-1/2 on the wrapper so the inner button's
-        active:scale-90 works without fighting the positioning transform.
-      */}
+      {/* FAB */}
       <div
         className="fixed left-1/2 z-50 -translate-x-1/2"
         style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem)' }}
@@ -101,6 +91,6 @@ export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps
           <Plus className="h-7 w-7" strokeWidth={2.5} />
         </button>
       </div>
-    </>
+    </div>
   );
 }

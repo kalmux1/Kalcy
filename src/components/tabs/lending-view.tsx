@@ -26,6 +26,13 @@ import { formatCurrency } from '@/lib/currencies';
 import { getLoansSummary, formatDateKey, toDateInputValue } from '@/lib/finance';
 import { toast } from 'sonner';
 
+const formatLedgerDate = (ts: number) =>
+  new Date(ts).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
 export function LendingView() {
   const {
     loans,
@@ -41,11 +48,12 @@ export function LendingView() {
 
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Loan | null>(null);
-  const [detail, setDetail] = useState<Loan | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [autoAddPayment, setAutoAddPayment] = useState(false);
 
   const summary = useMemo(() => getLoansSummary(loans), [loans]);
-  const activeLoans = loans.filter((l) => !l.isSettled);
-  const settledLoans = loans.filter((l) => l.isSettled);
+  const activeLoans = loans.filter((l) => !l.isSettled && l.remainingAmount > 0);
+  const settledLoans = loans.filter((l) => l.isSettled || l.remainingAmount <= 0);
 
   const confirmDelete = (loan: Loan) => {
     toast(
@@ -57,6 +65,7 @@ export function LendingView() {
           onClick: async () => {
             try {
               await deleteLoan(loan.id);
+              if (detailId === loan.id) setDetailId(null);
               toast.success('Loan deleted');
             } catch (err) {
               console.error(err);
@@ -69,41 +78,48 @@ export function LendingView() {
     );
   };
 
+  const handleCardClick = (loan: Loan) => {
+    setDetailId(loan.id);
+    setAutoAddPayment(false);
+  };
+
+  const handleRecordPayment = (loan: Loan) => {
+    setDetailId(loan.id);
+    setAutoAddPayment(true);
+  };
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20">
+    <div className="flex flex-col gap-4 md:gap-6">
+      <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20">
         <div className="flex items-center gap-2 mb-2">
           <HandCoins className="h-5 w-5" />
           <span className="text-sm font-medium opacity-90">
             Lending Overview
           </span>
         </div>
-        <p className="text-3xl font-bold tabular-nums">
+        <p className="text-3xl md:text-5xl font-bold tabular-nums">
           {summary.netReceivable >= 0 ? '+' : ''}
           {formatCurrency(summary.netReceivable, preferences.currencySymbol)}
         </p>
-        <p className="text-xs opacity-75 mt-1">Net position</p>
+        <p className="text-xs md:text-sm opacity-75 mt-1">Net position</p>
 
-        <div className="grid grid-cols-2 gap-3 mt-4">
-          <div className="rounded-2xl bg-white/15 p-3">
+        <div className="grid grid-cols-2 gap-4 mt-4 md:mt-6 md:max-w-md">
+          <div className="rounded-2xl bg-white/15 p-3 md:p-4">
             <div className="flex items-center gap-1.5 mb-1">
               <ArrowDownLeft className="h-3.5 w-3.5" />
               <span className="text-xs opacity-90">Owed to you</span>
             </div>
-            <p className="text-base font-bold tabular-nums">
+            <p className="text-base md:text-xl font-bold tabular-nums">
               {formatCurrency(summary.totalLent, preferences.currencySymbol)}
             </p>
           </div>
-          <div className="rounded-2xl bg-white/15 p-3">
+          <div className="rounded-2xl bg-white/15 p-3 md:p-4">
             <div className="flex items-center gap-1.5 mb-1">
               <ArrowUpRight className="h-3.5 w-3.5" />
               <span className="text-xs opacity-90">You owe</span>
             </div>
-            <p className="text-base font-bold tabular-nums">
-              {formatCurrency(
-                summary.totalBorrowed,
-                preferences.currencySymbol
-              )}
+            <p className="text-base md:text-xl font-bold tabular-nums">
+              {formatCurrency(summary.totalBorrowed, preferences.currencySymbol)}
             </p>
           </div>
         </div>
@@ -112,7 +128,7 @@ export function LendingView() {
       <Button
         type="button"
         variant="outline"
-        className="rounded-2xl border-dashed"
+        className="rounded-2xl border-dashed max-w-xs"
         onClick={() => setIsAdding(true)}
         disabled={accounts.length === 0}
       >
@@ -125,47 +141,52 @@ export function LendingView() {
             <HandCoins className="h-8 w-8 text-muted-foreground" />
           </div>
           <p className="text-sm text-muted-foreground max-w-[240px]">
-            No loans yet. Track money you lend or borrow from friends and
-            family.
+            No loans yet. Track money you lend or borrow from friends and family.
           </p>
         </div>
       ) : (
         <>
           {activeLoans.length > 0 && (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">
                 Active ({activeLoans.length})
               </h3>
-              {activeLoans.map((loan, i) => (
-                <LoanCard
-                  key={loan.id}
-                  loan={loan}
-                  currencySymbol={preferences.currencySymbol}
-                  onClick={() => setDetail(loan)}
-                  onEdit={() => setEditing(loan)}
-                  onDelete={() => confirmDelete(loan)}
-                  delay={i * 0.04}
-                />
-              ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                {activeLoans.map((loan, i) => (
+                  <LoanCard
+                    key={loan.id}
+                    loan={loan}
+                    currencySymbol={preferences.currencySymbol}
+                    onClick={() => handleCardClick(loan)}
+                    onEdit={() => setEditing(loan)}
+                    onDelete={() => confirmDelete(loan)}
+                    onRecordPayment={() => handleRecordPayment(loan)}
+                    delay={i * 0.04}
+                  />
+                ))}
+              </div>
             </div>
           )}
 
           {settledLoans.length > 0 && (
-            <div className="flex flex-col gap-2 mt-2">
+            <div className="flex flex-col gap-3 mt-4">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">
                 Settled ({settledLoans.length})
               </h3>
-              {settledLoans.map((loan) => (
-                <LoanCard
-                  key={loan.id}
-                  loan={loan}
-                  currencySymbol={preferences.currencySymbol}
-                  onClick={() => setDetail(loan)}
-                  onEdit={() => setEditing(loan)}
-                  onDelete={() => confirmDelete(loan)}
-                  delay={0}
-                />
-              ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                {settledLoans.map((loan) => (
+                  <LoanCard
+                    key={loan.id}
+                    loan={loan}
+                    currencySymbol={preferences.currencySymbol}
+                    onClick={() => handleCardClick(loan)}
+                    onEdit={() => setEditing(loan)}
+                    onDelete={() => confirmDelete(loan)}
+                    onRecordPayment={() => handleRecordPayment(loan)}
+                    delay={0}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </>
@@ -199,10 +220,15 @@ export function LendingView() {
       />
 
       <LoanDetailSheet
-        loan={detail}
+        key={detailId ? `${detailId}-${autoAddPayment}` : 'closed'}
+        loanId={detailId}
+        initialAdding={autoAddPayment}
         payments={loanPayments}
         onOpenChange={(open) => {
-          if (!open) setDetail(null);
+          if (!open) {
+            setDetailId(null);
+            setAutoAddPayment(false);
+          }
         }}
         onAddPayment={async (data) => {
           try {
@@ -233,6 +259,7 @@ function LoanCard({
   onClick,
   onEdit,
   onDelete,
+  onRecordPayment,
   delay,
 }: {
   loan: Loan;
@@ -240,6 +267,7 @@ function LoanCard({
   onClick: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onRecordPayment: () => void;
   delay: number;
 }) {
   const paid = loan.principalAmount - loan.remainingAmount;
@@ -254,7 +282,7 @@ function LoanCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay }}
       className={cn(
-        'bg-card rounded-2xl border border-border/40 p-4',
+        'bg-card rounded-2xl border border-border/40 p-4 md:p-5 flex flex-col justify-between',
         isSettled && 'opacity-70'
       )}
     >
@@ -267,7 +295,7 @@ function LoanCard({
         <div className="flex items-start gap-3">
           <div
             className={cn(
-              'h-11 w-11 rounded-2xl flex items-center justify-center shrink-0',
+              'h-10 w-10 md:h-12 md:w-12 rounded-xl flex items-center justify-center shrink-0',
               isLent ? 'bg-income/10' : 'bg-expense/10'
             )}
           >
@@ -309,31 +337,6 @@ function LoanCard({
               </span>
             </p>
           </div>
-
-          <div className="flex flex-col gap-1">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit();
-              }}
-              className="p-2 rounded-xl hover:bg-muted transition-colors"
-              aria-label="Edit loan"
-            >
-              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              className="p-2 rounded-xl hover:bg-destructive/10 transition-colors"
-              aria-label="Delete loan"
-            >
-              <Trash2 className="h-3.5 w-3.5 text-destructive" />
-            </button>
-          </div>
         </div>
 
         <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">
@@ -346,6 +349,46 @@ function LoanCard({
           />
         </div>
       </button>
+
+      <div className="flex flex-col gap-2 mt-4 pt-3 border-t border-border/40">
+        {!isSettled && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRecordPayment();
+            }}
+            className="w-full rounded-xl h-8 text-xs font-semibold bg-primary/5 text-primary border-primary/20 hover:bg-primary/10"
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" /> Record Payment
+          </Button>
+        )}
+        <div className="flex gap-1 justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+            className="rounded-lg h-8 px-2 text-muted-foreground"
+          >
+            <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="rounded-lg h-8 px-2 text-destructive hover:bg-destructive/10"
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+          </Button>
+        </div>
+      </div>
     </motion.div>
   );
 }
@@ -366,13 +409,14 @@ function LoanSheet({
   onOpenChange: (open: boolean) => void;
   onSave: (data: LoanFormData, id?: string) => void | Promise<void>;
 }) {
-  const { accounts, preferences } = useStore();
+  const accounts = useStore((s) => s.accounts);
+  const preferences = useStore((s) => s.preferences);
   const formKey = open ? loan?.id ?? 'new' : 'closed';
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
-      <DrawerContent className="rounded-t-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        <div className="shrink-0 px-4 pt-2 pb-3">
+      <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
+        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6">
           <h2 className="text-xl font-bold">
             {loan ? 'Edit Loan' : 'New Loan'}
           </h2>
@@ -457,7 +501,7 @@ function LoanForm({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex gap-2 p-1 bg-muted rounded-2xl">
+      <div className="flex gap-2 p-1 bg-muted rounded-2xl max-w-sm">
         {(['lent', 'borrowed'] as LoanType[]).map((t) => (
           <button
             key={t}
@@ -526,7 +570,7 @@ function LoanForm({
         </select>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 max-w-sm">
         <div>
           <Label className="text-xs text-muted-foreground">Date</Label>
           <Input
@@ -537,9 +581,7 @@ function LoanForm({
           />
         </div>
         <div>
-          <Label className="text-xs text-muted-foreground">
-            Due (optional)
-          </Label>
+          <Label className="text-xs text-muted-foreground">Due (optional)</Label>
           <Input
             type="date"
             value={dueDate}
@@ -559,7 +601,7 @@ function LoanForm({
         />
       </div>
 
-      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] bg-background border-t flex gap-2">
+      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t flex gap-2">
         <Button
           type="button"
           variant="outline"
@@ -581,13 +623,15 @@ function LoanForm({
 }
 
 function LoanDetailSheet({
-  loan,
+  loanId,
+  initialAdding = false,
   payments,
   onOpenChange,
   onAddPayment,
   onDeletePayment,
 }: {
-  loan: Loan | null;
+  loanId: string | null;
+  initialAdding?: boolean;
   payments: ReturnType<typeof useStore.getState>['loanPayments'];
   onOpenChange: (open: boolean) => void;
   onAddPayment: (data: {
@@ -599,36 +643,53 @@ function LoanDetailSheet({
   }) => void | Promise<void>;
   onDeletePayment: (id: string) => void | Promise<void>;
 }) {
-  const { accounts, preferences } = useStore();
-  const [adding, setAdding] = useState(false);
+  const accounts = useStore((s) => s.accounts);
+  const preferences = useStore((s) => s.preferences);
+  const allLoans = useStore((s) => s.loans);
+
+  const liveLoan = loanId
+    ? allLoans.find((l) => l.id === loanId) ?? null
+    : null;
+
+  const [adding, setAdding] = useState(initialAdding);
   const [payAmount, setPayAmount] = useState('');
-  const [payAccountId, setPayAccountId] = useState('');
+  const [payAccountId, setPayAccountId] = useState(
+    liveLoan?.accountId ?? accounts[0]?.id ?? ''
+  );
   const [payDate, setPayDate] = useState(toDateInputValue(Date.now()));
   const [payNote, setPayNote] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
-  const loanPayments = loan
-    ? payments.filter((p) => p.loanId === loan.id)
+  const loanPayments = liveLoan
+    ? payments.filter((p) => p.loanId === liveLoan.id)
     : [];
-  const isLent = loan?.type === 'lent';
-  const open = loan !== null;
+  const isLent = liveLoan?.type === 'lent';
+  const open = liveLoan !== null;
+
+  const totalPaid = liveLoan
+    ? liveLoan.principalAmount - liveLoan.remainingAmount
+    : 0;
+  const paidPercent =
+    liveLoan && liveLoan.principalAmount > 0
+      ? Math.min(100, (totalPaid / liveLoan.principalAmount) * 100)
+      : 0;
 
   const resetPaymentForm = () => {
     setPayAmount('');
-    setPayAccountId(loan?.accountId ?? accounts[0]?.id ?? '');
+    setPayAccountId(liveLoan?.accountId ?? accounts[0]?.id ?? '');
     setPayDate(toDateInputValue(Date.now()));
     setPayNote('');
     setAdding(false);
   };
 
   const submitPayment = async () => {
-    if (!loan || submittingPayment) return;
+    if (!liveLoan || submittingPayment) return;
     const amt = parseFloat(payAmount) || 0;
     if (amt <= 0) {
       toast.error('Enter a valid amount');
       return;
     }
-    if (amt > loan.remainingAmount) {
+    if (amt > liveLoan.remainingAmount) {
       toast.error('Payment exceeds remaining amount');
       return;
     }
@@ -640,7 +701,7 @@ function LoanDetailSheet({
     try {
       setSubmittingPayment(true);
       await onAddPayment({
-        loanId: loan.id,
+        loanId: liveLoan.id,
         amount: amt,
         accountId: payAccountId,
         date: new Date(y, m - 1, d).getTime(),
@@ -661,10 +722,10 @@ function LoanDetailSheet({
       }}
       repositionInputs
     >
-      <DrawerContent className="rounded-t-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        {loan && (
+      <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
+        {liveLoan && (
           <>
-            <div className="shrink-0 px-4 pt-2 pb-3">
+            <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6">
               <div className="flex items-center gap-3">
                 <div
                   className={cn(
@@ -680,7 +741,7 @@ function LoanDetailSheet({
                 </div>
                 <div className="flex-1 min-w-0">
                   <h2 className="text-lg font-bold truncate">
-                    {loan.personName}
+                    {liveLoan.personName}
                   </h2>
                   <p className="text-xs text-muted-foreground">
                     {isLent ? 'They owe you' : 'You owe them'}
@@ -693,16 +754,20 @@ function LoanDetailSheet({
               <div className="rounded-2xl bg-muted/40 p-4 mb-4">
                 <div className="flex items-baseline justify-between">
                   <span className="text-xs text-muted-foreground">
-                    Remaining
+                    Outstanding
                   </span>
                   <span
                     className={cn(
                       'text-2xl font-bold tabular-nums',
-                      isLent ? 'text-income' : 'text-expense'
+                      liveLoan.remainingAmount > 0
+                        ? isLent
+                          ? 'text-income'
+                          : 'text-expense'
+                        : 'text-muted-foreground'
                     )}
                   >
                     {formatCurrency(
-                      loan.remainingAmount,
+                      liveLoan.remainingAmount,
                       preferences.currencySymbol
                     )}
                   </span>
@@ -713,20 +778,52 @@ function LoanDetailSheet({
                   </span>
                   <span className="text-sm tabular-nums text-muted-foreground">
                     {formatCurrency(
-                      loan.principalAmount,
+                      liveLoan.principalAmount,
                       preferences.currencySymbol
                     )}
                   </span>
                 </div>
-                {loan.dueDate && (
-                  <div className="flex items-center gap-1.5 mt-3 text-xs text-muted-foreground">
-                    <CalendarIcon className="h-3.5 w-3.5" />
-                    Due {new Date(loan.dueDate).toLocaleDateString()}
+
+                <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all',
+                      isLent ? 'bg-income' : 'bg-expense'
+                    )}
+                    style={{ width: `${paidPercent}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
+                  <span>
+                    {paidPercent.toFixed(0)}% repaid ·{' '}
+                    {formatCurrency(totalPaid, preferences.currencySymbol)} of{' '}
+                    {formatCurrency(
+                      liveLoan.principalAmount,
+                      preferences.currencySymbol
+                    )}
+                  </span>
+                  {liveLoan.dueDate && (
+                    <span className="flex items-center gap-1">
+                      <CalendarIcon className="h-3 w-3" />
+                      Due{' '}
+                      {new Date(liveLoan.dueDate).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  )}
+                </div>
+
+                {liveLoan.remainingAmount <= 0 && (
+                  <div className="flex items-center gap-1.5 mt-3 text-xs text-income font-medium">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Fully settled
                   </div>
                 )}
-                {loan.note && (
+
+                {liveLoan.note && (
                   <p className="text-xs text-muted-foreground mt-2">
-                    {loan.note}
+                    {liveLoan.note}
                   </p>
                 )}
               </div>
@@ -735,14 +832,13 @@ function LoanDetailSheet({
                 <Button
                   type="button"
                   onClick={() => {
-                    setPayAccountId(loan.accountId);
+                    setPayAccountId(liveLoan.accountId);
                     setAdding(true);
                   }}
-                  disabled={loan.remainingAmount <= 0}
+                  disabled={liveLoan.remainingAmount <= 0}
                   className="w-full rounded-2xl mb-4"
                 >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Record Payment
+                  <Plus className="h-4 w-4 mr-2" /> Record Payment
                 </Button>
               ) : (
                 <div className="rounded-2xl border border-border/40 p-3 mb-4 flex flex-col gap-3">
@@ -786,7 +882,7 @@ function LoanDetailSheet({
                             setPayAmount(
                               String(
                                 Math.round(
-                                  loan.remainingAmount * f * 100
+                                  liveLoan.remainingAmount * f * 100
                                 ) / 100
                               )
                             )
@@ -817,9 +913,7 @@ function LoanDetailSheet({
                   </div>
 
                   <div>
-                    <Label className="text-xs text-muted-foreground">
-                      Date
-                    </Label>
+                    <Label className="text-xs text-muted-foreground">Date</Label>
                     <Input
                       type="date"
                       value={payDate}
@@ -829,9 +923,7 @@ function LoanDetailSheet({
                   </div>
 
                   <div>
-                    <Label className="text-xs text-muted-foreground">
-                      Note
-                    </Label>
+                    <Label className="text-xs text-muted-foreground">Note</Label>
                     <Input
                       value={payNote}
                       onChange={(e) => setPayNote(e.target.value)}
@@ -852,39 +944,71 @@ function LoanDetailSheet({
                 </div>
               )}
 
-              <div>
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1 mb-2">
-                  Payment History ({loanPayments.length})
-                </h3>
-                {loanPayments.length === 0 ? (
-                  <div className="text-center py-6 text-sm text-muted-foreground">
-                    No payments yet
+              <div className="rounded-2xl border border-border/40 overflow-hidden mb-4">
+                <div className="px-4 py-3 bg-muted/40 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase">
+                    Ledger
+                  </h3>
+                  <span className="text-[11px] text-muted-foreground">
+                    {loanPayments.length} payment
+                    {loanPayments.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                <div className="divide-y divide-border/40">
+                  <div className="px-4 py-3 flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">
+                        {isLent ? 'Money lent' : 'Money borrowed'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {formatLedgerDate(liveLoan.date)}
+                      </p>
+                    </div>
+                    <span
+                      className={cn(
+                        'text-sm font-semibold tabular-nums shrink-0',
+                        isLent ? 'text-expense' : 'text-income'
+                      )}
+                    >
+                      {isLent ? '−' : '+'}
+                      {formatCurrency(
+                        liveLoan.principalAmount,
+                        preferences.currencySymbol
+                      )}
+                    </span>
                   </div>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {loanPayments.map((p) => {
-                      const acc = accounts.find((a) => a.id === p.accountId);
-                      return (
-                        <div
-                          key={p.id}
-                          className="flex items-center gap-3 p-3 rounded-2xl bg-muted/30"
-                        >
-                          <div className="h-9 w-9 rounded-xl bg-card flex items-center justify-center shrink-0">
-                            <Wallet className="h-4 w-4 text-muted-foreground" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium tabular-nums">
-                              {formatCurrency(
-                                p.amount,
-                                preferences.currencySymbol
-                              )}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {formatDateKey(p.date)}
-                              {acc && ` · ${acc.name}`}
-                              {p.note && ` · ${p.note}`}
-                            </p>
-                          </div>
+
+                  {loanPayments.map((p) => {
+                    const acc = accounts.find((a) => a.id === p.accountId);
+                    return (
+                      <div
+                        key={p.id}
+                        className="px-4 py-3 flex items-start justify-between gap-3 group"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">
+                            {isLent ? 'Repayment received' : 'Repayment made'}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                            {formatLedgerDate(p.date)}
+                            {acc && ` · ${acc.name}`}
+                            {p.note && ` · ${p.note}`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span
+                            className={cn(
+                              'text-sm font-semibold tabular-nums',
+                              isLent ? 'text-income' : 'text-expense'
+                            )}
+                          >
+                            {isLent ? '+' : '−'}
+                            {formatCurrency(
+                              p.amount,
+                              preferences.currencySymbol
+                            )}
+                          </span>
                           <button
                             type="button"
                             onClick={() => {
@@ -897,16 +1021,52 @@ function LoanDetailSheet({
                                 cancel: { label: 'Cancel', onClick: () => {} },
                               });
                             }}
-                            className="p-2 rounded-xl hover:bg-destructive/10"
+                            className="p-1 rounded-lg hover:bg-destructive/10 transition-colors"
                             aria-label="Delete payment"
                           >
                             <Trash2 className="h-3.5 w-3.5 text-destructive" />
                           </button>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                      </div>
+                    );
+                  })}
+
+                  {loanPayments.length === 0 && (
+                    <div className="px-4 py-4 text-center text-xs text-muted-foreground">
+                      No payments recorded yet
+                    </div>
+                  )}
+                </div>
+
+                <div className="px-4 py-3 bg-muted/20 border-t border-border/40 flex items-center justify-between">
+                  <span className="text-sm font-semibold">
+                    Outstanding balance
+                  </span>
+                  <span
+                    className={cn(
+                      'text-base font-bold tabular-nums',
+                      liveLoan.remainingAmount > 0
+                        ? isLent
+                          ? 'text-income'
+                          : 'text-expense'
+                        : 'text-muted-foreground'
+                    )}
+                  >
+                    {formatCurrency(
+                      liveLoan.remainingAmount,
+                      preferences.currencySymbol
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <div className="sr-only" aria-hidden>
+                {loanPayments.map((p) => (
+                  <span key={p.id}>
+                    {formatDateKey(p.date)} {p.amount}
+                  </span>
+                ))}
+                <Wallet className="h-1 w-1" />
               </div>
             </div>
           </>

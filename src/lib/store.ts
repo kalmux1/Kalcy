@@ -75,13 +75,13 @@ interface StoreState {
   ) => Promise<void>;
   deleteLoanPayment: (id: string) => Promise<void>;
 
-  /* Investments */
   addInvestment: (inv: {
     name: string;
     symbol: string;
     type: Investment['type'];
     units: number;
     buyPrice: number;
+    currentPrice?: number;
     accountId: string;
     date: number;
     note: string;
@@ -109,7 +109,6 @@ function genId(p: string) {
   return `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/** Compute per-account balance deltas produced by a transaction. */
 function txEffects(
   tx: Pick<Transaction, 'type' | 'amount' | 'accountId' | 'toAccountId'>
 ): Map<string, number> {
@@ -129,7 +128,6 @@ function txEffects(
   return m;
 }
 
-/** Find the initial (principal) transaction for a loan. */
 function findInitialLoanTransaction(
   loan: Loan,
   transactions: Transaction[]
@@ -139,6 +137,12 @@ function findInitialLoanTransaction(
   return transactions.find(
     (t) => t.linkedLoanId === loan.id && !t.linkedPaymentId && t.type === initialType
   );
+}
+
+function requirePositive(value: number, label: string): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${label} must be a positive number`);
+  }
 }
 
 export const useStore = create<StoreState>((set, get) => ({
@@ -202,22 +206,15 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     unsubs.push(
-      onSnapshot(
-        prefRef,
-        (docSnap) => {
-          if (docSnap.exists()) {
-            set({ preferences: docSnap.data() as Preferences });
-          }
-        },
-        (err) => console.error('preferences listener', err)
-      )
+      onSnapshot(prefRef, (docSnap) => {
+        if (docSnap.exists()) set({ preferences: docSnap.data() as Preferences });
+      })
     );
 
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'accounts'),
-        (s) => set({ accounts: s.docs.map((d) => d.data() as Account) }),
-        (err) => console.error('accounts listener', err)
+        (s) => set({ accounts: s.docs.map((d) => d.data() as Account) })
       )
     );
 
@@ -229,8 +226,7 @@ export const useStore = create<StoreState>((set, get) => ({
             .map((d) => d.data() as Category)
             .sort((a, b) => a.order - b.order);
           set({ categories });
-        },
-        (err) => console.error('categories listener', err)
+        }
       )
     );
 
@@ -242,8 +238,7 @@ export const useStore = create<StoreState>((set, get) => ({
             .map((d) => d.data() as Transaction)
             .sort((a, b) => b.date - a.date);
           set({ transactions });
-        },
-        (err) => console.error('transactions listener', err)
+        }
       )
     );
 
@@ -254,11 +249,7 @@ export const useStore = create<StoreState>((set, get) => ({
           set({
             budgets: s.docs.map((d) => d.data() as Budget),
             isLoading: false,
-          }),
-        (err) => {
-          console.error('budgets listener', err);
-          set({ isLoading: false });
-        }
+          })
       )
     );
 
@@ -270,8 +261,7 @@ export const useStore = create<StoreState>((set, get) => ({
             .map((d) => d.data() as Loan)
             .sort((a, b) => b.date - a.date);
           set({ loans });
-        },
-        (err) => console.error('loans listener', err)
+        }
       )
     );
 
@@ -283,8 +273,7 @@ export const useStore = create<StoreState>((set, get) => ({
             .map((d) => d.data() as LoanPayment)
             .sort((a, b) => b.date - a.date);
           set({ loanPayments });
-        },
-        (err) => console.error('loanPayments listener', err)
+        }
       )
     );
 
@@ -296,8 +285,7 @@ export const useStore = create<StoreState>((set, get) => ({
             .map((d) => d.data() as Investment)
             .sort((a, b) => b.date - a.date);
           set({ investments });
-        },
-        (err) => console.error('investments listener', err)
+        }
       )
     );
   },
@@ -348,11 +336,35 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   deleteTransaction: async (id) => {
-    const { user, transactions } = get();
+    const { user, transactions, investments } = get();
     if (!user) return;
     const tx = transactions.find((t) => t.id === id);
     if (!tx) return;
 
+    // If this is a loan payment, cascade the delete.
+    if (tx.linkedPaymentId) {
+      await get().deleteLoanPayment(tx.linkedPaymentId);
+      return;
+    }
+
+    // If this is the initial loan transaction, cascade the delete.
+    if (tx.linkedLoanId && !tx.linkedPaymentId) {
+      await get().deleteLoan(tx.linkedLoanId);
+      return;
+    }
+
+    // If this is an investment transaction, cascade the delete.
+    const linkedInv = investments.find(
+      (i) =>
+        i.linkedTransactionId === tx.id ||
+        i.linkedSellTransactionId === tx.id
+    );
+    if (linkedInv) {
+      await get().deleteInvestment(linkedInv.id);
+      return;
+    }
+
+    // Normal deletion
     const batch = writeBatch(db);
     batch.delete(doc(db, 'users', user.uid, 'transactions', id));
 
@@ -389,23 +401,19 @@ export const useStore = create<StoreState>((set, get) => ({
     const batch = writeBatch(db);
     const balanceDeltas = new Map<string, number>();
     const bump = (accId: string, delta: number) => {
-      if (accId === id) return; // effects on the deleted account are irrelevant
+      if (accId === id) return;
       if (delta === 0) return;
       balanceDeltas.set(accId, (balanceDeltas.get(accId) ?? 0) + delta);
     };
 
-    // Loans whose "home" account is this account get removed entirely.
     const loansUsingAccount = loans.filter((l) => l.accountId === id);
     const deletingLoanIds = new Set(loansUsingAccount.map((l) => l.id));
 
-    // Payments made through this account get removed and their loans restored.
     const paymentsOnAccount = loanPayments.filter((p) => p.accountId === id);
     const paymentIdsToDelete = new Set(paymentsOnAccount.map((p) => p.id));
 
-    // Investments funded by this account are removed along with their txs.
     const investmentsOnAccount = investments.filter((i) => i.accountId === id);
 
-    // Collect every transaction that must be removed.
     const txIdsToDelete = new Set<string>();
     transactions.forEach((t) => {
       if (
@@ -422,15 +430,12 @@ export const useStore = create<StoreState>((set, get) => ({
       if (inv.linkedSellTransactionId) txIdsToDelete.add(inv.linkedSellTransactionId);
     });
 
-    // Reverse effects on surviving accounts.
     transactions.forEach((t) => {
       if (txIdsToDelete.has(t.id)) {
         txEffects(t).forEach((delta, accId) => bump(accId, -delta));
       }
     });
 
-    // Restore remainingAmount on loans whose payment is being removed but
-    // whose loan is NOT itself being deleted.
     paymentsOnAccount.forEach((p) => {
       if (deletingLoanIds.has(p.loanId)) return;
       const loan = loans.find((l) => l.id === p.loanId);
@@ -445,7 +450,6 @@ export const useStore = create<StoreState>((set, get) => ({
       });
     });
 
-    // Deletions
     txIdsToDelete.forEach((txId) =>
       batch.delete(doc(db, 'users', user.uid, 'transactions', txId))
     );
@@ -537,10 +541,6 @@ export const useStore = create<StoreState>((set, get) => ({
     await deleteDoc(doc(db, 'users', user.uid, 'budgets', id));
   },
 
-  /* ------------------------------------------------------------------ */
-  /*  Loans                                                             */
-  /* ------------------------------------------------------------------ */
-
   addLoan: async ({
     personName,
     type,
@@ -551,7 +551,9 @@ export const useStore = create<StoreState>((set, get) => ({
     note,
   }) => {
     const { user } = get();
-    if (!user) return;
+    if (!user) throw new Error('Not authenticated');
+    requirePositive(principalAmount, 'Loan amount');
+    if (!accountId) throw new Error('Account is required');
 
     const loanId = genId('loan');
     const txId = genId('t');
@@ -609,6 +611,10 @@ export const useStore = create<StoreState>((set, get) => ({
     const loan = loans.find((l) => l.id === id);
     if (!loan) return;
 
+    if (typeof updates.principalAmount === 'number') {
+      requirePositive(updates.principalAmount, 'Loan amount');
+    }
+
     const initialTx = findInitialLoanTransaction(loan, transactions);
     const patch: Partial<Loan> = { ...updates };
     const txPatch: Partial<Transaction> = {};
@@ -618,7 +624,6 @@ export const useStore = create<StoreState>((set, get) => ({
       balanceDeltas.set(accId, (balanceDeltas.get(accId) ?? 0) + delta);
     };
 
-    // --- Principal change: recompute remaining, update linked tx + account ---
     if (
       typeof updates.principalAmount === 'number' &&
       updates.principalAmount !== loan.principalAmount
@@ -635,7 +640,6 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }
 
-    // --- Account change: move linked tx between accounts ---
     if (
       updates.accountId &&
       updates.accountId !== loan.accountId &&
@@ -644,17 +648,14 @@ export const useStore = create<StoreState>((set, get) => ({
       txPatch.accountId = updates.accountId;
       const amount = txPatch.amount ?? loan.principalAmount;
       const signedDelta = loan.type === 'lent' ? -amount : amount;
-      // Reverse old effect on the previous account, apply new on the new one.
       bump(loan.accountId, -signedDelta);
       bump(updates.accountId, signedDelta);
     }
 
-    // --- Date change: keep linked tx in sync ---
     if (typeof updates.date === 'number' && initialTx) {
       txPatch.date = updates.date;
     }
 
-    // --- Auto-settle ---
     const finalRemaining = patch.remainingAmount ?? loan.remainingAmount;
     patch.isSettled = finalRemaining <= 0;
 
@@ -703,9 +704,17 @@ export const useStore = create<StoreState>((set, get) => ({
 
   addLoanPayment: async ({ loanId, amount, accountId, date, note }) => {
     const { user, loans } = get();
-    if (!user) return;
+    if (!user) throw new Error('Not authenticated');
     const loan = loans.find((l) => l.id === loanId);
-    if (!loan) return;
+    if (!loan) throw new Error('Loan not found');
+
+    requirePositive(amount, 'Payment amount');
+    if (amount > loan.remainingAmount) {
+      throw new Error(
+        `Payment exceeds remaining balance (${loan.remainingAmount.toFixed(2)})`
+      );
+    }
+    if (!accountId) throw new Error('Account is required');
 
     const paymentId = genId('pay');
     const txId = genId('t');
@@ -767,8 +776,6 @@ export const useStore = create<StoreState>((set, get) => ({
     const loan = loans.find((l) => l.id === payment.loanId);
     if (!loan) return;
 
-    // Primary match: deterministic linkedPaymentId.
-    // Fallback (legacy data): match on linkedLoanId + amount + date.
     const linked =
       transactions.find((t) => t.linkedPaymentId === id) ??
       transactions.find(
@@ -804,27 +811,36 @@ export const useStore = create<StoreState>((set, get) => ({
     await batch.commit();
   },
 
-  /* ------------------------------------------------------------------ */
-  /*  Investments                                                       */
-  /* ------------------------------------------------------------------ */
-
   addInvestment: async ({
     name,
     symbol,
     type,
     units,
     buyPrice,
+    currentPrice,
     accountId,
     date,
     note,
   }) => {
     const { user } = get();
-    if (!user) return;
+    if (!user) throw new Error('Not authenticated');
+
+    requirePositive(units, 'Units');
+    requirePositive(buyPrice, 'Buy price');
+    if (!accountId) throw new Error('Account is required');
+    if (currentPrice !== undefined && currentPrice < 0) {
+      throw new Error('Current price cannot be negative');
+    }
 
     const invId = genId('inv');
     const txId = genId('t');
     const now = Date.now();
     const investedAmount = units * buyPrice;
+    const effectiveCurrentPrice =
+      typeof currentPrice === 'number' && currentPrice > 0
+        ? currentPrice
+        : buyPrice;
+    const currentValue = units * effectiveCurrentPrice;
 
     const investment: Investment = {
       id: invId,
@@ -833,9 +849,9 @@ export const useStore = create<StoreState>((set, get) => ({
       type,
       units,
       buyPrice,
-      currentPrice: buyPrice, // seeded to buy price
+      currentPrice: effectiveCurrentPrice,
       investedAmount,
-      currentValue: investedAmount,
+      currentValue,
       accountId,
       date,
       soldDate: null,
@@ -876,32 +892,124 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   updateInvestment: async (id, updates) => {
-    const { user, investments } = get();
+    const { user, investments, transactions } = get();
     if (!user) return;
     const inv = investments.find((i) => i.id === id);
     if (!inv) return;
 
-    // Recompute denormalized values whenever the underlying fields change.
-    const patch: Partial<Investment> = { ...updates };
+    if (updates.units !== undefined) requirePositive(updates.units, 'Units');
+    if (updates.buyPrice !== undefined) requirePositive(updates.buyPrice, 'Buy price');
+
     const newUnits = updates.units ?? inv.units;
-    const newPrice = updates.currentPrice ?? inv.currentPrice;
     const newBuyPrice = updates.buyPrice ?? inv.buyPrice;
+    const newAccountId = updates.accountId ?? inv.accountId;
+    const newDate = updates.date ?? inv.date;
+    const newInvestedAmount = newUnits * newBuyPrice;
 
-    if (updates.units !== undefined || updates.currentPrice !== undefined) {
-      patch.currentValue = newUnits * newPrice;
-    }
+    const patch: Partial<Investment> = { ...updates };
     if (updates.units !== undefined || updates.buyPrice !== undefined) {
-      patch.investedAmount = newUnits * newBuyPrice;
+      patch.investedAmount = newInvestedAmount;
     }
 
-    await updateDoc(doc(db, 'users', user.uid, 'investments', id), patch);
+    if (inv.status === 'active') {
+      const newCurrentPrice = updates.currentPrice ?? inv.currentPrice;
+      if (updates.units !== undefined || updates.currentPrice !== undefined) {
+        patch.currentValue = newUnits * newCurrentPrice;
+      }
+    } else if (inv.status === 'sold' && inv.soldPrice !== null) {
+      patch.currentValue = newUnits * inv.soldPrice;
+      patch.currentPrice = inv.soldPrice;
+    }
+
+    const batch = writeBatch(db);
+
+    const buyTx = inv.linkedTransactionId
+      ? transactions.find((t) => t.id === inv.linkedTransactionId)
+      : null;
+    if (buyTx) {
+      const accountChanged = newAccountId !== buyTx.accountId;
+      const amountChanged = newInvestedAmount !== buyTx.amount;
+
+      if (accountChanged) {
+        batch.update(doc(db, 'users', user.uid, 'accounts', buyTx.accountId), {
+          balance: increment(buyTx.amount),
+        });
+        batch.update(doc(db, 'users', user.uid, 'accounts', newAccountId), {
+          balance: increment(-newInvestedAmount),
+        });
+      } else if (amountChanged) {
+        batch.update(doc(db, 'users', user.uid, 'accounts', newAccountId), {
+          balance: increment(buyTx.amount - newInvestedAmount),
+        });
+      }
+
+      const txPatch: Partial<Transaction> = {};
+      if (amountChanged) txPatch.amount = newInvestedAmount;
+      if (accountChanged) txPatch.accountId = newAccountId;
+      if (newDate !== buyTx.date) txPatch.date = newDate;
+
+      if (Object.keys(txPatch).length > 0) {
+        batch.update(
+          doc(db, 'users', user.uid, 'transactions', buyTx.id),
+          txPatch
+        );
+      }
+    }
+
+    if (
+      inv.status === 'sold' &&
+      inv.soldPrice !== null &&
+      inv.linkedSellTransactionId
+    ) {
+      const sellTx = transactions.find(
+        (t) => t.id === inv.linkedSellTransactionId
+      );
+      if (sellTx) {
+        const newProceeds = newUnits * inv.soldPrice;
+        const accountChanged = newAccountId !== sellTx.accountId;
+        const amountChanged = newProceeds !== sellTx.amount;
+
+        if (accountChanged) {
+          batch.update(
+            doc(db, 'users', user.uid, 'accounts', sellTx.accountId),
+            { balance: increment(-sellTx.amount) }
+          );
+          batch.update(doc(db, 'users', user.uid, 'accounts', newAccountId), {
+            balance: increment(newProceeds),
+          });
+        } else if (amountChanged) {
+          batch.update(doc(db, 'users', user.uid, 'accounts', newAccountId), {
+            balance: increment(newProceeds - sellTx.amount),
+          });
+        }
+
+        const txPatch: Partial<Transaction> = {};
+        if (amountChanged) txPatch.amount = newProceeds;
+        if (accountChanged) txPatch.accountId = newAccountId;
+
+        if (Object.keys(txPatch).length > 0) {
+          batch.update(
+            doc(db, 'users', user.uid, 'transactions', sellTx.id),
+            txPatch
+          );
+        }
+      }
+    }
+
+    batch.update(doc(db, 'users', user.uid, 'investments', id), patch);
+    await batch.commit();
   },
 
   updateInvestmentPrice: async (id, price) => {
     const { user, investments } = get();
-    if (!user) return;
+    if (!user) throw new Error('Not authenticated');
     const inv = investments.find((i) => i.id === id);
-    if (!inv) return;
+    if (!inv) throw new Error('Investment not found');
+    if (inv.status === 'sold') {
+      throw new Error('Cannot update price on a sold investment');
+    }
+    requirePositive(price, 'Price');
+
     await updateDoc(doc(db, 'users', user.uid, 'investments', id), {
       currentPrice: price,
       currentValue: inv.units * price,
@@ -910,9 +1018,11 @@ export const useStore = create<StoreState>((set, get) => ({
 
   sellInvestment: async (id, soldPrice, soldDate) => {
     const { user, investments } = get();
-    if (!user) return;
+    if (!user) throw new Error('Not authenticated');
     const inv = investments.find((i) => i.id === id);
-    if (!inv || inv.status === 'sold') return;
+    if (!inv) throw new Error('Investment not found');
+    if (inv.status === 'sold') throw new Error('Investment is already sold');
+    requirePositive(soldPrice, 'Sell price');
 
     const proceeds = soldPrice * inv.units;
     const txId = genId('t');
@@ -979,8 +1089,6 @@ export const useStore = create<StoreState>((set, get) => ({
     batch.delete(doc(db, 'users', user.uid, 'investments', id));
     await batch.commit();
   },
-
-  /* ------------------------------------------------------------------ */
 
   updatePreferences: async (updates) => {
     const { user, preferences } = get();
@@ -1050,6 +1158,11 @@ export const useStore = create<StoreState>((set, get) => ({
     );
     await wipe.commit();
 
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(
+      now.getMonth() + 1
+    ).padStart(2, '0')}`;
+
     const batch = writeBatch(db);
     SEED_CATEGORIES.forEach((c) =>
       batch.set(doc(db, 'users', user.uid, 'categories', c.id), c)
@@ -1069,7 +1182,7 @@ export const useStore = create<StoreState>((set, get) => ({
     SEED_BUDGETS.forEach((b) =>
       batch.set(doc(db, 'users', user.uid, 'budgets', b.id), {
         ...b,
-        monthYear: new Date().toISOString().slice(0, 7),
+        monthYear: currentMonthKey,
       })
     );
     batch.set(
@@ -1113,9 +1226,6 @@ export const useStore = create<StoreState>((set, get) => ({
     investments.forEach((i) =>
       batch.delete(doc(db, 'users', user.uid, 'investments', i.id))
     );
-    // Firestore rules forbid deleting profile/preferences (it's the "seeded"
-    // marker). Reset it to defaults instead so a subsequent sign-in does not
-    // re-seed sample data, which is what "Delete All" should mean.
     batch.set(
       doc(db, 'users', user.uid, 'profile', 'preferences'),
       DEFAULT_PREFERENCES

@@ -119,12 +119,12 @@ export function AccountsTab() {
   })();
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="px-4 pt-4 pb-2">
+    <div className="flex flex-col h-full min-h-0 w-full max-w-7xl mx-auto">
+      <div className="px-4 md:px-8 pt-4 md:pt-8 pb-2">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">{heading}</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
+            <h1 className="text-2xl md:text-3xl font-bold">{heading}</h1>
+            <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
           </div>
           {segment === 'accounts' && (
             <div className="flex gap-2">
@@ -151,8 +151,7 @@ export function AccountsTab() {
         </div>
       </div>
 
-      {/* Segment switcher — Accounts / Lending / Investments */}
-      <div className="flex gap-1 mx-4 mb-2 p-1 bg-muted rounded-xl">
+      <div className="flex gap-1 mx-4 md:mx-8 mb-4 p-1 bg-muted rounded-xl max-w-sm">
         {(['accounts', 'lending', 'investments'] as AccountsSegment[]).map(
           (s) => (
             <button
@@ -185,33 +184,33 @@ export function AccountsTab() {
 
       {segment === 'accounts' && (
         <>
-          <div className="px-4 pt-2">
-            <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 shadow-lg shadow-primary/20">
+          <div className="px-4 md:px-8">
+            <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20 w-full">
               <p className="text-sm opacity-90 font-medium">Total Net Worth</p>
-              <p className="text-3xl font-bold mt-1 tabular-nums">
+              <p className="text-3xl md:text-5xl font-bold mt-2 tabular-nums">
                 {formatCurrency(netWorth, preferences.currencySymbol)}
               </p>
               {(loansNet !== 0 || investmentsNet !== 0) && (
-                <div className="mt-3 pt-3 border-t border-white/20 flex flex-col gap-1 text-xs">
-                  <div className="flex justify-between">
+                <div className="mt-4 md:mt-6 pt-4 border-t border-white/20 flex flex-col md:flex-row md:items-center gap-2 md:gap-6 text-xs md:text-sm">
+                  <div className="flex justify-between md:justify-start md:gap-4">
                     <span className="opacity-75">Cash &amp; accounts</span>
-                    <span className="tabular-nums">
+                    <span className="tabular-nums font-semibold">
                       {formatCurrency(cashBalance, preferences.currencySymbol)}
                     </span>
                   </div>
                   {loansNet !== 0 && (
-                    <div className="flex justify-between">
+                    <div className="flex justify-between md:justify-start md:gap-4">
                       <span className="opacity-75">Loans (net)</span>
-                      <span className="tabular-nums">
+                      <span className="tabular-nums font-semibold">
                         {loansNet >= 0 ? '+' : ''}
                         {formatCurrency(loansNet, preferences.currencySymbol)}
                       </span>
                     </div>
                   )}
                   {investmentsNet !== 0 && (
-                    <div className="flex justify-between">
+                    <div className="flex justify-between md:justify-start md:gap-4">
                       <span className="opacity-75">Investments</span>
-                      <span className="tabular-nums">
+                      <span className="tabular-nums font-semibold">
                         {formatCurrency(
                           investmentsNet,
                           preferences.currencySymbol
@@ -224,10 +223,10 @@ export function AccountsTab() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pt-3 pb-40">
-            <div className="flex flex-col gap-3">
+          <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 md:px-8 pt-4 pb-40 md:pb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
               {accounts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
                   <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
                     <Wallet className="h-8 w-8 text-muted-foreground" />
                   </div>
@@ -242,23 +241,23 @@ export function AccountsTab() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.05 }}
-                    className="bg-card rounded-2xl border border-border/40 p-4"
+                    className="bg-card rounded-2xl border border-border/40 p-4 md:p-5 flex flex-col justify-between"
                   >
                     <div className="flex items-start gap-3">
                       <div
-                        className="h-12 w-12 rounded-2xl flex items-center justify-center shrink-0"
+                        className="h-10 w-10 md:h-12 md:w-12 rounded-xl flex items-center justify-center shrink-0"
                         style={{ backgroundColor: `${acc.color}1A` }}
                       >
                         <span style={{ color: acc.color }}>
-                          <CategoryIcon name={acc.icon} size={24} />
+                          <CategoryIcon name={acc.icon} size={20} />
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm">
+                          <span className="font-semibold text-sm truncate">
                             {acc.name}
                           </span>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
                             {acc.type}
                           </span>
                         </div>
@@ -276,27 +275,27 @@ export function AccountsTab() {
                           )}
                         </p>
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setEditingAccount(acc)}
-                          className="p-2 rounded-xl hover:bg-muted transition-colors"
-                          aria-label="Edit account"
-                        >
-                          <Pencil className="h-4 w-4 text-muted-foreground" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => confirmDelete(acc)}
-                          className="p-2 rounded-xl hover:bg-destructive/10 transition-colors"
-                          aria-label="Delete account"
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </button>
-                      </div>
+                    </div>
+                    <div className="flex justify-end gap-1 mt-3 pt-3 border-t border-border/40">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-lg h-8 px-2 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                        onClick={() => setEditingAccount(acc)}
+                      >
+                        <Pencil className="h-4 w-4 mr-1" /> Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-lg h-8 px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => confirmDelete(acc)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" /> Delete
+                      </Button>
                     </div>
                     {!acc.isIncludedInTotal && (
-                      <p className="text-xs text-muted-foreground mt-2">
+                      <p className="text-[10px] text-muted-foreground mt-2 bg-muted/50 p-2 rounded-lg text-center">
                         Excluded from total
                       </p>
                     )}
@@ -309,13 +308,13 @@ export function AccountsTab() {
       )}
 
       {segment === 'lending' && (
-        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pb-40">
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 md:px-8 pb-40 md:pb-8">
           <LendingView />
         </div>
       )}
 
       {segment === 'investments' && (
-        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pb-40">
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 md:px-8 pb-40 md:pb-8">
           <InvestmentsView />
         </div>
       )}
@@ -371,8 +370,8 @@ function AccountSheet({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
-      <DrawerContent className="rounded-t-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        <div className="shrink-0 px-4 pt-2 pb-3">
+      <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
+        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6">
           <h2 className="text-xl font-bold">
             {account ? 'Edit Account' : 'New Account'}
           </h2>
@@ -594,7 +593,7 @@ function AccountForm({
         />
       </div>
 
-      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] bg-background border-t flex gap-2">
+      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t flex gap-2">
         <Button
           type="button"
           variant="outline"
@@ -672,7 +671,7 @@ function TransferDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-3xl">
+      <DialogContent className="rounded-3xl sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Transfer Between Accounts</DialogTitle>
         </DialogHeader>
