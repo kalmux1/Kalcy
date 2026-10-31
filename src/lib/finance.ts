@@ -445,6 +445,12 @@ export function getInvestmentsSummary(investments: Investment[]): {
   let soldCount = 0;
 
   for (const inv of investments) {
+    if (inv.status === 'applied') {
+      currentValue += inv.appliedAmount ?? 0;
+      activeCount += 1;
+      continue;
+    }
+
     const invested = inv.investedAmount ?? (inv.units * inv.buyPrice);
     const curPrice = inv.currentPrice ?? inv.buyPrice;
     const curValue = inv.currentValue ?? (inv.units * curPrice);
@@ -477,12 +483,15 @@ export function getInvestmentsSummary(investments: Investment[]): {
 }
 
 export function getInvestmentsNetWorth(investments: Investment[]): number {
-  return investments
-    .filter((i) => i.status === 'active')
-    .reduce((s, i) => {
-      const curValue = i.currentValue ?? (i.units * (i.currentPrice ?? i.buyPrice));
-      return s + curValue;
-    }, 0);
+  return investments.reduce((s, i) => {
+    if (i.status === 'active') {
+      return s + (i.currentValue ?? (i.units * (i.currentPrice ?? i.buyPrice)));
+    }
+    if (i.status === 'applied') {
+      return s + (i.appliedAmount ?? 0);
+    }
+    return s;
+  }, 0);
 }
 
 export function getTotalNetWorth(

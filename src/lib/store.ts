@@ -446,7 +446,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const linkedInv = investments.find(
       (i) =>
         i.linkedTransactionId === tx.id ||
-        i.linkedSellTransactionId === tx.id
+        i.linkedSellTransactionId === tx.id ||
+        i.linkedApplyTransactionId === tx.id
     );
     if (linkedInv) {
       await get().deleteInvestment(linkedInv.id);
@@ -538,6 +539,7 @@ export const useStore = create<StoreState>((set, get) => ({
     investmentsOnAccount.forEach((inv) => {
       if (inv.linkedTransactionId) txIdsToDelete.add(inv.linkedTransactionId);
       if (inv.linkedSellTransactionId) txIdsToDelete.add(inv.linkedSellTransactionId);
+      if (inv.linkedApplyTransactionId) txIdsToDelete.add(inv.linkedApplyTransactionId);
     });
 
     transactions.forEach((t) => {
@@ -1020,7 +1022,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const wasApplied = inv.status === 'applied';
     const isBecomingNotAllotted = newStatus === 'not_allotted' && wasApplied;
     const isBecomingAllotted = newStatus === 'active' && wasApplied;
-    const isBecomingSold = newStatus === 'sold' && inv.status === 'active';
+    const wasActive = inv.status === 'active';
+    const isBecomingSold = newStatus === 'sold' && wasActive;
 
     const newUnits = updates.units ?? inv.units;
     const newBuyPrice = updates.buyPrice ?? inv.buyPrice;
@@ -1030,18 +1033,19 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const patch: Partial<Investment> = { ...updates };
     
-    if (isBecomingAllotted || (inv.status === 'active' && newStatus === 'active')) {
+    if (isBecomingAllotted || (wasActive && newStatus === 'active')) {
       patch.investedAmount = newInvestedAmount;
       const newCurrentPrice = updates.currentPrice ?? inv.currentPrice ?? newBuyPrice;
       patch.currentValue = newUnits * newCurrentPrice;
-    } else if (isBecomingSold && inv.soldPrice !== null) {
-      const finalSoldPrice = updates.soldPrice ?? inv.soldPrice;
+    } else if (isBecomingSold) {
+      const finalSoldPrice = updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
       patch.currentValue = newUnits * finalSoldPrice;
       patch.currentPrice = finalSoldPrice;
     }
 
     const batch = writeBatch(db);
     
+    // 1. Handle "Not Allotted" (Refund blocked amount)
     if (isBecomingNotAllotted && inv.appliedAmount) {
       const refundId = genId('t');
       const refundTx: Transaction = {
@@ -1058,6 +1062,7 @@ export const useStore = create<StoreState>((set, get) => ({
       patch.investedAmount = 0;
       patch.currentValue = 0;
     } 
+    // 2. Handle "Allotted" (Refund block, deduct actual cost)
     else if (isBecomingAllotted) {
       if (inv.appliedAmount && inv.appliedAmount > 0) {
         const refundId = genId('t');
@@ -1083,7 +1088,8 @@ export const useStore = create<StoreState>((set, get) => ({
       }
       patch.appliedAmount = 0;
     } 
-    else if (inv.status === 'active' && newStatus === 'active') {
+    // 3. Normal Active -> Active Edit (Adjust cash if units/price changed)
+    else if (wasActive && newStatus === 'active') {
       const buyTx = inv.linkedTransactionId ? transactions.find(t => t.id === inv.linkedTransactionId) : null;
       if (buyTx) {
         const accountChanged = newAccountId !== buyTx.accountId;
@@ -1101,6 +1107,7 @@ export const useStore = create<StoreState>((set, get) => ({
         if (Object.keys(txPatch).length > 0) batch.update(doc(db, 'users', user.uid, 'transactions', buyTx.id), txPatch);
       }
     }
+    // 4. Handle Active -> Sold
     else if (isBecomingSold) {
       const soldPrice = updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
       const proceeds = soldPrice * newUnits;

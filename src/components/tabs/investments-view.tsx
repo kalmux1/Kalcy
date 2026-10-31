@@ -500,7 +500,7 @@ function InvestmentForm({
         <div>
           <Label className="text-xs text-muted-foreground">IPO Status</Label>
           <div className="flex gap-2 mt-1">
-            {(['applied', 'active', 'not_allotted'] as InvestmentStatus[]).map((s) => (
+            {(['applied', 'active', 'not_allotted', 'sold'] as InvestmentStatus[]).map((s) => (
               <button
                 key={s}
                 type="button"
@@ -510,7 +510,7 @@ function InvestmentForm({
                   status === s ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
                 )}
               >
-                {s === 'active' ? 'Allotted' : s === 'not_allotted' ? 'Not Allotted' : 'Applied'}
+                {s === 'active' ? 'Allotted' : s === 'not_allotted' ? 'Not Allotted' : s}
               </button>
             ))}
           </div>
