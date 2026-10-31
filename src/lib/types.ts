@@ -15,7 +15,7 @@ export type InvestmentType =
   | 'gold'
   | 'other';
 
-export type InvestmentStatus = 'applied' | 'active' | 'sold';
+export type InvestmentStatus = 'applied' | 'active' | 'sold' | 'not_allotted';
 
 export interface Investment {
   id: string;
@@ -34,13 +34,15 @@ export interface Investment {
   status: InvestmentStatus;
   listingDate: number | null;
   listingPrice: number | null;
+  /** Amount blocked for IPO application */
+  appliedAmount: number | null;
   note: string;
   createdAt: number;
   linkedTransactionId?: string | null;
   linkedSellTransactionId?: string | null;
+  linkedApplyTransactionId?: string | null;
 }
 
-/* ... rest of the file remains the same ... */
 export interface AuthUser {
   uid: string;
   email: string | null;

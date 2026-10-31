@@ -39,10 +39,12 @@ export function InvestmentsView() {
   const active = investments.filter((i) => i.status === 'active');
   const sold = investments.filter((i) => i.status === 'sold');
   const applied = investments.filter((i) => i.status === 'applied');
+  const notAllotted = investments.filter((i) => i.status === 'not_allotted');
+  
   const isPositive = summary.unrealizedPnl >= 0;
 
   const confirmDelete = (inv: Investment) => {
-    toast(`Delete ${inv.name}? Its buy and sell transactions will be removed.`, {
+    toast(`Delete ${inv.name}? Related transactions will be removed.`, {
       duration: 8000,
       action: {
         label: 'Delete',
@@ -147,7 +149,7 @@ export function InvestmentsView() {
         <>
           {applied.length > 0 && (
             <div className="flex flex-col gap-3">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">Applied ({applied.length})</h3>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">IPO Applied ({applied.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {applied.map((inv, i) => (
                   <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => confirmDelete(inv)} delay={i * 0.04} />
@@ -172,6 +174,17 @@ export function InvestmentsView() {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">Sold ({sold.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {sold.map((inv) => (
+                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => confirmDelete(inv)} delay={0} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {notAllotted.length > 0 && (
+            <div className="flex flex-col gap-3 mt-4">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">Not Allotted ({notAllotted.length})</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                {notAllotted.map((inv) => (
                   <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => confirmDelete(inv)} delay={0} />
                 ))}
               </div>
@@ -244,6 +257,7 @@ function InvestmentCard({
   const isPositive = pnl >= 0;
   const isSold = investment.status === 'sold';
   const isApplied = investment.status === 'applied';
+  const isNotAllotted = investment.status === 'not_allotted';
 
   const displayValue = isSold
     ? (investment.soldPrice ?? 0) * investment.units
@@ -256,7 +270,7 @@ function InvestmentCard({
       transition={{ delay }}
       className={cn(
         'bg-card rounded-2xl border border-border/40 p-4 md:p-5 flex flex-col justify-between',
-        (isSold || isApplied) && 'opacity-70'
+        (isSold || isApplied || isNotAllotted) && 'opacity-70'
       )}
     >
       <button type="button" onClick={onClick} className="w-full text-left" aria-label={`Open details for ${investment.name}`}>
@@ -270,17 +284,20 @@ function InvestmentCard({
               <span className="font-semibold text-sm truncate">{investment.name}</span>
               {isSold && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Sold</span>}
               {isApplied && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-warning/20 text-warning font-medium">Applied</span>}
+              {isNotAllotted && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium">Not Allotted</span>}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               {investment.symbol || meta.label}
-              {!isApplied && ` · ${investment.units} units @ ${formatCurrency(investment.buyPrice, currencySymbol)}`}
+              {!isApplied && !isNotAllotted && ` · ${investment.units} units @ ${formatCurrency(investment.buyPrice, currencySymbol)}`}
             </p>
             <p className="text-base font-bold tabular-nums mt-1">
-              {isApplied ? '—' : formatCurrency(displayValue, currencySymbol)}
+              {isApplied ? `Blocked: ${formatCurrency(investment.appliedAmount || 0, currencySymbol)}` 
+               : isNotAllotted ? 'Refunded'
+               : formatCurrency(displayValue, currencySymbol)}
             </p>
           </div>
 
-          {!isApplied && (
+          {!isApplied && !isNotAllotted && (
             <div className="flex flex-col items-end gap-1">
               <span className={cn('text-xs font-semibold tabular-nums flex items-center gap-0.5', isPositive ? 'text-income' : 'text-expense')}>
                 {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
@@ -316,6 +333,7 @@ type InvestmentFormData = {
   status: InvestmentStatus;
   listingPrice: number | null;
   listingDate: number | null;
+  appliedAmount: number | null;
 };
 
 function InvestmentSheet({
@@ -367,10 +385,12 @@ function InvestmentForm({
   const [type, setType] = useState<InvestmentType>(initial?.type ?? 'stocks');
   const [name, setName] = useState(initial?.name ?? '');
   const [symbol, setSymbol] = useState(initial?.symbol ?? '');
+  
   const [status, setStatus] = useState<InvestmentStatus>(
     initial?.status ?? (initial?.type === 'ipo' ? 'applied' : 'active')
   );
 
+  const [appliedAmount, setAppliedAmount] = useState(initial?.appliedAmount ? String(initial.appliedAmount) : '');
   const [units, setUnits] = useState(initial ? String(initial.units) : '');
   const [buyPrice, setBuyPrice] = useState(initial ? String(initial.buyPrice) : '');
   const [currentPrice, setCurrentPrice] = useState(initial ? String(initial.currentPrice ?? initial.buyPrice) : '');
@@ -382,46 +402,46 @@ function InvestmentForm({
   const [date, setDate] = useState(initial ? toDateInputValue(initial.date) : toDateInputValue(Date.now()));
   const [note, setNote] = useState(initial?.note ?? '');
 
-  const isApplied = type === 'ipo' && status === 'applied';
-  const isAllotted = type === 'ipo' && status === 'active';
+  const isIpo = type === 'ipo';
+  const isApplied = isIpo && status === 'applied';
+  const isNotAllotted = isIpo && status === 'not_allotted';
+  const isAllotted = status === 'active';
   const isSold = status === 'sold';
 
-  const totalCost = isApplied ? 0 : (parseFloat(units) || 0) * (parseFloat(buyPrice) || 0);
+  const totalCost = (parseFloat(units) || 0) * (parseFloat(buyPrice) || 0);
 
   const handleSubmit = () => {
-    if (!name.trim()) {
-      toast.error('Enter a name');
-      return;
-    }
+    if (!name.trim()) { toast.error('Enter a name'); return; }
 
-    const u = isApplied ? 0 : parseFloat(units) || 0;
-    const bp = isApplied ? 0 : parseFloat(buyPrice) || 0;
+    const blockedAmt = isApplied ? parseFloat(appliedAmount) || 0 : 0;
+    const u = (isApplied || isNotAllotted) ? 0 : (parseFloat(units) || 0);
+    const bp = (isApplied || isNotAllotted) ? 0 : (parseFloat(buyPrice) || 0);
 
-    if (!isApplied) {
-      if (u <= 0) { toast.error('Enter a valid number of units'); return; }
+    if (isApplied && blockedAmt <= 0) { toast.error('Enter a valid amount applied'); return; }
+    if (isAllotted) {
+      if (u <= 0) { toast.error('Enter valid units allotted'); return; }
       if (bp <= 0) { toast.error('Enter a valid buy price'); return; }
     }
-
     if (!accountId) { toast.error('Please select an account'); return; }
 
     const [y, m, d] = date.split('-').map(Number);
     const ts = new Date(y, m - 1, d).getTime();
 
     let cp = 0;
-    if (!isApplied) {
+    if (isAllotted || isSold) {
       const cpRaw = currentPrice.trim() ? parseFloat(currentPrice) : NaN;
       if (!Number.isNaN(cpRaw) && cpRaw < 0) { toast.error('Current price cannot be negative'); return; }
       cp = !Number.isNaN(cpRaw) && cpRaw > 0 ? cpRaw : bp;
     }
 
     let lp: number | null = null;
-    if (type === 'ipo' && listingPrice.trim()) {
+    if (isIpo && listingPrice.trim()) {
       const parsed = parseFloat(listingPrice);
       if (!Number.isNaN(parsed) && parsed > 0) lp = parsed;
     }
 
     let ld: number | null = null;
-    if (type === 'ipo' && listingDate) {
+    if (isIpo && listingDate) {
       const [ly, lm, ldd] = listingDate.split('-').map(Number);
       ld = new Date(ly, lm - 1, ldd).getTime();
     }
@@ -436,9 +456,10 @@ function InvestmentForm({
       accountId,
       date: ts,
       note: note.trim(),
-      status: type === 'ipo' ? status : 'active',
+      status: isIpo ? status : 'active',
       listingPrice: lp,
       listingDate: ld,
+      appliedAmount: blockedAmt,
     });
   };
 
@@ -446,7 +467,7 @@ function InvestmentForm({
     <form id="investment-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex flex-col gap-4">
       {isSold && (
         <div className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
-          This position is already sold. Current price is derived from the sale price; only the buy-side details are editable.
+          This position is already sold. Buy-side details are locked.
         </div>
       )}
 
@@ -457,7 +478,10 @@ function InvestmentForm({
             <button
               key={meta.value}
               type="button"
-              onClick={() => setType(meta.value)}
+              onClick={() => {
+                setType(meta.value);
+                if (meta.value === 'ipo' && !initial) setStatus('applied');
+              }}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all',
                 type === meta.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
@@ -472,11 +496,11 @@ function InvestmentForm({
         </div>
       </div>
 
-      {type === 'ipo' && (
+      {isIpo && (
         <div>
-          <Label className="text-xs text-muted-foreground">Status</Label>
+          <Label className="text-xs text-muted-foreground">IPO Status</Label>
           <div className="flex gap-2 mt-1">
-            {(['applied', 'active', 'sold'] as InvestmentStatus[]).map((s) => (
+            {(['applied', 'active', 'not_allotted'] as InvestmentStatus[]).map((s) => (
               <button
                 key={s}
                 type="button"
@@ -486,7 +510,7 @@ function InvestmentForm({
                   status === s ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
                 )}
               >
-                {s === 'active' ? 'Allotted' : s}
+                {s === 'active' ? 'Allotted' : s === 'not_allotted' ? 'Not Allotted' : 'Applied'}
               </button>
             ))}
           </div>
@@ -496,17 +520,28 @@ function InvestmentForm({
       <div className="grid grid-cols-3 gap-3">
         <div className="col-span-2">
           <Label className="text-xs text-muted-foreground">Name</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Reliance Industries" className="mt-1 rounded-xl" />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Tata Tech" className="mt-1 rounded-xl" />
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Symbol</Label>
-          <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="RELIANCE" className="mt-1 rounded-xl uppercase" />
+          <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="TATATECH" className="mt-1 rounded-xl uppercase" />
         </div>
       </div>
 
-      {!isApplied && (
+      {isApplied && (
+        <div className="max-w-sm mt-2">
+          <Label className="text-xs text-muted-foreground">Amount Applied / Blocked</Label>
+          <div className="relative mt-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
+            <Input type="number" inputMode="decimal" value={appliedAmount} onChange={(e) => setAppliedAmount(e.target.value)} placeholder="0.00" className="rounded-xl pl-7 text-lg font-semibold" />
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">This amount will be deducted from your account.</p>
+        </div>
+      )}
+
+      {!isApplied && !isNotAllotted && (
         <>
-          <div className="grid grid-cols-2 gap-3 max-w-sm">
+          <div className="grid grid-cols-2 gap-3 max-w-sm mt-2">
             <div>
               <Label className="text-xs text-muted-foreground">Units / Shares</Label>
               <Input type="number" inputMode="decimal" value={units} onChange={(e) => setUnits(e.target.value)} placeholder="10" className="mt-1 rounded-xl" />
@@ -540,14 +575,14 @@ function InvestmentForm({
       {isAllotted && (
         <div className="grid grid-cols-2 gap-3 max-w-sm border-t border-border/40 pt-4 mt-2">
           <div>
-            <Label className="text-xs text-muted-foreground">Listing Price</Label>
+            <Label className="text-xs text-muted-foreground">Listing Price (Optional)</Label>
             <div className="relative mt-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
-              <Input type="number" inputMode="decimal" value={listingPrice} onChange={(e) => setListingPrice(e.target.value)} placeholder="0.00" className="rounded-xl pl-7" />
+              <Input type="number" inputMode="decimal" value={listingPrice} onChange={(e) => setListingPrice(e.target.value)} placeholder="Sell price" className="rounded-xl pl-7" />
             </div>
           </div>
           <div>
-            <Label className="text-xs text-muted-foreground">Listing Date</Label>
+            <Label className="text-xs text-muted-foreground">Listing / Sell Date</Label>
             <Input type="date" value={listingDate} onChange={(e) => setListingDate(e.target.value)} className="mt-1 rounded-xl" />
           </div>
         </div>
@@ -562,7 +597,7 @@ function InvestmentForm({
           </select>
         </div>
         <div>
-          <Label className="text-xs text-muted-foreground">{type === 'ipo' && status === 'applied' ? 'Apply date' : 'Purchase date'}</Label>
+          <Label className="text-xs text-muted-foreground">{isApplied ? 'Apply Date' : 'Purchase date'}</Label>
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 rounded-xl" />
         </div>
       </div>
@@ -602,6 +637,9 @@ function InvestmentDetailSheet({
   const currentPrice = liveInvestment?.currentPrice ?? liveInvestment?.buyPrice ?? 0;
   const currentValue = liveInvestment?.currentValue ?? (liveInvestment?.units ? liveInvestment.units * currentPrice : 0);
   const isApplied = liveInvestment?.status === 'applied';
+  const isNotAllotted = liveInvestment?.status === 'not_allotted';
+  const isActive = liveInvestment?.status === 'active';
+  const isSold = liveInvestment?.status === 'sold';
 
   const reset = () => { setMode('view'); setPriceInput(''); setSellPriceInput(''); setSellDate(toDateInputValue(Date.now())); };
 
@@ -649,10 +687,12 @@ function InvestmentDetailSheet({
               <div className="rounded-2xl bg-muted/40 p-4 mb-4">
                 <div className="flex items-baseline justify-between">
                   <span className="text-xs text-muted-foreground">
-                    {isApplied ? 'Application' : liveInvestment.status === 'sold' ? 'Proceeds' : 'Market value'}
+                    {isApplied ? 'Amount Blocked' : isNotAllotted ? 'Refund Status' : isSold ? 'Proceeds' : 'Market value'}
                   </span>
                   <span className="text-2xl font-bold tabular-nums">
-                    {isApplied ? '—' : formatCurrency(
+                    {isApplied ? formatCurrency(liveInvestment.appliedAmount || 0, preferences.currencySymbol) 
+                     : isNotAllotted ? 'Refunded'
+                     : formatCurrency(
                       liveInvestment.status === 'sold' && liveInvestment.soldPrice !== null
                         ? liveInvestment.soldPrice * liveInvestment.units
                         : currentValue,
@@ -661,7 +701,7 @@ function InvestmentDetailSheet({
                   </span>
                 </div>
                 
-                {!isApplied && (
+                {(!isApplied && !isNotAllotted) && (
                   <>
                     <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
                       <div>
@@ -723,7 +763,7 @@ function InvestmentDetailSheet({
                 {liveInvestment.note && <p className="text-xs text-muted-foreground mt-2">{liveInvestment.note}</p>}
               </div>
 
-              {!isApplied && liveInvestment.status === 'active' && mode === 'view' && (
+              {isActive && mode === 'view' && (
                 <div className="flex gap-2 mb-4">
                   <Button type="button" variant="outline" className="flex-1 rounded-2xl gap-1.5" onClick={() => { setPriceInput(String(currentPrice)); setMode('price'); }}>
                     <RefreshCw className="h-4 w-4" /> Update Price
@@ -786,7 +826,7 @@ function InvestmentDetailSheet({
                 </div>
               )}
 
-              {!isApplied && (
+              {(!isApplied && !isNotAllotted) && (
                 <div>
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1 mb-2">Cash Movements</h3>
                   <div className="flex flex-col gap-2 text-sm">
