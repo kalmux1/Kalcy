@@ -4,14 +4,10 @@ import { auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
+import { Mail, Lock, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 
-interface AuthViewProps {
-  notice?: string | null;
-}
-
-export function AuthView({ notice }: AuthViewProps) {
+export function AuthView() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -25,7 +21,6 @@ export function AuthView({ notice }: AuthViewProps) {
     try {
       setLoading(true);
       await signInWithEmailAndPassword(auth, email, password);
-      // Allowlist check happens in App.tsx on auth state change.
     } catch (err: unknown) {
       const error = err as { code?: string; message?: string };
       const code = error?.code ?? '';
@@ -64,13 +59,6 @@ export function AuthView({ notice }: AuthViewProps) {
           draggable={false}
         />
       </div>
-
-      {notice && (
-        <div className="flex items-start gap-2 mb-4 p-3 rounded-2xl bg-destructive/10 text-destructive text-xs">
-          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-          <span>{notice}</span>
-        </div>
-      )}
 
       <div className="bg-card border border-border/40 rounded-3xl p-6 shadow-sm">
         <h2 className="text-lg font-semibold mb-4 text-center">Sign In</h2>
@@ -117,11 +105,6 @@ export function AuthView({ notice }: AuthViewProps) {
             <ArrowRight className="h-4 w-4" />
           </Button>
         </form>
-
-        <p className="mt-4 text-center text-[11px] text-muted-foreground">
-          Access is by invitation only. Contact the administrator if you need an
-          account.
-        </p>
       </div>
     </div>
   );

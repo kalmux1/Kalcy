@@ -459,13 +459,18 @@ export function getInvestmentsSummary(investments: Investment[]): {
   let soldCount = 0;
 
   for (const inv of investments) {
+    // Fallbacks prevent NaN from legacy data missing currentPrice/Value
+    const invested = inv.investedAmount ?? (inv.units * inv.buyPrice);
+    const curPrice = inv.currentPrice ?? inv.buyPrice;
+    const curValue = inv.currentValue ?? (inv.units * curPrice);
+
     if (inv.status === 'active') {
-      totalInvested += inv.investedAmount;
-      currentValue += inv.currentValue;
+      totalInvested += invested;
+      currentValue += curValue;
       activeCount += 1;
     } else if (inv.status === 'sold' && inv.soldPrice !== null) {
       const proceeds = inv.soldPrice * inv.units;
-      realizedPnl += proceeds - inv.investedAmount;
+      realizedPnl += proceeds - invested;
       soldCount += 1;
     }
   }
@@ -491,15 +496,14 @@ export function getInvestmentsSummary(investments: Investment[]): {
 export function getInvestmentsNetWorth(investments: Investment[]): number {
   return investments
     .filter((i) => i.status === 'active')
-    .reduce((s, i) => s + i.currentValue, 0);
+    .reduce((s, i) => {
+      const curValue = i.currentValue ?? (i.units * (i.currentPrice ?? i.buyPrice));
+      return s + curValue;
+    }, 0);
 }
 
 /**
  * Full net worth = accounts balance + net loan position + investments value.
- *
- * Buying an investment moves cash → asset, so it should not change net worth
- * at the moment of purchase. Price appreciation (currentPrice > buyPrice) is
- * what moves net worth up; depreciation moves it down.
  */
 export function getTotalNetWorth(
   accounts: Account[],
@@ -519,9 +523,10 @@ export function getInvestmentPnl(inv: Investment): {
   pnlPercent: number;
   marketValue: number;
 } {
-  const marketValue = inv.units * inv.currentPrice;
-  const pnl = marketValue - inv.investedAmount;
-  const pnlPercent =
-    inv.investedAmount > 0 ? (pnl / inv.investedAmount) * 100 : 0;
+  const invested = inv.investedAmount ?? (inv.units * inv.buyPrice);
+  const curPrice = inv.currentPrice ?? inv.buyPrice;
+  const marketValue = inv.units * curPrice;
+  const pnl = marketValue - invested;
+  const pnlPercent = invested > 0 ? (pnl / invested) * 100 : 0;
   return { pnl, pnlPercent, marketValue };
 }

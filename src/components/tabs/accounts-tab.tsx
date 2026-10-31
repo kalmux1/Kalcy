@@ -361,7 +361,7 @@ function AccountSheet({
   account: Account | null;
   onOpenChange: (open: boolean) => void;
   onSave: (
-    data: Omit<Account, 'id' | 'createdAt'>,
+    data: Omit<Account, 'id' | 'createdAt' | 'balance'>,
     id?: string
   ) => void | Promise<void>;
 }) {
@@ -424,7 +424,7 @@ function AccountForm({
   currencySymbol: string;
   currencyCode: string;
   onCancel: () => void;
-  onSubmit: (data: Omit<Account, 'id' | 'createdAt'>) => void;
+  onSubmit: (data: Omit<Account, 'id' | 'createdAt' | 'balance'>) => void;
 }) {
   const [name, setName] = useState(initialName);
   const [type, setType] = useState<AccountType>(initialType);
@@ -437,23 +437,24 @@ function AccountForm({
 
   const parsedInitial = parseFloat(initialBalanceInput) || 0;
   const previewDelta = parsedInitial - initialBalance;
-  const previewBalance = isEditing ? currentBalance + previewDelta : parsedInitial;
+  const previewBalance = isEditing
+    ? currentBalance + previewDelta
+    : parsedInitial;
 
   const handleSubmit = () => {
     if (!name.trim()) {
       toast.error('Please enter an account name');
       return;
     }
-    const newInitial = parsedInitial;
-    const newBalance = isEditing
-      ? currentBalance + (newInitial - initialBalance)
-      : newInitial;
 
+    // NOTE: we intentionally do NOT send `balance`. The store derives it:
+    //   - on create: balance = initialBalance
+    //   - on update: balance += (newInitial − oldInitial) via increment(),
+    //     so any concurrent transaction writes survive.
     onSubmit({
       name: name.trim(),
       type,
-      balance: newBalance,
-      initialBalance: newInitial,
+      initialBalance: parsedInitial,
       currency: currencyCode,
       icon,
       color,
@@ -746,4 +747,4 @@ function TransferDialog({
       </DialogContent>
     </Dialog>
   );
-}
+}   

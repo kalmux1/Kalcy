@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { toast } from 'sonner';
 import {
   collection,
   doc,
@@ -52,7 +53,9 @@ interface StoreState {
   updateTransaction: (id: string, updates: Partial<Transaction>) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
 
-  addAccount: (acc: Omit<Account, 'id' | 'createdAt'>) => Promise<void>;
+  addAccount: (
+    acc: Omit<Account, 'id' | 'createdAt' | 'balance'>
+  ) => Promise<void>;
   updateAccount: (id: string, updates: Partial<Account>) => Promise<void>;
   deleteAccount: (id: string) => Promise<void>;
 
@@ -145,6 +148,29 @@ function requirePositive(value: number, label: string): void {
   }
 }
 
+// Validates that a transaction's category matches its type (when not a transfer).
+function validateTxShape(
+  tx: Pick<Transaction, 'type' | 'categoryId' | 'accountId' | 'toAccountId' | 'amount'>,
+  categories: Category[]
+): void {
+  if (!Number.isFinite(tx.amount) || tx.amount <= 0) {
+    throw new Error('Amount must be a positive number');
+  }
+  if (tx.type === 'transfer') {
+    if (!tx.toAccountId) throw new Error('Transfer destination is required');
+    if (tx.toAccountId === tx.accountId) {
+      throw new Error('Source and destination accounts must be different');
+    }
+  } else {
+    if (!tx.categoryId) throw new Error('Category is required');
+    const cat = categories.find((c) => c.id === tx.categoryId);
+    if (!cat) throw new Error('Category not found');
+    if (cat.type !== tx.type) {
+      throw new Error(`Category "${cat.name}" is not a ${tx.type} category`);
+    }
+  }
+}
+
 export const useStore = create<StoreState>((set, get) => ({
   user: null,
   isLoading: true,
@@ -185,6 +211,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const prefRef = doc(db, 'users', uid, 'profile', 'preferences');
 
+    // ---- Seed defaults for a brand-new user ----
     try {
       const prefSnap = await getDoc(prefRef);
       if (!prefSnap.exists()) {
@@ -195,6 +222,9 @@ export const useStore = create<StoreState>((set, get) => ({
         SEED_ACCOUNTS.forEach((a) =>
           batch.set(doc(db, 'users', uid, 'accounts', a.id), {
             ...a,
+            // Balance always starts equal to initial balance; seed
+            // transactions are not applied here.
+            balance: a.initialBalance,
             createdAt: Date.now(),
           })
         );
@@ -205,16 +235,46 @@ export const useStore = create<StoreState>((set, get) => ({
       console.error('Failed to seed defaults for new user', err);
     }
 
+    // ---- Track loading readiness across all 8 listeners ----
+    const READY_TARGET = 8;
+    const readySet = new Set<string>();
+    const markReady = (key: string) => {
+      readySet.add(key);
+      if (readySet.size >= READY_TARGET && get().isLoading) {
+        set({ isLoading: false });
+      }
+    };
+
+    const handleError = (label: string) => (err: { code?: string; message?: string }) => {
+      console.error(`[${label}] Firestore listener error`, err);
+      if (err.code === 'permission-denied') {
+        toast.error('Access revoked. Please sign in again.');
+        get().setUser(null);
+      } else {
+        toast.error('Failed to load data. Check your connection.');
+      }
+      markReady(label);
+    };
+
     unsubs.push(
-      onSnapshot(prefRef, (docSnap) => {
-        if (docSnap.exists()) set({ preferences: docSnap.data() as Preferences });
-      })
+      onSnapshot(
+        prefRef,
+        (snap) => {
+          if (snap.exists()) set({ preferences: snap.data() as Preferences });
+          markReady('preferences');
+        },
+        handleError('preferences')
+      )
     );
 
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'accounts'),
-        (s) => set({ accounts: s.docs.map((d) => d.data() as Account) })
+        (s) => {
+          set({ accounts: s.docs.map((d) => d.data() as Account) });
+          markReady('accounts');
+        },
+        handleError('accounts')
       )
     );
 
@@ -226,7 +286,9 @@ export const useStore = create<StoreState>((set, get) => ({
             .map((d) => d.data() as Category)
             .sort((a, b) => a.order - b.order);
           set({ categories });
-        }
+          markReady('categories');
+        },
+        handleError('categories')
       )
     );
 
@@ -238,18 +300,20 @@ export const useStore = create<StoreState>((set, get) => ({
             .map((d) => d.data() as Transaction)
             .sort((a, b) => b.date - a.date);
           set({ transactions });
-        }
+          markReady('transactions');
+        },
+        handleError('transactions')
       )
     );
 
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'budgets'),
-        (s) =>
-          set({
-            budgets: s.docs.map((d) => d.data() as Budget),
-            isLoading: false,
-          })
+        (s) => {
+          set({ budgets: s.docs.map((d) => d.data() as Budget) });
+          markReady('budgets');
+        },
+        handleError('budgets')
       )
     );
 
@@ -261,7 +325,9 @@ export const useStore = create<StoreState>((set, get) => ({
             .map((d) => d.data() as Loan)
             .sort((a, b) => b.date - a.date);
           set({ loans });
-        }
+          markReady('loans');
+        },
+        handleError('loans')
       )
     );
 
@@ -273,7 +339,9 @@ export const useStore = create<StoreState>((set, get) => ({
             .map((d) => d.data() as LoanPayment)
             .sort((a, b) => b.date - a.date);
           set({ loanPayments });
-        }
+          markReady('loanPayments');
+        },
+        handleError('loanPayments')
       )
     );
 
@@ -285,14 +353,24 @@ export const useStore = create<StoreState>((set, get) => ({
             .map((d) => d.data() as Investment)
             .sort((a, b) => b.date - a.date);
           set({ investments });
-        }
+          markReady('investments');
+        },
+        handleError('investments')
       )
     );
+
+    // Safety net — never leave the app stuck on the spinner.
+    setTimeout(() => {
+      if (get().isLoading) set({ isLoading: false });
+    }, 6000);
   },
 
   addTransaction: async (tx) => {
-    const { user } = get();
-    if (!user) return;
+    const { user, categories } = get();
+    if (!user) throw new Error('Not authenticated');
+
+    validateTxShape(tx, categories);
+
     const id = genId('t');
     const newTx: Transaction = { ...tx, id, createdAt: Date.now() };
 
@@ -309,21 +387,45 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   updateTransaction: async (id, updates) => {
-    const { user, transactions } = get();
+    const { user, transactions, categories } = get();
     if (!user) return;
     const oldTx = transactions.find((t) => t.id === id);
     if (!oldTx) return;
 
-    const updatedTx: Transaction = { ...oldTx, ...updates };
+    const merged: Transaction = { ...oldTx, ...updates };
 
+    // Validate whenever the shape-relevant fields change.
+    const needsValidation =
+      updates.type !== undefined ||
+      updates.categoryId !== undefined ||
+      updates.accountId !== undefined ||
+      updates.toAccountId !== undefined ||
+      updates.amount !== undefined;
+    if (needsValidation) {
+      validateTxShape(merged, categories);
+    }
+
+    // Build a Partial<Transaction> for the write payload. Passing the full
+    // `merged` object fails Firestore's UpdateData<DocumentData> type because
+    // Transaction lacks the required string index signature; the partial
+    // form satisfies it. The patch also normalizes the shape: transfers must
+    // not keep a categoryId, and non-transfers must not keep a toAccountId.
+    const patch: Partial<Transaction> = { ...updates };
+    if (merged.type === 'transfer') {
+      patch.categoryId = null;
+    } else {
+      patch.toAccountId = null;
+    }
+
+    // Compute balance deltas from the pre-update and post-update shapes.
     const oldEffects = txEffects(oldTx);
-    const newEffects = txEffects(updatedTx);
+    const newEffects = txEffects(merged);
     const net = new Map<string, number>();
     oldEffects.forEach((v, k) => net.set(k, (net.get(k) ?? 0) - v));
     newEffects.forEach((v, k) => net.set(k, (net.get(k) ?? 0) + v));
 
     const batch = writeBatch(db);
-    batch.update(doc(db, 'users', user.uid, 'transactions', id), updates);
+    batch.update(doc(db, 'users', user.uid, 'transactions', id), patch);
     net.forEach((delta, accId) => {
       if (delta !== 0) {
         batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
@@ -341,19 +443,15 @@ export const useStore = create<StoreState>((set, get) => ({
     const tx = transactions.find((t) => t.id === id);
     if (!tx) return;
 
-    // If this is a loan payment, cascade the delete.
     if (tx.linkedPaymentId) {
       await get().deleteLoanPayment(tx.linkedPaymentId);
       return;
     }
-
-    // If this is the initial loan transaction, cascade the delete.
     if (tx.linkedLoanId && !tx.linkedPaymentId) {
       await get().deleteLoan(tx.linkedLoanId);
       return;
     }
 
-    // If this is an investment transaction, cascade the delete.
     const linkedInv = investments.find(
       (i) =>
         i.linkedTransactionId === tx.id ||
@@ -364,7 +462,6 @@ export const useStore = create<StoreState>((set, get) => ({
       return;
     }
 
-    // Normal deletion
     const batch = writeBatch(db);
     batch.delete(doc(db, 'users', user.uid, 'transactions', id));
 
@@ -384,14 +481,41 @@ export const useStore = create<StoreState>((set, get) => ({
     await setDoc(doc(db, 'users', user.uid, 'accounts', id), {
       ...acc,
       id,
+      // For a new account, balance == initialBalance.
+      balance: acc.initialBalance,
       createdAt: Date.now(),
     });
   },
 
   updateAccount: async (id, updates) => {
-    const { user } = get();
+    const { user, accounts } = get();
     if (!user) return;
-    await updateDoc(doc(db, 'users', user.uid, 'accounts', id), updates);
+    const current = accounts.find((a) => a.id === id);
+    if (!current) return;
+
+    const docRef = doc(db, 'users', user.uid, 'accounts', id);
+
+    // Strip `balance` from the caller's patch — it is only ever modified
+    // via transactions (through `increment`) or via initialBalance change.
+    const { balance: _ignoredBalance, ...rest } = updates;
+
+    // Translate an initialBalance change into an increment so concurrent
+    // transaction writes (which also use increment) are preserved.
+    if (
+      typeof rest.initialBalance === 'number' &&
+      rest.initialBalance !== current.initialBalance
+    ) {
+      const delta = rest.initialBalance - current.initialBalance;
+      await updateDoc(docRef, {
+        ...rest,
+        balance: increment(delta),
+      });
+      return;
+    }
+
+    if (Object.keys(rest).length > 0) {
+      await updateDoc(docRef, rest);
+    }
   },
 
   deleteAccount: async (id) => {
@@ -656,6 +780,25 @@ export const useStore = create<StoreState>((set, get) => ({
       txPatch.date = updates.date;
     }
 
+    // Keep the linked transaction's auto-generated note in sync when the
+    // person name changes — but only if the note was auto-generated.
+    if (
+      updates.personName &&
+      updates.personName !== loan.personName &&
+      initialTx
+    ) {
+      const oldDefault =
+        loan.type === 'lent'
+          ? `Money lent to ${loan.personName}`
+          : `Money borrowed from ${loan.personName}`;
+      if (initialTx.note === oldDefault) {
+        txPatch.note =
+          loan.type === 'lent'
+            ? `Money lent to ${updates.personName}`
+            : `Money borrowed from ${updates.personName}`;
+      }
+    }
+
     const finalRemaining = patch.remainingAmount ?? loan.remainingAmount;
     patch.isSettled = finalRemaining <= 0;
 
@@ -776,9 +919,13 @@ export const useStore = create<StoreState>((set, get) => ({
     const loan = loans.find((l) => l.id === payment.loanId);
     if (!loan) return;
 
-    const linked =
-      transactions.find((t) => t.linkedPaymentId === id) ??
-      transactions.find(
+    // Prefer the deterministic link.
+    let linked = transactions.find((t) => t.linkedPaymentId === id);
+
+    // Legacy fallback: only accept when exactly one candidate matches, to
+    // avoid deleting the wrong transaction.
+    if (!linked) {
+      const candidates = transactions.filter(
         (t) =>
           t.linkedLoanId === payment.loanId &&
           !t.linkedPaymentId &&
@@ -786,6 +933,15 @@ export const useStore = create<StoreState>((set, get) => ({
           t.date === payment.date &&
           (t.type === 'income' || t.type === 'expense')
       );
+      if (candidates.length === 1) {
+        linked = candidates[0];
+      } else if (candidates.length > 1) {
+        console.warn(
+          'Ambiguous legacy payment; skipping transaction deletion.',
+          { payment, candidates }
+        );
+      }
+    }
 
     const batch = writeBatch(db);
     batch.delete(doc(db, 'users', user.uid, 'loanPayments', id));
@@ -898,7 +1054,12 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!inv) return;
 
     if (updates.units !== undefined) requirePositive(updates.units, 'Units');
-    if (updates.buyPrice !== undefined) requirePositive(updates.buyPrice, 'Buy price');
+    if (updates.buyPrice !== undefined)
+      requirePositive(updates.buyPrice, 'Buy price');
+    if (typeof updates.currentPrice === 'number')
+      requirePositive(updates.currentPrice, 'Current price');
+    if (typeof updates.soldPrice === 'number')
+      requirePositive(updates.soldPrice, 'Sold price');
 
     const newUnits = updates.units ?? inv.units;
     const newBuyPrice = updates.buyPrice ?? inv.buyPrice;
@@ -1093,10 +1254,16 @@ export const useStore = create<StoreState>((set, get) => ({
   updatePreferences: async (updates) => {
     const { user, preferences } = get();
     if (!user) return;
-    const prefs = { ...preferences, ...updates };
-    if (updates.currency)
-      prefs.currencySymbol = getCurrencySymbol(updates.currency);
-    await setDoc(doc(db, 'users', user.uid, 'profile', 'preferences'), prefs);
+    try {
+      const prefs = { ...preferences, ...updates };
+      if (updates.currency) {
+        prefs.currencySymbol = getCurrencySymbol(updates.currency);
+      }
+      await setDoc(doc(db, 'users', user.uid, 'profile', 'preferences'), prefs);
+    } catch (err) {
+      console.error('Failed to save preferences', err);
+      toast.error('Failed to save preference');
+    }
   },
 
   restoreDefaults: async () => {
@@ -1116,6 +1283,7 @@ export const useStore = create<StoreState>((set, get) => ({
       if (!existingAccIds.has(a.id)) {
         batch.set(doc(db, 'users', user.uid, 'accounts', a.id), {
           ...a,
+          balance: a.initialBalance,
           createdAt: Date.now(),
         });
       }
@@ -1136,6 +1304,7 @@ export const useStore = create<StoreState>((set, get) => ({
     } = get();
     if (!user) return;
 
+    // 1. Wipe everything.
     const wipe = writeBatch(db);
     accounts.forEach((a) =>
       wipe.delete(doc(db, 'users', user.uid, 'accounts', a.id))
@@ -1158,6 +1327,16 @@ export const useStore = create<StoreState>((set, get) => ({
     );
     await wipe.commit();
 
+    // 2. Compute account balances that reflect the seeded transactions.
+    const finalBalances = new Map<string, number>();
+    SEED_ACCOUNTS.forEach((a) => finalBalances.set(a.id, a.initialBalance));
+    SEED_TRANSACTIONS.forEach((t) => {
+      txEffects(t).forEach((delta, accId) => {
+        finalBalances.set(accId, (finalBalances.get(accId) ?? 0) + delta);
+      });
+    });
+
+    // 3. Re-seed with a consistent ledger.
     const now = new Date();
     const currentMonthKey = `${now.getFullYear()}-${String(
       now.getMonth() + 1
@@ -1170,6 +1349,7 @@ export const useStore = create<StoreState>((set, get) => ({
     SEED_ACCOUNTS.forEach((a) =>
       batch.set(doc(db, 'users', user.uid, 'accounts', a.id), {
         ...a,
+        balance: finalBalances.get(a.id) ?? a.initialBalance,
         createdAt: Date.now(),
       })
     );

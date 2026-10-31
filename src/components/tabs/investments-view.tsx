@@ -138,7 +138,7 @@ export function InvestmentsView() {
             {INVESTMENT_TYPES.map((meta) => {
               const value = active
                 .filter((i) => i.type === meta.value)
-                .reduce((s, i) => s + i.currentValue, 0);
+                .reduce((s, i) => s + (i.currentValue ?? (i.units * (i.currentPrice ?? i.buyPrice))), 0);
               if (value === 0) return null;
               const pct =
                 summary.currentValue > 0
@@ -328,7 +328,7 @@ function InvestmentCard({
   onDelete: () => void;
   delay: number;
 }) {
-  const meta = TYPE_META[investment.type];
+  const meta = TYPE_META[investment.type] ?? TYPE_META.other;
   const { pnl, pnlPercent, marketValue } = getInvestmentPnl(investment);
   const isPositive = pnl >= 0;
   const isSold = investment.status === 'sold';
@@ -502,7 +502,7 @@ function InvestmentForm({
     initial ? String(initial.buyPrice) : ''
   );
   const [currentPrice, setCurrentPrice] = useState(
-    initial ? String(initial.currentPrice) : ''
+    initial ? String(initial.currentPrice ?? initial.buyPrice) : ''
   );
   const [accountId, setAccountId] = useState(
     initial?.accountId ?? accounts[0]?.id ?? ''
@@ -758,6 +758,10 @@ function InvestmentDetailSheet({
     ? allInvestments.find((i) => i.id === investmentId) ?? null
     : null;
 
+  const meta = liveInvestment
+    ? TYPE_META[liveInvestment.type] ?? TYPE_META.other
+    : TYPE_META.other;
+
   const [mode, setMode] = useState<'view' | 'price' | 'sell'>('view');
   const [priceInput, setPriceInput] = useState('');
   const [sellPriceInput, setSellPriceInput] = useState('');
@@ -768,6 +772,10 @@ function InvestmentDetailSheet({
   const acc = liveInvestment
     ? accounts.find((a) => a.id === liveInvestment.accountId)
     : undefined;
+
+  // Fallbacks for legacy data
+  const currentPrice = liveInvestment?.currentPrice ?? liveInvestment?.buyPrice ?? 0;
+  const currentValue = liveInvestment?.currentValue ?? (liveInvestment?.units ? liveInvestment.units * currentPrice : 0);
 
   const reset = () => {
     setMode('view');
@@ -825,15 +833,10 @@ function InvestmentDetailSheet({
               <div className="flex items-center gap-3">
                 <div
                   className="h-10 w-10 rounded-2xl flex items-center justify-center"
-                  style={{
-                    backgroundColor: `${TYPE_META[liveInvestment.type].color}1A`,
-                  }}
+                  style={{ backgroundColor: `${meta.color}1A` }}
                 >
-                  <span style={{ color: TYPE_META[liveInvestment.type].color }}>
-                    <CategoryIcon
-                      name={TYPE_META[liveInvestment.type].icon}
-                      size={20}
-                    />
+                  <span style={{ color: meta.color }}>
+                    <CategoryIcon name={meta.icon} size={20} />
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">
@@ -841,8 +844,7 @@ function InvestmentDetailSheet({
                     {liveInvestment.name}
                   </h2>
                   <p className="text-xs text-muted-foreground">
-                    {liveInvestment.symbol ||
-                      TYPE_META[liveInvestment.type].label}
+                    {liveInvestment.symbol || meta.label}
                   </p>
                 </div>
               </div>
@@ -858,10 +860,9 @@ function InvestmentDetailSheet({
                   </span>
                   <span className="text-2xl font-bold tabular-nums">
                     {formatCurrency(
-                      liveInvestment.status === 'sold' &&
-                        liveInvestment.soldPrice !== null
+                      liveInvestment.status === 'sold' && liveInvestment.soldPrice !== null
                         ? liveInvestment.soldPrice * liveInvestment.units
-                        : liveInvestment.currentValue,
+                        : currentValue,
                       preferences.currencySymbol
                     )}
                   </span>
@@ -890,7 +891,7 @@ function InvestmentDetailSheet({
                       {formatCurrency(
                         liveInvestment.status === 'sold'
                           ? liveInvestment.soldPrice ?? 0
-                          : liveInvestment.currentPrice,
+                          : currentPrice,
                         preferences.currencySymbol
                       )}
                     </p>
@@ -941,7 +942,7 @@ function InvestmentDetailSheet({
                     variant="outline"
                     className="flex-1 rounded-2xl gap-1.5"
                     onClick={() => {
-                      setPriceInput(String(liveInvestment.currentPrice));
+                      setPriceInput(String(currentPrice));
                       setMode('price');
                     }}
                   >
@@ -951,7 +952,7 @@ function InvestmentDetailSheet({
                     type="button"
                     className="flex-1 rounded-2xl gap-1.5"
                     onClick={() => {
-                      setSellPriceInput(String(liveInvestment.currentPrice));
+                      setSellPriceInput(String(currentPrice));
                       setMode('sell');
                     }}
                   >
@@ -1089,7 +1090,7 @@ function InvestmentDetailSheet({
                     </span>
                     <span className="font-semibold tabular-nums text-expense">
                       -{formatCurrency(
-                        liveInvestment.investedAmount,
+                        liveInvestment.investedAmount ?? (liveInvestment.units * liveInvestment.buyPrice),
                         preferences.currencySymbol
                       )}
                     </span>

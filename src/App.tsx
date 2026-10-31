@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { getDoc, doc } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { auth } from '@/lib/firebase';
 import { TransactionsTab } from '@/components/tabs/transactions-tab';
 import { StatsTab } from '@/components/tabs/stats-tab';
 import { AccountsTab } from '@/components/tabs/accounts-tab';
@@ -103,7 +102,6 @@ export default function App() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [authNotice, setAuthNotice] = useState<string | null>(null);
 
   const user = useStore((s) => s.user);
   const setUser = useStore((s) => s.setUser);
@@ -123,33 +121,8 @@ export default function App() {
         return;
       }
 
-      setAuthNotice(null);
-
-      const email = fbUser.email?.toLowerCase() ?? '';
-      if (!email) {
-        await signOut(auth);
-        setAuthNotice('Your account has no email address attached.');
-        return;
-      }
-
-      try {
-        const allowSnap = await getDoc(doc(db, 'allowlist', email));
-        const allowed = allowSnap.exists() && allowSnap.data()?.enabled === true;
-
-        if (!allowed) {
-          await signOut(auth);
-          setAuthNotice(
-            'Access denied. Your account is not authorised to use Kalcy.'
-          );
-          return;
-        }
-      } catch (err) {
-        console.error('Allowlist check failed', err);
-        await signOut(auth);
-        setAuthNotice('Could not verify access. Please try again.');
-        return;
-      }
-
+      // Directly set the user and initialize their data. 
+      // No allowlist check needed.
       setUser({
         uid: fbUser.uid,
         email: fbUser.email,
@@ -168,7 +141,7 @@ export default function App() {
         <div className="flex flex-col items-center gap-3">
           <div className="h-9 w-9 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <p className="text-xs text-muted-foreground animate-pulse">
-            {authNotice ? '' : 'Verifying access...'}
+            Loading...
           </p>
         </div>
       </main>
@@ -176,7 +149,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthView notice={authNotice} />;
+    return <AuthView />;
   }
 
   const handleEditTransaction = (tx: Transaction) => {

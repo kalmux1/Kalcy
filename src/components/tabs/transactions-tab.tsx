@@ -28,6 +28,8 @@ import {
   formatMonthYear,
   monthYearKey,
   getTotalBalance,
+  getLoansNetWorth,
+  getInvestmentsNetWorth,
   parseLocalDate,
 } from '@/lib/finance';
 
@@ -584,15 +586,32 @@ function SummaryView({
   symbol: string;
   selectedMonth: Date;
 }) {
+  const loans = useStore((s) => s.loans);
+  const investments = useStore((s) => s.investments);
+
   const monthYear = monthYearKey(selectedMonth.getTime());
   const totals = getMonthlyTotals(transactions, monthYear);
-  const totalBalance = getTotalBalance(accounts);
-  const totalAssets = accounts
+
+  // ✅ Bug #6 — net worth now matches the Accounts tab exactly.
+  //    netWorth = cash + investments + loans
+  const cashNet = getTotalBalance(accounts);
+  const investNet = getInvestmentsNetWorth(investments);
+  const loansNet = getLoansNetWorth(loans);
+  const netWorth = cashNet + investNet + loansNet;
+
+  // Assets / Liabilities must reconcile with the net worth above:
+  //   assets − liabilities = (cashPos − cashNeg) + invest + loansNet
+  //                        = cashNet + invest + loansNet = netWorth
+  const positiveCash = accounts
     .filter((a) => a.isIncludedInTotal && a.balance > 0)
     .reduce((s, a) => s + a.balance, 0);
-  const totalLiabilities = accounts
+  const negativeCash = accounts
     .filter((a) => a.isIncludedInTotal && a.balance < 0)
     .reduce((s, a) => s + Math.abs(a.balance), 0);
+
+  const totalAssets = positiveCash + investNet + Math.max(loansNet, 0);
+  const totalLiabilities = negativeCash + Math.abs(Math.min(loansNet, 0));
+
   const savingsRate =
     totals.income > 0
       ? ((totals.income - totals.expense) / totals.income) * 100
@@ -606,8 +625,37 @@ function SummaryView({
           <h3 className="text-sm md:text-base font-semibold">Net Worth</h3>
         </div>
         <p className="text-3xl md:text-4xl font-bold tabular-nums">
-          {formatCurrency(totalBalance, symbol)}
+          {formatCurrency(netWorth, symbol)}
         </p>
+
+        {(loansNet !== 0 || investNet !== 0) && (
+          <div className="mt-3 pt-3 border-t flex flex-col gap-1.5 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Cash &amp; accounts</span>
+              <span className="tabular-nums">
+                {formatCurrency(cashNet, symbol)}
+              </span>
+            </div>
+            {investNet !== 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Investments</span>
+                <span className="tabular-nums">
+                  {formatCurrency(investNet, symbol)}
+                </span>
+              </div>
+            )}
+            {loansNet !== 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Loans (net)</span>
+                <span className="tabular-nums">
+                  {loansNet >= 0 ? '+' : ''}
+                  {formatCurrency(loansNet, symbol)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-col gap-3 mt-6">
           <div className="rounded-xl bg-income/10 p-3 md:p-4">
             <p className="text-xs text-muted-foreground">Total Assets</p>

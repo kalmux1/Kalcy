@@ -6,6 +6,7 @@ import App from './App';
 import './index.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
+import { ErrorBoundary } from '@/components/error-boundary';
 
 const OFFLINE_READY_SEEN_KEY = 'kalcy.offlineReadySeen';
 
@@ -45,7 +46,9 @@ const updateSW = registerSW({
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>
-      <App />
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
       <Toaster position="top-center" />
     </ThemeProvider>
   </React.StrictMode>
