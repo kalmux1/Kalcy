@@ -15,6 +15,7 @@ import { CURRENCIES } from '@/lib/currencies';
 import { exportToCSV, downloadCSV } from '@/lib/finance';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { Transaction } from '@/lib/types';
 import {
   Download,
@@ -104,6 +105,7 @@ export default function App() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isWipeDialogOpen, setIsWipeDialogOpen] = useState(false);
 
   const user = useStore((s) => s.user);
   const setUser = useStore((s) => s.setUser);
@@ -173,18 +175,9 @@ export default function App() {
     toast.success('Signed out');
   };
 
-  const confirmWipe = () => {
-    toast('Delete ALL records? This cannot be undone.', {
-      duration: 10000,
-      action: {
-        label: 'Delete Everything',
-        onClick: async () => {
-          await clearCloudData();
-          toast.success('All data deleted');
-        },
-      },
-      cancel: { label: 'Cancel', onClick: () => {} },
-    });
+  const handleWipeData = async () => {
+    await clearCloudData();
+    toast.success('All data deleted');
   };
 
   return (
@@ -397,7 +390,7 @@ export default function App() {
                   <Button
                     variant="outline"
                     className="w-full justify-start rounded-xl gap-2 text-sm text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={confirmWipe}
+                    onClick={() => setIsWipeDialogOpen(true)}
                   >
                     <Trash2 className="h-4 w-4" /> Delete All Data
                   </Button>
@@ -425,6 +418,15 @@ export default function App() {
       />
 
       <ProfileEditDrawer open={isProfileOpen} onOpenChange={setIsProfileOpen} />
+
+      <ConfirmDialog
+        open={isWipeDialogOpen}
+        onOpenChange={setIsWipeDialogOpen}
+        title="Delete All Data"
+        description="Are you absolutely sure? This will permanently delete all your transactions, accounts, budgets, and investments. This action cannot be undone."
+        confirmText="Delete Everything"
+        onConfirm={handleWipeData}
+      />
     </main>
   );
 }
