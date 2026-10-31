@@ -387,15 +387,6 @@ export function getMonthlyTrend(
 /*  Lending / loans                                                           */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Summary of all active loans.
- * - totalLent:     money others currently owe you (a receivable / asset)
- * - totalBorrowed: money you currently owe others (a payable / liability)
- * - netReceivable: totalLent − totalBorrowed (positive = net asset position)
- * - activeCount:   number of unsettled loans
- *
- * Settled loans (isSettled === true or remaining <= 0) are ignored.
- */
 export function getLoansSummary(loans: Loan[]): {
   totalLent: number;
   totalBorrowed: number;
@@ -419,20 +410,15 @@ export function getLoansSummary(loans: Loan[]): {
   };
 }
 
-/** Net worth contribution from loans: + receivables, − payables. */
 export function getLoansNetWorth(loans: Loan[]): number {
   return getLoansSummary(loans).netReceivable;
 }
 
-/**
- * Paid amount on a loan (principal − remaining), clamped to [0, principal].
- */
 export function getLoanPaid(loan: Loan): number {
   const paid = loan.principalAmount - loan.remainingAmount;
   return Math.max(0, Math.min(paid, loan.principalAmount));
 }
 
-/** Payment progress as a percentage, clamped to [0, 100]. */
 export function getLoanProgress(loan: Loan): number {
   if (loan.principalAmount <= 0) return 0;
   return Math.min(100, (getLoanPaid(loan) / loan.principalAmount) * 100);
@@ -459,7 +445,6 @@ export function getInvestmentsSummary(investments: Investment[]): {
   let soldCount = 0;
 
   for (const inv of investments) {
-    // Fallbacks prevent NaN from legacy data missing currentPrice/Value
     const invested = inv.investedAmount ?? (inv.units * inv.buyPrice);
     const curPrice = inv.currentPrice ?? inv.buyPrice;
     const curValue = inv.currentValue ?? (inv.units * curPrice);
@@ -477,8 +462,7 @@ export function getInvestmentsSummary(investments: Investment[]): {
 
   const unrealizedPnl = currentValue - totalInvested;
   const totalPnl = unrealizedPnl + realizedPnl;
-  const totalPnlPercent =
-    totalInvested > 0 ? (unrealizedPnl / totalInvested) * 100 : 0;
+  const totalPnlPercent = totalInvested > 0 ? (unrealizedPnl / totalInvested) * 100 : 0;
 
   return {
     totalInvested,
@@ -492,7 +476,6 @@ export function getInvestmentsSummary(investments: Investment[]): {
   };
 }
 
-/** Net worth contribution from active investments (market value). */
 export function getInvestmentsNetWorth(investments: Investment[]): number {
   return investments
     .filter((i) => i.status === 'active')
@@ -502,9 +485,6 @@ export function getInvestmentsNetWorth(investments: Investment[]): number {
     }, 0);
 }
 
-/**
- * Full net worth = accounts balance + net loan position + investments value.
- */
 export function getTotalNetWorth(
   accounts: Account[],
   loans: Loan[],
@@ -517,7 +497,6 @@ export function getTotalNetWorth(
   );
 }
 
-/** Investment P&L per unit, in currency. */
 export function getInvestmentPnl(inv: Investment): {
   pnl: number;
   pnlPercent: number;
