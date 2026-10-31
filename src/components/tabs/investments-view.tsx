@@ -457,11 +457,13 @@ function InvestmentSheet({
   const preferences = useStore((s) => s.preferences);
   const formKey = open ? investment?.id ?? 'new' : 'closed';
 
+  // NOTE: repositionInputs is removed to prevent Android keyboards from
+  // pushing the entire drawer off the top of the screen.
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
+    <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        {/* Fixed Header with Save Button */}
-        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 flex items-center justify-between">
+        {/* Sticky header with Save button */}
+        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 flex items-center justify-between border-b border-border/40">
           <h2 className="text-xl font-bold">
             {investment ? 'Edit Investment' : 'New Investment'}
           </h2>
@@ -476,7 +478,7 @@ function InvestmentSheet({
           </Button>
         </div>
 
-        {/* Scrollable Body. pb-32 ensures inputs scroll above the keyboard */}
+        {/* Scrollable Body. pb-32 ensures inputs can scroll above keyboard */}
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4 pb-32">
           <InvestmentForm
             key={formKey}
@@ -814,13 +816,13 @@ function InvestmentDetailSheet({
   };
 
   return (
+    // Reposition inputs removed here as well
     <Drawer
       open={open}
       onOpenChange={(o) => {
         if (!o) reset();
         onOpenChange(o);
       }}
-      repositionInputs
     >
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
         {liveInvestment && (
@@ -846,7 +848,7 @@ function InvestmentDetailSheet({
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4">
+            <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4 pb-12">
               <div className="rounded-2xl bg-muted/40 p-4 mb-4">
                 <div className="flex items-baseline justify-between">
                   <span className="text-xs text-muted-foreground">
