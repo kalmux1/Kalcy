@@ -169,7 +169,9 @@ function TransactionSheetContent({
       onClose();
     } catch (err) {
       console.error(err);
-      toast.error('Failed to save transaction');
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to save transaction'
+      );
     } finally {
       setSaving(false);
     }
@@ -476,7 +478,12 @@ function TransactionSheetContent({
             <button
               key={t}
               type="button"
-              onClick={() => setType(t)}
+              onClick={() => {
+                if (t === type) return;
+                setType(t);
+                setCategoryId(null);
+                setParentCategory(null);
+              }}
               className={cn(
                 'flex-1 py-2 rounded-xl text-sm font-semibold capitalize transition-all touch-manipulation',
                 type === t
