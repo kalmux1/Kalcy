@@ -460,19 +460,29 @@ function InvestmentSheet({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6">
+        {/* Fixed Header with Save Button */}
+        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 flex items-center justify-between">
           <h2 className="text-xl font-bold">
             {investment ? 'Edit Investment' : 'New Investment'}
           </h2>
+          <Button
+            type="submit"
+            form="investment-form"
+            size="sm"
+            className="rounded-full h-9 px-4 gap-1"
+          >
+            <Check className="h-4 w-4" />
+            Save
+          </Button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4">
+        {/* Scrollable Body. pb-32 ensures inputs scroll above the keyboard */}
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4 pb-32">
           <InvestmentForm
             key={formKey}
             initial={investment}
             currencySymbol={preferences.currencySymbol}
             accounts={accounts}
-            onCancel={() => onOpenChange(false)}
             onSubmit={(data) => onSave(data, investment?.id)}
           />
         </div>
@@ -485,13 +495,11 @@ function InvestmentForm({
   initial,
   currencySymbol,
   accounts,
-  onCancel,
   onSubmit,
 }: {
   initial: Investment | null;
   currencySymbol: string;
   accounts: ReturnType<typeof useStore.getState>['accounts'];
-  onCancel: () => void;
   onSubmit: (data: InvestmentFormData) => void;
 }) {
   const [type, setType] = useState<InvestmentType>(initial?.type ?? 'stocks');
@@ -558,7 +566,14 @@ function InvestmentForm({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <form
+      id="investment-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
       {isSold && (
         <div className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
           This position is already sold. Current price is derived from the
@@ -717,25 +732,7 @@ function InvestmentForm({
           className="mt-1 rounded-xl"
         />
       </div>
-
-      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t flex gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="flex-1 rounded-xl"
-          onClick={onCancel}
-        >
-          <X className="h-4 w-4 mr-1" /> Cancel
-        </Button>
-        <Button
-          type="button"
-          className="flex-1 rounded-xl"
-          onClick={handleSubmit}
-        >
-          <Check className="h-4 w-4 mr-1" /> Save
-        </Button>
-      </div>
-    </div>
+    </form>
   );
 }
 
@@ -773,7 +770,6 @@ function InvestmentDetailSheet({
     ? accounts.find((a) => a.id === liveInvestment.accountId)
     : undefined;
 
-  // Fallbacks for legacy data
   const currentPrice = liveInvestment?.currentPrice ?? liveInvestment?.buyPrice ?? 0;
   const currentValue = liveInvestment?.currentValue ?? (liveInvestment?.units ? liveInvestment.units * currentPrice : 0);
 
