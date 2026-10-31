@@ -5,6 +5,7 @@ import { TransactionsTab } from '@/components/tabs/transactions-tab';
 import { StatsTab } from '@/components/tabs/stats-tab';
 import { AccountsTab } from '@/components/tabs/accounts-tab';
 import { BudgetsView } from '@/components/tabs/budgets-view';
+import { CategoriesView } from '@/components/tabs/categories-view';
 import { BottomNav, type TabKey } from '@/components/bottom-nav';
 import { TransactionSheet } from '@/components/transaction-sheet';
 import { AuthView } from '@/components/auth-view';
@@ -28,6 +29,7 @@ import {
   BarChart3,
   ListChecks,
   Settings,
+  Tags,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -121,8 +123,6 @@ export default function App() {
         return;
       }
 
-      // Directly set the user and initialize their data. 
-      // No allowlist check needed.
       setUser({
         uid: fbUser.uid,
         email: fbUser.email,
@@ -273,7 +273,6 @@ export default function App() {
                 </Button>
               </div>
 
-              {/* Connection status indicator */}
               <ConnectionStatus />
 
               {/* Account / Profile */}
@@ -286,7 +285,6 @@ export default function App() {
                 >
                   <UserCog className="h-4 w-4" /> Edit Profile &amp; Password
                 </Button>
-                {/* Desktop Sign Out */}
                 <Button
                   variant="outline"
                   onClick={handleSignOut}
@@ -302,6 +300,14 @@ export default function App() {
                   <h2 className="text-base font-semibold">Monthly Budgets</h2>
                 </div>
                 <BudgetsView />
+              </div>
+
+              <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <Tags className="h-4 w-4 text-primary" />
+                  <h2 className="text-base font-semibold">Categories</h2>
+                </div>
+                <CategoriesView />
               </div>
 
               <div className="space-y-4 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm max-w-2xl">
