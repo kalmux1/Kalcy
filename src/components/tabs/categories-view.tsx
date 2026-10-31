@@ -6,6 +6,7 @@ import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CategoryIcon, AVAILABLE_ICONS, CATEGORY_COLORS } from '@/components/icon-map';
 import { useStore } from '@/lib/store';
 import type { Category, TransactionType } from '@/lib/types';
@@ -17,29 +18,22 @@ export function CategoriesView() {
   const [activeType, setActiveType] = useState<TransactionType>('expense');
   const [editing, setEditing] = useState<Category | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
 
   const expenseCategories = categories.filter((c) => c.type === 'expense' && !c.parentId);
   const incomeCategories = categories.filter((c) => c.type === 'income' && !c.parentId);
   
   const currentCategories = activeType === 'expense' ? expenseCategories : incomeCategories;
 
-  const confirmDelete = (cat: Category) => {
-    toast(`Delete "${cat.name}"? Any transactions using this category will become Uncategorized.`, {
-      duration: 8000,
-      action: {
-        label: 'Delete',
-        onClick: async () => {
-          try {
-            await deleteCategory(cat.id);
-            toast.success('Category deleted');
-          } catch (err) {
-            console.error(err);
-            toast.error('Failed to delete category');
-          }
-        },
-      },
-      cancel: { label: 'Cancel', onClick: () => {} },
-    });
+  const handleDeleteCategory = async () => {
+    if (!categoryToDelete) return;
+    try {
+      await deleteCategory(categoryToDelete.id);
+      toast.success('Category deleted');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete category');
+    }
   };
 
   return (
@@ -106,7 +100,7 @@ export function CategoriesView() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                      onClick={() => confirmDelete(cat)}
+                      onClick={() => setCategoryToDelete(cat)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -139,7 +133,7 @@ export function CategoriesView() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 text-destructive hover:bg-destructive/10"
-                            onClick={() => confirmDelete(sub)}
+                            onClick={() => setCategoryToDelete(sub)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -180,6 +174,15 @@ export function CategoriesView() {
             toast.error('Failed to save category');
           }
         }}
+      />
+
+      <ConfirmDialog
+        open={categoryToDelete !== null}
+        onOpenChange={(open) => !open && setCategoryToDelete(null)}
+        title="Delete Category"
+        description={`Are you sure you want to delete "${categoryToDelete?.name}"? Any transactions using this category will become Uncategorized, and any budgets targeting it will be removed.`}
+        confirmText="Delete Category"
+        onConfirm={handleDeleteCategory}
       />
     </div>
   );
@@ -244,7 +247,6 @@ function CategoryForm({
   const [color, setColor] = useState(initial?.color ?? CATEGORY_COLORS[0]);
   const [parentId, setParentId] = useState<string>(initial?.parentId ?? '');
 
-  // Only allow selecting a parent if we are creating a new category (no nesting deeper than 1 level)
   const availableParents = categories.filter((c) => c.type === type && !c.parentId && c.id !== initial?.id);
 
   const handleSubmit = () => {

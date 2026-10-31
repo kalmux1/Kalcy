@@ -10,6 +10,7 @@ import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CategoryIcon, INVESTMENT_TYPES } from '@/components/icon-map';
 import { useStore } from '@/lib/store';
 import type { Investment, InvestmentType, InvestmentStatus } from '@/lib/types';
@@ -33,6 +34,7 @@ export function InvestmentsView() {
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Investment | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [investmentToDelete, setInvestmentToDelete] = useState<Investment | null>(null);
 
   const summary = useMemo(() => getInvestmentsSummary(investments), [investments]);
 
@@ -43,24 +45,16 @@ export function InvestmentsView() {
   
   const isPositive = summary.unrealizedPnl >= 0;
 
-  const confirmDelete = (inv: Investment) => {
-    toast(`Delete ${inv.name}? Related transactions will be removed.`, {
-      duration: 8000,
-      action: {
-        label: 'Delete',
-        onClick: async () => {
-          try {
-            await deleteInvestment(inv.id);
-            if (detailId === inv.id) setDetailId(null);
-            toast.success('Investment deleted');
-          } catch (err) {
-            console.error(err);
-            toast.error('Failed to delete investment');
-          }
-        },
-      },
-      cancel: { label: 'Cancel', onClick: () => {} },
-    });
+  const handleDeleteInvestment = async () => {
+    if (!investmentToDelete) return;
+    try {
+      await deleteInvestment(investmentToDelete.id);
+      if (detailId === investmentToDelete.id) setDetailId(null);
+      toast.success('Investment deleted');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete investment');
+    }
   };
 
   return (
@@ -152,7 +146,7 @@ export function InvestmentsView() {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">IPO Applied ({applied.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {applied.map((inv, i) => (
-                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => confirmDelete(inv)} delay={i * 0.04} />
+                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={i * 0.04} />
                 ))}
               </div>
             </div>
@@ -163,7 +157,7 @@ export function InvestmentsView() {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">Active ({active.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {active.map((inv, i) => (
-                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => confirmDelete(inv)} delay={i * 0.04} />
+                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={i * 0.04} />
                 ))}
               </div>
             </div>
@@ -174,7 +168,7 @@ export function InvestmentsView() {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">Sold ({sold.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {sold.map((inv) => (
-                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => confirmDelete(inv)} delay={0} />
+                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={0} />
                 ))}
               </div>
             </div>
@@ -185,7 +179,7 @@ export function InvestmentsView() {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">Not Allotted ({notAllotted.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {notAllotted.map((inv) => (
-                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => confirmDelete(inv)} delay={0} />
+                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={0} />
                 ))}
               </div>
             </div>
@@ -237,6 +231,15 @@ export function InvestmentsView() {
             toast.error(err instanceof Error ? err.message : 'Failed to sell investment');
           }
         }}
+      />
+
+      <ConfirmDialog
+        open={investmentToDelete !== null}
+        onOpenChange={(open) => !open && setInvestmentToDelete(null)}
+        title="Delete Investment"
+        description={`Are you sure you want to delete ${investmentToDelete?.name}? All associated buy and sell transactions will be permanently removed.`}
+        confirmText="Delete Investment"
+        onConfirm={handleDeleteInvestment}
       />
     </div>
   );
@@ -400,7 +403,6 @@ function InvestmentForm({
   const [listingPrice, setListingPrice] = useState(initial?.listingPrice ? String(initial.listingPrice) : '');
   const [listingDate, setListingDate] = useState(initial?.listingDate ? toDateInputValue(initial.listingDate) : '');
   
-  // Dedicated states for Sale to avoid interference with Current Price
   const [sellPriceInput, setSellPriceInput] = useState(
     initial?.soldPrice ? String(initial.soldPrice) : (initial ? String(initial.currentPrice ?? initial.buyPrice) : '')
   );
@@ -437,7 +439,6 @@ function InvestmentForm({
     const [y, m, d] = date.split('-').map(Number);
     const ts = new Date(y, m - 1, d).getTime();
 
-    // Only calculate Current Price if Allotted
     let cp = 0;
     if (isAllotted) {
       const cpRaw = currentPrice.trim() ? parseFloat(currentPrice) : NaN;
@@ -457,7 +458,6 @@ function InvestmentForm({
       ld = new Date(ly, lm - 1, ldd).getTime();
     }
 
-    // Handle Sale Price and Date
     let sp: number | null = null;
     let sd: number | null = null;
     if (isSold) {

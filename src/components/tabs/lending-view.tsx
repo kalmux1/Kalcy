@@ -19,8 +19,9 @@ import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useStore } from '@/lib/store';
-import type { Loan, LoanType } from '@/lib/types';
+import type { Loan, LoanType, LoanPayment } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/currencies';
 import { getLoansSummary, formatDateKey, toDateInputValue } from '@/lib/finance';
@@ -51,31 +52,34 @@ export function LendingView() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [autoAddPayment, setAutoAddPayment] = useState(false);
 
+  const [loanToDelete, setLoanToDelete] = useState<Loan | null>(null);
+  const [paymentToDelete, setPaymentToDelete] = useState<LoanPayment | null>(null);
+
   const summary = useMemo(() => getLoansSummary(loans), [loans]);
   const activeLoans = loans.filter((l) => !l.isSettled && l.remainingAmount > 0);
   const settledLoans = loans.filter((l) => l.isSettled || l.remainingAmount <= 0);
 
-  const confirmDelete = (loan: Loan) => {
-    toast(
-      `Delete this loan with ${loan.personName}? All payments will be removed.`,
-      {
-        duration: 8000,
-        action: {
-          label: 'Delete',
-          onClick: async () => {
-            try {
-              await deleteLoan(loan.id);
-              if (detailId === loan.id) setDetailId(null);
-              toast.success('Loan deleted');
-            } catch (err) {
-              console.error(err);
-              toast.error('Failed to delete loan');
-            }
-          },
-        },
-        cancel: { label: 'Cancel', onClick: () => {} },
-      }
-    );
+  const handleDeleteLoan = async () => {
+    if (!loanToDelete) return;
+    try {
+      await deleteLoan(loanToDelete.id);
+      if (detailId === loanToDelete.id) setDetailId(null);
+      toast.success('Loan deleted');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete loan');
+    }
+  };
+
+  const handleDeletePayment = async () => {
+    if (!paymentToDelete) return;
+    try {
+      await deleteLoanPayment(paymentToDelete.id);
+      toast.success('Payment removed');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to remove payment');
+    }
   };
 
   const handleCardClick = (loan: Loan) => {
@@ -159,7 +163,7 @@ export function LendingView() {
                     currencySymbol={preferences.currencySymbol}
                     onClick={() => handleCardClick(loan)}
                     onEdit={() => setEditing(loan)}
-                    onDelete={() => confirmDelete(loan)}
+                    onDelete={() => setLoanToDelete(loan)}
                     onRecordPayment={() => handleRecordPayment(loan)}
                     delay={i * 0.04}
                   />
@@ -181,7 +185,7 @@ export function LendingView() {
                     currencySymbol={preferences.currencySymbol}
                     onClick={() => handleCardClick(loan)}
                     onEdit={() => setEditing(loan)}
-                    onDelete={() => confirmDelete(loan)}
+                    onDelete={() => setLoanToDelete(loan)}
                     onRecordPayment={() => handleRecordPayment(loan)}
                     delay={0}
                   />
@@ -239,15 +243,25 @@ export function LendingView() {
             toast.error('Failed to record payment');
           }
         }}
-        onDeletePayment={async (id) => {
-          try {
-            await deleteLoanPayment(id);
-            toast.success('Payment removed');
-          } catch (err) {
-            console.error(err);
-            toast.error('Failed to remove payment');
-          }
-        }}
+        onDeletePayment={(payment) => setPaymentToDelete(payment)}
+      />
+
+      <ConfirmDialog
+        open={loanToDelete !== null}
+        onOpenChange={(open) => !open && setLoanToDelete(null)}
+        title="Delete Loan"
+        description={`Are you sure you want to delete the loan with ${loanToDelete?.personName}? All associated payments and transactions will be permanently removed.`}
+        confirmText="Delete Loan"
+        onConfirm={handleDeleteLoan}
+      />
+
+      <ConfirmDialog
+        open={paymentToDelete !== null}
+        onOpenChange={(open) => !open && setPaymentToDelete(null)}
+        title="Remove Payment"
+        description="Are you sure you want to remove this payment? The loan balance will be adjusted back and the transaction will be deleted."
+        confirmText="Remove Payment"
+        onConfirm={handleDeletePayment}
       />
     </div>
   );
@@ -414,7 +428,7 @@ function LoanSheet({
   const formKey = open ? loan?.id ?? 'new' : 'closed';
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
+    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
         <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6">
           <h2 className="text-xl font-bold">
@@ -641,7 +655,7 @@ function LoanDetailSheet({
     date: number;
     note: string;
   }) => void | Promise<void>;
-  onDeletePayment: (id: string) => void | Promise<void>;
+  onDeletePayment: (payment: LoanPayment) => void;
 }) {
   const accounts = useStore((s) => s.accounts);
   const preferences = useStore((s) => s.preferences);
@@ -720,7 +734,7 @@ function LoanDetailSheet({
         if (!o) resetPaymentForm();
         onOpenChange(o);
       }}
-      repositionInputs
+      repositionInputs={false}
     >
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
         {liveLoan && (
@@ -1011,16 +1025,7 @@ function LoanDetailSheet({
                           </span>
                           <button
                             type="button"
-                            onClick={() => {
-                              toast('Remove this payment?', {
-                                duration: 6000,
-                                action: {
-                                  label: 'Remove',
-                                  onClick: () => onDeletePayment(p.id),
-                                },
-                                cancel: { label: 'Cancel', onClick: () => {} },
-                              });
-                            }}
+                            onClick={() => onDeletePayment(p)}
                             className="p-1 rounded-lg hover:bg-destructive/10 transition-colors"
                             aria-label="Delete payment"
                           >

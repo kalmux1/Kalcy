@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   CategoryIcon,
   AVAILABLE_ICONS,
@@ -68,6 +69,8 @@ export function AccountsTab() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
+  
+  const [accountToDelete, setAccountToDelete] = useState<Account | null>(null);
 
   const cashBalance = getTotalBalance(accounts);
   const loansNet = getLoansNetWorth(loans);
@@ -79,23 +82,15 @@ export function AccountsTab() {
   );
   const activeInvestments = investments.filter((i) => i.status === 'active');
 
-  const confirmDelete = (acc: Account) => {
-    toast('Delete this account and all its transactions?', {
-      duration: 8000,
-      action: {
-        label: 'Delete',
-        onClick: async () => {
-          try {
-            await deleteAccount(acc.id);
-            toast.success('Account deleted');
-          } catch (err) {
-            console.error(err);
-            toast.error('Failed to delete account');
-          }
-        },
-      },
-      cancel: { label: 'Cancel', onClick: () => {} },
-    });
+  const handleDeleteAccount = async () => {
+    if (!accountToDelete) return;
+    try {
+      await deleteAccount(accountToDelete.id);
+      toast.success('Account deleted');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete account');
+    }
   };
 
   const subtitle = (() => {
@@ -289,7 +284,7 @@ export function AccountsTab() {
                         variant="ghost"
                         size="sm"
                         className="rounded-lg h-8 px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => confirmDelete(acc)}
+                        onClick={() => setAccountToDelete(acc)}
                       >
                         <Trash2 className="h-4 w-4 mr-1" /> Delete
                       </Button>
@@ -347,6 +342,15 @@ export function AccountsTab() {
       />
 
       <TransferDialog open={transferOpen} onOpenChange={setTransferOpen} />
+
+      <ConfirmDialog
+        open={accountToDelete !== null}
+        onOpenChange={(open) => !open && setAccountToDelete(null)}
+        title="Delete Account"
+        description={`Are you sure you want to delete "${accountToDelete?.name}"? All transactions, loans, and investments linked to this account will be permanently removed.`}
+        confirmText="Delete Account"
+        onConfirm={handleDeleteAccount}
+      />
     </div>
   );
 }
@@ -369,7 +373,7 @@ function AccountSheet({
   const formKey = open ? account?.id ?? 'new' : 'closed';
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
+    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
         <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6">
           <h2 className="text-xl font-bold">
@@ -447,10 +451,6 @@ function AccountForm({
       return;
     }
 
-    // NOTE: we intentionally do NOT send `balance`. The store derives it:
-    //   - on create: balance = initialBalance
-    //   - on update: balance += (newInitial − oldInitial) via increment(),
-    //     so any concurrent transaction writes survive.
     onSubmit({
       name: name.trim(),
       type,
@@ -747,4 +747,4 @@ function TransferDialog({
       </DialogContent>
     </Dialog>
   );
-}   
+}
