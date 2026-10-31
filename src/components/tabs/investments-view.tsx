@@ -457,10 +457,12 @@ function InvestmentSheet({
   const preferences = useStore((s) => s.preferences);
   const formKey = open ? investment?.id ?? 'new' : 'closed';
 
-  // NOTE: repositionInputs is removed to prevent Android keyboards from
-  // pushing the entire drawer off the top of the screen.
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      repositionInputs={false}
+    >
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
         {/* Sticky header with Save button */}
         <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 flex items-center justify-between border-b border-border/40">
@@ -816,13 +818,13 @@ function InvestmentDetailSheet({
   };
 
   return (
-    // Reposition inputs removed here as well
     <Drawer
       open={open}
       onOpenChange={(o) => {
         if (!o) reset();
         onOpenChange(o);
       }}
+      repositionInputs={false}
     >
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
         {liveInvestment && (
