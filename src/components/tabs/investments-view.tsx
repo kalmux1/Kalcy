@@ -334,6 +334,8 @@ type InvestmentFormData = {
   listingPrice: number | null;
   listingDate: number | null;
   appliedAmount: number | null;
+  soldPrice?: number | null;
+  soldDate?: number | null;
 };
 
 function InvestmentSheet({
@@ -397,6 +399,14 @@ function InvestmentForm({
   
   const [listingPrice, setListingPrice] = useState(initial?.listingPrice ? String(initial.listingPrice) : '');
   const [listingDate, setListingDate] = useState(initial?.listingDate ? toDateInputValue(initial.listingDate) : '');
+  
+  // Dedicated states for Sale to avoid interference with Current Price
+  const [sellPriceInput, setSellPriceInput] = useState(
+    initial?.soldPrice ? String(initial.soldPrice) : (initial ? String(initial.currentPrice ?? initial.buyPrice) : '')
+  );
+  const [sellDateInput, setSellDateInput] = useState(
+    initial?.soldDate ? toDateInputValue(initial.soldDate) : toDateInputValue(Date.now())
+  );
 
   const [accountId, setAccountId] = useState(initial?.accountId ?? accounts[0]?.id ?? '');
   const [date, setDate] = useState(initial ? toDateInputValue(initial.date) : toDateInputValue(Date.now()));
@@ -418,7 +428,7 @@ function InvestmentForm({
     const bp = (isApplied || isNotAllotted) ? 0 : (parseFloat(buyPrice) || 0);
 
     if (isApplied && blockedAmt <= 0) { toast.error('Enter a valid amount applied'); return; }
-    if (isAllotted) {
+    if (isAllotted || isSold) {
       if (u <= 0) { toast.error('Enter valid units allotted'); return; }
       if (bp <= 0) { toast.error('Enter a valid buy price'); return; }
     }
@@ -427,8 +437,9 @@ function InvestmentForm({
     const [y, m, d] = date.split('-').map(Number);
     const ts = new Date(y, m - 1, d).getTime();
 
+    // Only calculate Current Price if Allotted
     let cp = 0;
-    if (isAllotted || isSold) {
+    if (isAllotted) {
       const cpRaw = currentPrice.trim() ? parseFloat(currentPrice) : NaN;
       if (!Number.isNaN(cpRaw) && cpRaw < 0) { toast.error('Current price cannot be negative'); return; }
       cp = !Number.isNaN(cpRaw) && cpRaw > 0 ? cpRaw : bp;
@@ -446,6 +457,16 @@ function InvestmentForm({
       ld = new Date(ly, lm - 1, ldd).getTime();
     }
 
+    // Handle Sale Price and Date
+    let sp: number | null = null;
+    let sd: number | null = null;
+    if (isSold) {
+      sp = parseFloat(sellPriceInput) || 0;
+      if (sp <= 0) { toast.error('Enter a valid sale price'); return; }
+      const [sy, sm, sdd] = sellDateInput.split('-').map(Number);
+      sd = new Date(sy, sm - 1, sdd).getTime();
+    }
+
     onSubmit({
       name: name.trim(),
       symbol: symbol.trim().toUpperCase(),
@@ -460,6 +481,8 @@ function InvestmentForm({
       listingPrice: lp,
       listingDate: ld,
       appliedAmount: blockedAmt,
+      soldPrice: sp,
+      soldDate: sd,
     });
   };
 
@@ -584,6 +607,22 @@ function InvestmentForm({
           <div>
             <Label className="text-xs text-muted-foreground">Listing / Sell Date</Label>
             <Input type="date" value={listingDate} onChange={(e) => setListingDate(e.target.value)} className="mt-1 rounded-xl" />
+          </div>
+        </div>
+      )}
+
+      {isSold && (
+        <div className="grid grid-cols-2 gap-3 max-w-sm border-t border-border/40 pt-4 mt-2">
+          <div>
+            <Label className="text-xs text-muted-foreground">Sale Price (per unit)</Label>
+            <div className="relative mt-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
+              <Input type="number" inputMode="decimal" value={sellPriceInput} onChange={(e) => setSellPriceInput(e.target.value)} placeholder="0.00" className="rounded-xl pl-7" />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Sale Date</Label>
+            <Input type="date" value={sellDateInput} onChange={(e) => setSellDateInput(e.target.value)} className="mt-1 rounded-xl" />
           </div>
         </div>
       )}

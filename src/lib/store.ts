@@ -92,6 +92,8 @@ interface StoreState {
     listingPrice?: number | null;
     listingDate?: number | null;
     appliedAmount?: number | null;
+    soldPrice?: number | null;
+    soldDate?: number | null;
   }) => Promise<void>;
   updateInvestment: (id: string, updates: Partial<Investment>) => Promise<void>;
   updateInvestmentPrice: (id: string, price: number) => Promise<void>;
@@ -1039,6 +1041,9 @@ export const useStore = create<StoreState>((set, get) => ({
       patch.currentValue = newUnits * newCurrentPrice;
     } else if (isBecomingSold) {
       const finalSoldPrice = updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
+      patch.soldPrice = finalSoldPrice;
+      patch.soldDate = updates.soldDate ?? Date.now();
+      patch.status = 'sold';
       patch.currentValue = newUnits * finalSoldPrice;
       patch.currentPrice = finalSoldPrice;
     }
@@ -1109,11 +1114,19 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     // 4. Handle Active -> Sold
     else if (isBecomingSold) {
-      const soldPrice = updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
-      const proceeds = soldPrice * newUnits;
+      const finalSoldPrice = updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
+      const finalSoldDate = updates.soldDate ?? Date.now();
+
+      patch.soldPrice = finalSoldPrice;
+      patch.soldDate = finalSoldDate;
+      patch.status = 'sold';
+      patch.currentPrice = finalSoldPrice;
+      patch.currentValue = newUnits * finalSoldPrice;
+
+      const proceeds = finalSoldPrice * newUnits;
       const txId = genId('t');
       const tx: Transaction = {
-        id: txId, type: 'income', amount: proceeds, accountId: newAccountId, toAccountId: null, categoryId: null, date: updates.soldDate ?? Date.now(),
+        id: txId, type: 'income', amount: proceeds, accountId: newAccountId, toAccountId: null, categoryId: null, date: finalSoldDate,
         note: `Sold: ${inv.name}${inv.symbol ? ` (${inv.symbol})` : ''}`,
         receiptUrl: null, isExcludedFromStats: true, isExcludedFromBudget: true, createdAt: Date.now(), linkedLoanId: null, linkedPaymentId: null,
       };
