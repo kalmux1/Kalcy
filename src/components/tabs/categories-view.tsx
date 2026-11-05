@@ -7,6 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { CategoryIcon, AVAILABLE_ICONS, CATEGORY_COLORS } from '@/components/icon-map';
 import { useStore } from '@/lib/store';
 import type { Category, TransactionType } from '@/lib/types';
@@ -314,16 +321,17 @@ function CategoryForm({
       {!initial && availableParents.length > 0 && (
         <div>
           <Label className="text-xs text-muted-foreground">Parent Category (Optional)</Label>
-          <select
-            value={parentId}
-            onChange={(e) => setParentId(e.target.value)}
-            className="w-full mt-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm"
-          >
-            <option value="">None (Top-level)</option>
-            {availableParents.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <Select value={parentId || 'none'} onValueChange={(val) => setParentId(val === 'none' ? '' : val)}>
+            <SelectTrigger className="mt-1 rounded-xl h-11">
+              <SelectValue placeholder="None (Top-level)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None (Top-level)</SelectItem>
+              {availableParents.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
 

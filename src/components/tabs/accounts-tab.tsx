@@ -20,6 +20,13 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   CategoryIcon,
   AVAILABLE_ICONS,
   CATEGORY_COLORS,
@@ -679,35 +686,33 @@ function TransferDialog({
         <div className="flex flex-col gap-4 py-2">
           <div>
             <Label className="text-xs text-muted-foreground">From</Label>
-            <select
-              value={fromId}
-              onChange={(e) => setFromId(e.target.value)}
-              className="w-full mt-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm"
-            >
-              <option value="">Select account</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} (
-                  {formatCurrency(a.balance, preferences.currencySymbol)})
-                </option>
-              ))}
-            </select>
+            <Select value={fromId} onValueChange={setFromId}>
+              <SelectTrigger className="w-full mt-1 rounded-xl h-11">
+                <SelectValue placeholder="Select account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.name} ({formatCurrency(a.balance, preferences.currencySymbol)})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label className="text-xs text-muted-foreground">To</Label>
-            <select
-              value={toId}
-              onChange={(e) => setToId(e.target.value)}
-              className="w-full mt-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm"
-            >
-              <option value="">Select account</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} (
-                  {formatCurrency(a.balance, preferences.currencySymbol)})
-                </option>
-              ))}
-            </select>
+            <Select value={toId} onValueChange={setToId}>
+              <SelectTrigger className="w-full mt-1 rounded-xl h-11">
+                <SelectValue placeholder="Select account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.name} ({formatCurrency(a.balance, preferences.currencySymbol)})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label className="text-xs text-muted-foreground">Amount</Label>

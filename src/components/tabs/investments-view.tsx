@@ -11,6 +11,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { CategoryIcon, INVESTMENT_TYPES } from '@/components/icon-map';
 import { useStore } from '@/lib/store';
 import type { Investment, InvestmentType, InvestmentStatus } from '@/lib/types';
@@ -630,10 +637,15 @@ function InvestmentForm({
       <div className="grid grid-cols-2 gap-3 max-w-sm">
         <div>
           <Label className="text-xs text-muted-foreground">{initial ? 'Source account' : 'Funded from'}</Label>
-          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full mt-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm">
-            {accounts.length === 0 && <option value="">No accounts</option>}
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
+          <Select value={accountId} onValueChange={setAccountId}>
+            <SelectTrigger className="mt-1 rounded-xl h-11">
+              <SelectValue placeholder="Select account" />
+            </SelectTrigger>
+            <SelectContent>
+              {accounts.length === 0 && <SelectItem value="none" disabled>No accounts</SelectItem>}
+              {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">{isApplied ? 'Apply Date' : 'Purchase date'}</Label>

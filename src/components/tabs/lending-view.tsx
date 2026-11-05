@@ -20,6 +20,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useStore } from '@/lib/store';
 import type { Loan, LoanType, LoanPayment } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -570,18 +577,19 @@ function LoanForm({
         <Label className="text-xs text-muted-foreground">
           {type === 'lent' ? 'From account' : 'To account'}
         </Label>
-        <select
-          value={accountId}
-          onChange={(e) => setAccountId(e.target.value)}
-          className="w-full mt-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm"
-        >
-          {accounts.length === 0 && <option value="">No accounts</option>}
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+        <Select value={accountId} onValueChange={setAccountId}>
+          <SelectTrigger className="mt-1 rounded-xl h-11 bg-background">
+            <SelectValue placeholder="Select account" />
+          </SelectTrigger>
+          <SelectContent>
+            {accounts.length === 0 && <SelectItem value="none" disabled>No accounts</SelectItem>}
+            {accounts.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid grid-cols-2 gap-3 max-w-sm">
@@ -913,17 +921,18 @@ function LoanDetailSheet({
                     <Label className="text-xs text-muted-foreground">
                       {isLent ? 'Into account' : 'From account'}
                     </Label>
-                    <select
-                      value={payAccountId}
-                      onChange={(e) => setPayAccountId(e.target.value)}
-                      className="w-full mt-1 rounded-xl border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      {accounts.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
+                    <Select value={payAccountId} onValueChange={setPayAccountId}>
+                      <SelectTrigger className="mt-1 rounded-xl h-11 bg-background">
+                        <SelectValue placeholder="Select account" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {accounts.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div>

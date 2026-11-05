@@ -16,6 +16,13 @@ import { exportToCSV, downloadCSV } from '@/lib/finance';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { Transaction } from '@/lib/types';
 import {
   Download,
@@ -309,19 +316,21 @@ export default function App() {
                   <Label className="text-xs text-muted-foreground">
                     Currency
                   </Label>
-                  <select
+                  <Select
                     value={preferences.currency}
-                    onChange={(e) =>
-                      updatePreferences({ currency: e.target.value })
-                    }
-                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                    onValueChange={(val) => updatePreferences({ currency: val })}
                   >
-                    {CURRENCIES.map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.name} ({c.symbol})
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="w-full rounded-xl h-11">
+                      <SelectValue placeholder="Select currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCIES.map((c) => (
+                        <SelectItem key={c.code} value={c.code}>
+                          {c.name} ({c.symbol})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-1.5 pt-2">
