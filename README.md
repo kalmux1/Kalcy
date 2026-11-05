@@ -31,12 +31,12 @@
 
 ## Overview
 
-**Kalcy** is a mobile-first, Progressive Web App (PWA) for personal finance. It is intentionally **invite-only** — an `allowlist` collection in Firestore gates access after email/password authentication.
+**Kalcy** is a mobile-first, Progressive Web App (PWA) for personal finance. It is intentionally **invite-only in the sense that there is no sign-up UI** — user accounts are provisioned manually in Firebase Console → Authentication. Once signed in, all data is scoped to `users/{uid}/…` in Firestore and enforced by security rules (`isOwner(uid)`), so one user can never read or write another user's data.
 
 It is built as a single-page React app that:
 
 - Syncs all data to **Cloud Firestore** with **offline persistence enabled by default**
-- Seeds sensible defaults (accounts, categories, budget templates) on first sign-in
+- Seeds sensible defaults (accounts, categories, preferences) on first sign-in
 - Handles **accounts, transactions, transfers, budgets, loans, and repayments** with correct double-entry-style balance updates
 - Tracks an **investment portfolio** (shares, IPOs, mutual funds, ETFs, crypto, bonds, FDs, real estate, gold) with live P&L and net-worth integration
 - Works **fully offline** once installed, and auto-updates in the background
@@ -54,13 +54,13 @@ The project deliberately avoids a backend server: Firestore + Firebase Auth are 
 | UI | **React 18** + **TypeScript 5** | Strict mode, `noUnusedLocals`, `noUnusedParameters` |
 | Styling | **Tailwind CSS 3** + **shadcn/ui** (Radix) | CSS-variable theming, light/dark |
 | Animation | **Framer Motion 11** | Layout pills, sheet transitions, swipe gestures |
-| State | **Zustand 4** | Single store, no boilerplate |
+| State | **Zustand 4** (+ `useShallow`) | Single store, no boilerplate |
 | Backend | **Firebase 10** (Auth + Firestore) | `persistentLocalCache`, `persistentMultipleTabManager` |
 | Charts | **Recharts 2** | Pie, Bar, Line |
 | Bottom sheets | **Vaul** | iOS-style drawers, `repositionInputs` for keyboard |
 | Toasts | **Sonner** | Themed via `ThemeProvider` |
 | Icons | **Lucide React** | Mapped by string name in `icon-map.tsx` |
-| PWA | **vite-plugin-pwa** + **Workbox 7** | `autoUpdate`, runtime caching, precache |
+| PWA | **vite-plugin-pwa** + **Workbox 7** | `autoUpdate`, runtime font caching, precache |
 | Assets | **@vite-pwa/assets-generator** | Generates maskable/apple icons from `kalcy-logo.svg` |
 | Tests | **Playwright** + **pytest** | End-to-end against the live deployment |
 
@@ -69,61 +69,86 @@ The project deliberately avoids a backend server: Firestore + Firebase Auth are 
 ## Features
 
 ### 🔐 Authentication & Access Control
+
 - Email/password sign-in via Firebase Auth
-- **Allowlist enforcement** — only `allowlist/{email}` with `enabled: true` may use the app
-- Profile drawer for display name + password change (requires re-authentication)
+- **No public sign-up.** Users are created manually in **Firebase Console → Authentication → Users**; anyone without a Firebase Auth account cannot sign in.
+- **Firestore security rules** enforce strict per-user isolation via `request.auth.uid == uid`; the catch-all `match /{document=**}` denies everything else.
+- Profile drawer for display name + password change (requires re-authentication).
+- If Firestore ever returns `permission-denied` (e.g. a stale token, a misconfigured rule, or a deleted Auth user), the store's listener error handler **signs the user out immediately** and surfaces a toast.
 
 ### 💸 Transactions
+
 - Three types: **expense**, **income**, **transfer**
-- Built-in **calculator numpad** (supports `+ − × ÷`, AC, backspace)
+- Built-in **calculator numpad** (supports `+ − × ÷`, AC, backspace; left-to-right evaluation matching iOS Calculator)
 - Hierarchical categories (parent → sub-categories)
 - Date + time picker with quick presets (Today / Yesterday / 2 days ago)
 - Notes, "exclude from stats", "exclude from budget" switches
 - Swipe left to delete, swipe right to edit
 - Four view modes: **Daily**, **Calendar**, **Monthly**, **Summary**
+- Transactions linked to a loan or investment are **delete-guarded** in the list — deleting one would leave the parent record inconsistent, so the UI redirects you to the Loans / Investments tab instead
 
 ### 🏦 Accounts
+
 - Types: cash, bank, card, savings, wallet
 - Editable icon (Lucide) + color
 - Toggle "include in net worth total"
 - **Transfers** between accounts
-- Automatic balance reconciliation from transaction deltas
+- Editing an account's *initial* balance shifts its live balance by the same delta (preserving all transactional drift)
+- Deleting an account **cascades** — removes every linked transaction, loan, loan payment, and investment, and reverses each transaction's effect on the surviving accounts
 
 ### 🎯 Budgets
+
 - Monthly budgets — **overall** or **per category**
 - Sub-category roll-up (parent budget includes children)
 - Warning (≥80%) and over-budget states
 - Carry-over flag (data model ready)
+- Duplicate-budget guard (one overall + one per category per month)
+- Delete uses the shared `ConfirmDialog` — consistent with every other destructive action
 
 ### 🤝 Lending
+
 - Track money **lent** (asset) or **borrowed** (liability)
 - Each loan generates a mirrored account transaction automatically
 - Partial repayments with payment history
 - Auto-settle when `remainingAmount ≤ 0`
+- Editing a loan reconciles **amount, type, account, and date** in one atomic delta — switching `lent ↔ borrowed` correctly flips the transaction type and reverses the balance effect
 - Net worth = accounts balance + net loan position
 
 ### 📈 Investments
+
 - Track **shares, IPOs, mutual funds, ETFs, crypto, bonds, fixed deposits, real estate, gold** and custom types
 - Per-unit **buy price** and **current market price** (user-updated)
 - Automatic **unrealized P&L** (on active positions) and **realized P&L** (on sold positions)
-- Every buy/sell creates a mirrored, stats/budget-excluded account transaction
+- Every buy/sell/refund creates a mirrored, stats/budget-excluded account transaction
 - Portfolio **allocation breakdown** by asset type
 - **Net worth contribution** = market value of all active positions
-- Sale flow: marks the position `sold`, records proceeds, credits the funding account
-- Example: buy 10 shares of `RELIANCE` @ ₹2,500 → cash drops ₹25,000, net worth unchanged. Price rises to ₹2,800 → net worth **+₹3,000**. Sell at ₹2,800 → cash rises, realized P&L **+₹3,000**.
+- **Full IPO lifecycle** — `Applied → (Allotted | Not Allotted)`, and `Allotted → Sold`, each with **correct, reversible cash movements**:
+
+  | Transition | Cash effect | Transactions created |
+  |---|---|---|
+  | New (applied) | `−appliedAmount` | 1 expense (block) |
+  | Applied → Allotted | `+appliedAmount − (units × buyPrice)` | 1 income (release block) + 1 expense (buy) |
+  | Applied → Not Allotted | `+appliedAmount` | 1 income (refund) |
+  | Active → Sold | `+(soldPrice × units)` | 1 income (proceeds) |
+
+- Deleting an investment **reverses every transaction it ever produced** — buy, apply, refund, and sell — because each is tracked by a dedicated field (`linkedTransactionId`, `linkedApplyTransactionId`, `linkedRefundTransactionId`, `linkedSellTransactionId`). This was a bug in v1 (orphaned refund transactions corrupted the account balance) and is now covered by integration tests.
+- Selling requires a **positive sale price**; the store rejects a `$0` sale before writing.
 
 ### 📊 Statistics
+
 - Monthly donut chart of category breakdown (expense / income toggle)
 - 6-month income vs expense bar chart
 - Cash-flow line chart
 - Category progress bars with % of total
 
 ### ⚙️ Preferences
+
 - 20 fiat currencies with symbol lookup
 - Light / Dark / System theme
 - Week start day (Mon / Sun)
 
 ### ☁️ Data
+
 - **CSV export** of all transactions (formula-injection safe)
 - **Delete All Data** (clears everything except the preferences marker so re-seeding doesn't trigger)
 
@@ -141,8 +166,8 @@ graph TD
     end
 
     subgraph Firebase["Firebase Backend"]
-        Auth["Firebase Auth"]
-        FS["Cloud Firestore<br/>+ IndexedDB cache"]
+        Auth["Firebase Auth<br/>(manually provisioned users)"]
+        FS["Cloud Firestore<br/>+ IndexedDB cache<br/>+ security rules"]
     end
 
     UI -->|dispatch actions| Store
@@ -150,9 +175,9 @@ graph TD
     Store -->|writeBatch / setDoc| FS
     UI -->|signIn / signOut| Auth
     Auth -->|onAuthStateChanged| UI
+    Auth -.->|request.auth.uid| FS
     UI -.->|class toggling| Theme
     SW -.->|precache + runtime cache| UI
-    SW <-.->|NetworkFirst| FS
 ```
 
 **Key idea:** the UI never talks to Firestore directly. It dispatches intent to `useStore`, which:
@@ -171,11 +196,6 @@ All user data is scoped under `users/{uid}/…`. Types live in `src/lib/types.ts
 
 ```mermaid
 erDiagram
-    ALLOWLIST {
-        string email PK
-        bool   enabled
-    }
-
     USER ||--o{ ACCOUNT : owns
     USER ||--o{ CATEGORY : owns
     USER ||--o{ TRANSACTION : owns
@@ -267,9 +287,14 @@ erDiagram
         number date
         number soldDate "nullable"
         number soldPrice "nullable"
-        enum   status "active|sold"
-        string linkedTransactionId "nullable"
-        string linkedSellTransactionId "nullable"
+        enum   status "applied|active|sold|not_allotted"
+        number appliedAmount "blocked amount for IPO, 0 otherwise"
+        number listingPrice  "nullable"
+        number listingDate   "nullable"
+        string linkedTransactionId    "nullable, buy tx"
+        string linkedApplyTransactionId "nullable, IPO block tx"
+        string linkedRefundTransactionId "nullable, IPO release tx"
+        string linkedSellTransactionId  "nullable, sell tx"
     }
 
     PREFERENCES {
@@ -284,7 +309,6 @@ erDiagram
 ### Firestore paths
 
 ```
-allowlist/{email}                          ← top-level gate
 users/{uid}/accounts/{accountId}
 users/{uid}/categories/{categoryId}
 users/{uid}/transactions/{transactionId}
@@ -309,6 +333,19 @@ These deltas are always applied with `increment(delta)` inside a `writeBatch`, g
 
 Loan and investment transactions are **generated by the store** — they use the same `txEffects` path, so all balance arithmetic stays in one place.
 
+### Investment transaction tracking
+
+Every investment keeps an explicit pointer to each transaction it produced, so that deletion and status transitions can reverse exactly the right cash movements:
+
+| Field | Set when | Reversed on |
+|---|---|---|
+| `linkedTransactionId` | New active investment, or `applied → active` | `deleteInvestment` |
+| `linkedApplyTransactionId` | New IPO in `applied` status | `deleteInvestment` |
+| `linkedRefundTransactionId` | `applied → active` or `applied → not_allotted` | `deleteInvestment` |
+| `linkedSellTransactionId` | `active → sold` | `deleteInvestment` |
+
+This is what makes `deleteInvestment` idempotent and *net-worth neutral* — every cash movement is precisely undone.
+
 ---
 
 ## Directory Structure
@@ -317,7 +354,7 @@ Loan and investment transactions are **generated by the store** — they use the
 .
 ├── dev-dist/                       # Dev-mode service worker (generated)
 │   ├── sw.js
-│   └── workbox-d488705a.js
+│   └── workbox-*.js
 ├── public/
 │   ├── kalcy-logo.svg              # Source asset for PWA generation
 │   ├── favicon.ico
@@ -331,22 +368,26 @@ Loan and investment transactions are **generated by the store** — they use the
 │   │   ├── tabs/
 │   │   │   ├── accounts-tab.tsx        # Accounts + Transfers + Lending + Investments segments
 │   │   │   ├── budgets-view.tsx        # Monthly budgets CRUD
+│   │   │   ├── categories-view.tsx     # Category tree CRUD
 │   │   │   ├── lending-view.tsx        # Loans & repayments
 │   │   │   ├── investments-view.tsx    # Investment portfolio (shares, IPO, crypto, …)
 │   │   │   ├── stats-tab.tsx           # Recharts dashboards
 │   │   │   └── transactions-tab.tsx    # Daily/Calendar/Monthly/Summary
 │   │   ├── ui/                         # shadcn primitives
 │   │   │   ├── button.tsx
+│   │   │   ├── confirm-dialog.tsx
 │   │   │   ├── dialog.tsx
 │   │   │   ├── drawer.tsx              # Vaul wrapper
 │   │   │   ├── input.tsx
 │   │   │   ├── label.tsx
+│   │   │   ├── select.tsx
 │   │   │   ├── sonner.tsx
 │   │   │   ├── switch.tsx
 │   │   │   └── textarea.tsx
 │   │   ├── auth-view.tsx               # Sign-in screen
 │   │   ├── bottom-nav.tsx              # Tab bar + FAB
 │   │   ├── calculator-numpad.tsx       # Arithmetic numpad
+│   │   ├── error-boundary.tsx          # Top-level error catcher
 │   │   ├── icon-map.tsx                # String → Lucide component registry
 │   │   ├── profile-edit-drawer.tsx     # Name + password change
 │   │   ├── theme-provider.tsx          # light/dark/system
@@ -412,27 +453,35 @@ VITE_FIREBASE_APP_ID=...
 
 These are consumed by `src/lib/firebase.ts` via `import.meta.env`.
 
-### 3. Seed the allowlist
+### 3. Create users manually
 
-Sign-in is gated. Manually create at least one doc in Firestore:
+There is **no sign-up UI**. To let someone use Kalcy:
 
-```
-Collection: allowlist
-Document ID: user@example.com          ← lowercase email
-Field:       enabled (boolean) = true
-```
+1. Firebase Console → **Authentication** → **Users** → **Add user**
+2. Enter email + password, save.
+3. That's it. No allowlist collection, no additional provisioning.
 
-Then create the user via Firebase Console → Authentication → Users.
+The first time that user signs in, `initUserData` seeds:
 
-### 4. Run
+- 12 default categories
+- 2 default accounts (`Cash Wallet`, `Main Checking`)
+- Default preferences doc (`users/{uid}/profile/preferences`) — also used as the "already seeded" marker
+
+If you want to revoke access later, delete the user in Firebase Console → Authentication. The next Firestore read will return `permission-denied`, and the listener error handler signs them out automatically.
+
+### 4. Publish Firestore security rules
+
+Copy the rules from [Firestore Setup & Security Rules](#firestore-setup--security-rules) into **Firestore → Rules → Publish**.
+
+### 5. Run
 
 ```bash
 npm run dev
 ```
 
-Open the printed `localhost` URL. The first sign-in seeds default categories and two starter accounts.
+Open the printed `localhost` URL and sign in with a user you created in step 3.
 
-### 5. Regenerate PWA icons (optional)
+### 6. Regenerate PWA icons (optional)
 
 ```bash
 npm run generate-pwa-assets
@@ -444,35 +493,52 @@ Reads `pwa-assets.config.ts` and produces maskable + apple + standard icons from
 
 ## Firestore Setup & Security Rules
 
-Kalcy expects **all per-user data to be scoped under `users/{uid}`** and the allowlist to be readable by the authenticated user matching that email. A minimal starting ruleset:
+Kalcy relies entirely on **per-user `uid` scoping**. Every document lives under `users/{uid}/…`, and the ruleset below enforces `request.auth.uid == uid` on every read and write. There is **no `allowlist` collection** — access is controlled purely by whether a Firebase Auth user exists.
+
+**Published rules:**
 
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Allowlist: authenticated user may only read their own gate doc
-    match /allowlist/{email} {
-      allow read: if request.auth != null
-                  && request.auth.token.email.lower() == email;
-      allow write: if false;   // manage via Console / Admin SDK only
+    // Helper: Ensure the user is signed in and only accessing their own data
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
     }
 
-    // Per-user data: only the owner
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+    // User data - locked to their own UID
+    match /users/{uid}/accounts/{id}      { allow read, write: if isOwner(uid); }
+    match /users/{uid}/categories/{id}    { allow read, write: if isOwner(uid); }
+    match /users/{uid}/transactions/{id}  { allow read, write: if isOwner(uid); }
+    match /users/{uid}/budgets/{id}       { allow read, write: if isOwner(uid); }
+    match /users/{uid}/loans/{id}         { allow read, write: if isOwner(uid); }
+    match /users/{uid}/loanPayments/{id}  { allow read, write: if isOwner(uid); }
+    match /users/{uid}/investments/{id}   { allow read, write: if isOwner(uid); }
+
+    match /users/{uid}/profile/{doc} {
+      allow read:           if isOwner(uid);
+      allow create, update: if isOwner(uid);
+      allow delete:         if false;
     }
+
+    // Deny everything else by default
+    match /{document=**}{ allow read, write: if false; }
   }
 }
 ```
 
-> ⚠️ **Important:** the app calls `getDoc(doc(db, 'allowlist', email))` on every auth state change. If your rules block this read, the user will be signed out with "Could not verify access."
+**Notes:**
+
+- The `profile/preferences` doc is **non-deletable** by design — it doubles as the "user has been seeded" marker. `clearCloudData` resets it to `DEFAULT_PREFERENCES` instead of deleting it, so the seed batch doesn't re-run on the next sign-in.
+- If you ever see `permission-denied` on the `preferences` listener at sign-in time, the most likely cause is a stale Auth token — the store signs the user out and shows a toast so they can retry.
+- No index requirements beyond what Firestore creates automatically — all per-user queries are simple collection reads.
 
 ---
 
 ## Core Workflows
 
-### 1. Authentication + Allowlist Gate
+### 1. Authentication
 
 ```mermaid
 sequenceDiagram
@@ -481,25 +547,34 @@ sequenceDiagram
     participant FA as Firebase Auth
     participant App as App.tsx
     participant FS as Firestore
+    participant S as useStore
 
     U->>AV: email + password
     AV->>FA: signInWithEmailAndPassword
-    FA-->>App: onAuthStateChanged(fbUser)
-    App->>FS: getDoc(allowlist/{email})
-    alt allowed == true
-        App->>App: setUser(profile)
-        App->>FS: initUserData(uid)
-        FS-->>App: onSnapshot × 8 collections
-    else not allowed
-        App->>FA: signOut()
-        App->>AV: show notice
+    alt invalid credentials
+        FA-->>AV: auth/invalid-credential
+        AV->>U: toast "Incorrect email or password"
+    else authenticated
+        FA-->>App: onAuthStateChanged(fbUser)
+        App->>S: setUser({ uid, email, ... })
+        App->>S: initUserData(uid)
+        S->>FS: getDoc(users/{uid}/profile/preferences)
+        alt first sign-in
+            S->>FS: writeBatch — seed categories, accounts, preferences
+        end
+        S->>FS: onSnapshot × 8 collections
+        FS-->>S: snapshot (enforced by isOwner(uid) rule)
+        S-->>App: isLoading = false
+        App->>U: render main shell
     end
 ```
 
 **Notes:**
-- `allowlist` check happens **after** Firebase Auth succeeds, not before — so a failed gate still produces a sign-out.
-- `initUserData` first checks for `users/{uid}/profile/preferences`. If missing, it **seeds defaults in a single batch** (categories, accounts, preferences).
-- Then it attaches **eight** `onSnapshot` listeners (accounts, categories, transactions, budgets, loans, loanPayments, **investments**, preferences). Any change anywhere in Firestore updates the store in place.
+
+- The gate is **Firebase Auth itself**. Anyone without an Auth user never gets past `signInWithEmailAndPassword`.
+- `initUserData` seeds defaults only if `users/{uid}/profile/preferences` is missing, then attaches **eight** `onSnapshot` listeners (accounts, categories, transactions, budgets, loans, loanPayments, **investments**, preferences).
+- If the **seed batch fails** (e.g. network drop during first sign-in), a toast surfaces the error rather than leaving the user staring at an empty app.
+- Any listener that receives `permission-denied` triggers an immediate `signOut()` + toast. This is the safety net for stale tokens or deleted Auth users.
 
 ### 2. Adding a Transaction
 
@@ -526,7 +601,9 @@ oldEffects.forEach((v, k) => net.set(k, (net.get(k) ?? 0) - v));
 newEffects.forEach((v, k) => net.set(k, (net.get(k) ?? 0) + v));
 ```
 
-### 3. Lending — Loan Lifecycle
+If the edited transaction is **linked to a loan or investment** (`linkedLoanId`, `linkedPaymentId`, or any of the four investment transaction IDs), `deleteTransaction` dispatches to the parent's delete function instead of deleting the row — keeping the linked entity's balance and remaining amount consistent.
+
+### 3. Loan Lifecycle
 
 ```mermaid
 sequenceDiagram
@@ -539,30 +616,35 @@ sequenceDiagram
     U->>LV: New loan (lent $100 to Alice)
     LV->>S: addLoan(...)
     S->>FS: batch.set loans/{id}
-    S->>FS: batch.set transactions/{id}  (expense, excluded from stats)
-    S->>FS: batch.update accounts/{id}  { balance: increment(-100) }
+    S->>FS: batch.set transactions/{id} (expense, excluded from stats)
+    S->>FS: batch.update accounts/{id} { balance: increment(-100) }
     FS-->>S: onSnapshot
 
     Note over U,FS: Partial repayment
     U->>LV: Record $40 payment
     LV->>S: addLoanPayment(...)
     S->>FS: batch.set loanPayments/{id}
-    S->>FS: batch.set transactions/{id}  (income)
-    S->>FS: batch.update loans/{id}  { remainingAmount: 60 }
-    S->>FS: batch.update accounts/{id}  { balance: increment(+40) }
+    S->>FS: batch.set transactions/{id} (income)
+    S->>FS: batch.update loans/{id} { remainingAmount: 60 }
+    S->>FS: batch.update accounts/{id} { balance: increment(+40) }
 
-    Note over U,FS: Settlement
-    Note right of S: When remaining ≤ 0, isSettled = true
+    Note over U,FS: Type flip (lent ↔ borrowed)
+    U->>LV: Edit → change to "borrowed"
+    LV->>S: updateLoan({ type: 'borrowed', ... })
+    S->>FS: batch.update transactions/{id} { type: 'income', note }
+    S->>FS: batch.update accounts/{id} { balance: increment(2 × amount) }
+    Note right of S: Net delta computed across amount + type + account + date<br/>as one signed adjustment
 ```
 
 **Rules encoded in the store:**
+
 - Lending money out: `expense` on the account, **excluded from stats and budget** (it's not consumption — it's a receivable).
 - Borrowing: `income`, also excluded.
 - Repayment in the opposite direction.
-- `updateLoan` re-syncs the initial transaction's `amount`, `accountId`, and `date` when the user edits the loan, applying signed deltas per account.
+- `updateLoan` computes the **net balance delta** from the old `(amount, type, account)` triple versus the new one, so any combination of changes (including `lent ↔ borrowed`) applies exactly the right adjustment in one batch.
 - `deleteLoan` cascades: deletes the loan, every `linkedLoanId` transaction, and every payment.
 
-### 4. Investments — Buy / Update / Sell Lifecycle
+### 4. Investment Lifecycle (incl. IPO)
 
 ```mermaid
 sequenceDiagram
@@ -571,34 +653,62 @@ sequenceDiagram
     participant S as Store
     participant FS as Firestore
 
-    Note over U,FS: Buy
-    U->>IV: New investment (10 RELIANCE @ ₹2500)
+    Note over U,FS: New active investment (e.g. shares)
+    U->>IV: New (10 RELIANCE @ ₹2500)
     IV->>S: addInvestment(...)
-    S->>FS: batch.set investments/{id}  (status: active)
+    S->>FS: batch.set investments/{id} (status: active, linkedTransactionId)
     S->>FS: batch.set transactions/{id} (expense, excluded)
-    S->>FS: batch.update accounts/{id}  { balance: increment(-25000) }
-    Note right of S: Net worth unchanged — cash → asset swap
+    S->>FS: batch.update accounts { balance: increment(-25000) }
+
+    Note over U,FS: IPO — apply (blocked funds)
+    U->>IV: New IPO (₹15000 applied)
+    IV->>S: addInvestment({ status: 'applied', appliedAmount: 15000 })
+    S->>FS: batch.set investments/{id} (linkedApplyTransactionId)
+    S->>FS: batch.set transactions/{id} (expense, excluded)
+    S->>FS: batch.update accounts { balance: increment(-15000) }
+
+    Note over U,FS: IPO — allot
+    U->>IV: Edit → Allotted (50 units @ ₹300)
+    IV->>S: updateInvestment({ status: 'active', units: 50, buyPrice: 300 })
+    S->>FS: batch.set transactions (income — release block, linkedRefundTransactionId)
+    S->>FS: batch.set transactions (expense — buy, linkedTransactionId)
+    S->>FS: batch.update accounts { increment: +15000 then −15000 }
+    S->>FS: batch.update investments { status: 'active', appliedAmount: 0 }
+
+    Note over U,FS: IPO — not allotted
+    U->>IV: Edit → Not Allotted
+    IV->>S: updateInvestment({ status: 'not_allotted' })
+    S->>FS: batch.set transactions (income — refund, linkedRefundTransactionId)
+    S->>FS: batch.update accounts { increment: +15000 }
 
     Note over U,FS: Price update
     U->>IV: Update price → ₹2800
     IV->>S: updateInvestmentPrice(id, 2800)
-    S->>FS: update investments/{id}  { currentPrice, currentValue: 28000 }
-    Note right of S: No cash movement. Net worth +₹3000 (paper gain)
+    S->>FS: update investments { currentPrice, currentValue }
+    Note right of S: No cash movement — only paper net worth changes
 
     Note over U,FS: Sell
     U->>IV: Sell @ ₹2800
     IV->>S: sellInvestment(...)
-    S->>FS: batch.update investments/{id}  { status: sold, soldPrice, soldDate }
-    S->>FS: batch.set transactions/{id} (income, excluded)
-    S->>FS: batch.update accounts/{id}  { balance: increment(+28000) }
-    Note right of S: Realized P&L = proceeds − investedAmount
+    S->>FS: batch.update investments { status: 'sold', soldPrice, soldDate }
+    S->>FS: batch.set transactions (income, linkedSellTransactionId)
+    S->>FS: batch.update accounts { balance: increment(+28000) }
+
+    Note over U,FS: Delete (any status)
+    U->>IV: Delete
+    IV->>S: deleteInvestment(id)
+    S->>FS: reverse ALL linked txs (buy, apply, refund, sell)
+    S->>FS: batch.delete investments/{id}
 ```
 
 **Rules encoded in the store:**
+
 - Buying moves cash → asset; both sides are excluded from stats and budget so analytics stay clean.
-- **Price updates never touch cash.** Only `currentPrice` / `currentValue` change, which moves the paper net worth.
-- Selling flips the position to `sold`, records `soldPrice` / `soldDate`, and credits the funding account.
-- `deleteInvestment` reverses both its buy and (if any) sell transactions and restores cash. Sold or active — both paths are handled.
+- **Price updates never touch cash.** Only `currentPrice` / `currentValue` change.
+- **Refund transactions are tracked** via `linkedRefundTransactionId` so that allotment and not-allotted transitions are fully reversible. (This was a bug in v1 — orphaned refund transactions caused a spurious credit when the investment was later deleted.)
+- `deleteInvestment` reverses **every** linked transaction and restores cash — regardless of whether the position is applied, active, sold, or not allotted.
+- Selling requires `soldPrice > 0`; the store rejects a `$0` sale before any write.
+- Allotting requires `units > 0` and `buyPrice > 0`; the store rejects a zero-cost allotment before any write.
 - The `accountId` is used symmetrically: **funds the buy** and **receives the sell proceeds**, mirroring the loan model.
 
 ### 5. Deleting an Account (Cascade)
@@ -607,12 +717,8 @@ sequenceDiagram
 
 1. Identifies loans whose **home account** is the deleted one → marks them for deletion.
 2. Identifies payments routed through the account → marks them for deletion.
-3. Identifies investments funded by the account → marks them (and their linked buy/sell transactions) for deletion.
-4. Collects every transaction that references any of:
-   - the account itself (`accountId` or `toAccountId`)
-   - a deleted loan (`linkedLoanId`)
-   - a deleted payment (`linkedPaymentId`)
-   - a deleted investment (`linkedTransactionId` / `linkedSellTransactionId`)
+3. Identifies investments funded by the account → marks them (and *all four* of their linked transactions: buy, apply, refund, sell) for deletion.
+4. Collects every transaction that references any of: the account itself, a deleted loan, a deleted payment, a deleted investment.
 5. **Reverses** each collected transaction's effects on **surviving** accounts.
 6. **Restores** `remainingAmount` on loans whose *payment* is being removed but whose *loan* survives.
 7. Deletes transactions, loans, payments, investments, and finally the account — all in one `writeBatch`.
@@ -629,13 +735,11 @@ flowchart LR
     Store --> UI
 
     SW[Service Worker] -.->|precache shell| UI
-    SW -.->|NetworkFirst 5s| FSAPI[firestore.googleapis.com]
+    SW -.->|CacheFirst 1y| Fonts[fonts.gstatic.com]
 ```
 
 - **Firestore SDK** is initialized with `persistentLocalCache({ tabManager: persistentMultipleTabManager() })`, so writes go to IndexedDB first and sync when connectivity returns. Snapshots still fire from cache while offline.
-- **Workbox** adds a layer of HTTP caching on top:
-  - `NetworkFirst` for `firestore.googleapis.com` — 5s timeout, 100 entries / 24h expiry
-  - `CacheFirst` for `fonts.gstatic.com` — 30 entries / 1 year
+- **Workbox** adds an HTTP cache layer for fonts (`CacheFirst`, 30 entries, 1 year). No runtime cache is registered for Firestore itself — the SDK's WebChannel responses are streams and cannot be cached by Workbox, and the SDK's own IndexedDB layer already handles offline reads/writes correctly.
 - An online/offline banner in the **More** tab reflects `navigator.onLine` (polled every 5s as a Safari fallback).
 
 ### 7. PWA Update Lifecycle
@@ -657,7 +761,7 @@ sequenceDiagram
 ```
 
 - `registerType: 'autoUpdate'` means a new SW is installed silently.
-- The `onOfflineReady` toast is deduplicated with a `localStorage` key (`kalcy.offlineReadySeen`) so it doesn't nag.
+- The `onOfflineReady` toast is deduplicated with a `localStorage` key (`kalcy.offlineReadySeen`) so it doesn't nag on every visit.
 - `clientsClaim()` + `self.skipWaiting()` activate the new worker immediately.
 
 ### 8. Theme Resolution
@@ -690,6 +794,7 @@ graph TD
     end
 
     App[React Components] -->|useStore(s => s.x)| D
+    App -->|useStore(useShallow(s => ({...})))| D
     App -->|useStore(s => s.action)| A
     A -->|writeBatch| FS[(Firestore)]
     FS -->|onSnapshot| D
@@ -701,8 +806,9 @@ graph TD
 - **Every multi-doc write is a `writeBatch`** — no partial state.
 - **Balance changes always use `increment()`**, never absolute values, so concurrent edits from multiple tabs can't clobber each other.
 - **Derived values are pure functions** in `src/lib/finance.ts` (e.g. `getMonthlyTotals`, `getBudgetProgress`, `getLoansSummary`, `getInvestmentsSummary`, `getInvestmentPnl`, `getTotalNetWorth`) — they never touch Firestore, they just consume the current arrays.
-- **Loan transactions are linked** via `linkedLoanId` (the parent loan) and `linkedPaymentId` (the specific repayment). Investment transactions are linked via `linkedTransactionId` (buy) and `linkedSellTransactionId` (sell). This makes cascading deletes deterministic.
+- **Loan transactions are linked** via `linkedLoanId` (the parent loan) and `linkedPaymentId` (the specific repayment). Investment transactions are linked via the four fields listed in the [Investment transaction tracking](#investment-transaction-tracking) section. This makes cascading deletes deterministic.
 - **Denormalized values are recomputed on write.** `investedAmount` (`units × buyPrice`) and `currentValue` (`units × currentPrice`) are always recomputed inside the store when the underlying units or prices change — so list rendering and sum-based analytics never need to re-derive them.
+- **Selective subscription.** Components that read many slices at once (e.g. `BudgetsView`, `LendingView`, `AccountsTab`, `InvestmentsView`, `CategoriesView`, `TransactionsTab`) use `useShallow` from `zustand/react/shallow` to subscribe to just the fields they need. This prevents a snapshot from one collection from re-rendering every other tab in the background.
 
 ### Listener teardown
 
@@ -728,11 +834,13 @@ Themes are driven by CSS variables in `src/index.css`, consumed by Tailwind via 
 | `--radius` | `1.25rem` | same | Very round UI |
 
 **UI vocabulary:**
+
 - Bottom sheets (Vaul) for all data entry — never modal forms on mobile
 - Rounded-3xl cards with `border-border/40` hairlines
 - Gradient hero cards (`from-primary to-primary/70`) for balance/budget/net-worth/portfolio headers
 - Layout-animated nav pill (`layoutId="nav-pill"`) for tab transitions
 - Lucide icons resolved by **string name** through `icon-map.tsx`, so Firestore can store `icon: "UtensilsCrossed"` and the UI finds the component
+- Every destructive action uses the shared `ConfirmDialog` (Radix Dialog), never a toast — this gives keyboard focus trapping and consistent `role="dialog"` semantics for tests
 - Investment types share the same icon registry — `INVESTMENT_TYPES` in `icon-map.tsx` maps each type to `{ label, icon, color }` for consistent rendering across cards, charts, and pickers
 
 ---
@@ -757,7 +865,6 @@ VitePWA({
     navigateFallback: '/index.html',
     navigateFallbackDenylist: [/^\/__/],
     runtimeCaching: [
-      { urlPattern: firestore, handler: 'NetworkFirst', timeout: 5 },
       { urlPattern: fonts.gstatic, handler: 'CacheFirst', maxAge: 1y },
     ],
   },
@@ -770,11 +877,10 @@ VitePWA({
 | Layer | What it caches | TTL / Limit |
 |---|---|---|
 | Precache (Workbox) | App shell (JS/CSS/HTML/SVG/PNG/ICO/WOFF2) | Versioned by build hash |
-| Runtime — Firestore REST | GET responses from `firestore.googleapis.com` | 100 entries / 24h, NetworkFirst 5s |
 | Runtime — Fonts | `fonts.gstatic.com` assets | 30 entries / 1y |
 | Firestore SDK (IndexedDB) | All Firestore reads/writes | Persistent, multi-tab |
 
-The SDK-level persistence is what makes the app **truly offline-capable** — Workbox's runtime cache is a safety net for the REST layer the SDK sometimes uses.
+The SDK-level persistence is what makes the app **truly offline-capable**. There is **no Workbox runtime route for `firestore.googleapis.com`** — Firestore's WebChannel uses streamed responses that Workbox cannot cache, and the SDK's IndexedDB layer already handles everything Workbox would have attempted.
 
 ---
 
@@ -786,8 +892,6 @@ The SDK-level persistence is what makes the app **truly offline-capable** — Wo
 | `npm run build` | Type-check (`tsc`) then produce a production build |
 | `npm run preview` | Serve the production build locally |
 | `npm run generate-pwa-assets` | Regenerate maskable / apple / PWA icons from the SVG |
-
-> Python-based end-to-end tests are covered in the [Testing](#testing) section below.
 
 ---
 
@@ -811,8 +915,9 @@ The suite covers:
 You need a **dedicated Firebase test user** — do **not** use your personal account, because `KALCY_CLEANUP=1` wipes all data after each test.
 
 1. Firebase Console → **Authentication** → Users → create `test@example.com`
-2. Firestore → `allowlist/test@example.com` → `{ enabled: true }`
-3. That's it — the test user seeds its own default accounts and categories on first sign-in, exactly like a normal user.
+2. That's it — no allowlist entry required. The test user seeds its own default accounts and categories on first sign-in, exactly like any other user.
+
+> ℹ️ The test files' docstrings still reference an `allowlist/{email}` collection from an earlier version of the app. That step is **no longer required** — the app has no allowlist. The fixtures work correctly without it.
 
 ### Setup
 
@@ -858,6 +963,16 @@ python -m pytest test_phase2.py::test_ipo_status_transitions -v --headed
 
 `.github/workflows/test.yml` runs the suite on every push and PR. Add `KALCY_TEST_EMAIL` and `KALCY_TEST_PASSWORD` under **Settings → Secrets and variables → Actions**. The workflow injects them as environment variables — `conftest.py` reads either the `.env` file or the process environment, so it works locally and in CI without any code change.
 
+### Not yet covered by tests
+
+The current E2E suite exercises the happy paths. **Not** yet covered (and the areas where the recent bug fixes live):
+
+- IPO deletion (allotted or not-allotted) → account balance must return to pre-creation value
+- Loan `lent ↔ borrowed` type flip → transaction type + account balance must flip correctly
+- Deleting an account with linked loans, investments, and transactions → all cascades must reconcile
+
+If you're extending the suite, those three paths are the highest-value next targets.
+
 ---
 
 ## Conventions & Notes
@@ -867,24 +982,30 @@ python -m pytest test_phase2.py::test_ipo_status_transitions -v --headed
 - **CSV safety:** `csvSafe()` prefixes formula-injection starters (`= + - @` and tabs) with `'`.
 - **Date handling:** all timestamps are stored as `number` (epoch ms). `formatDateKey` / `parseLocalDate` exist specifically to avoid the UTC shift from `new Date('YYYY-MM-DD')`.
 - **Loan exclusion:** all auto-generated loan transactions carry `isExcludedFromStats: true` and `isExcludedFromBudget: true` so they don't distort spending analytics or budgets.
-- **Investment exclusion:** same policy — buys and sells are balance-sheet moves, not consumption. They appear in the transaction list but are filtered out of stats and budgets.
+- **Investment exclusion:** same policy — buys, sells, and IPO blocks/refunds are balance-sheet moves, not consumption. They appear in the transaction list but are filtered out of stats and budgets.
 - **Denormalization discipline:** `investedAmount` and `currentValue` on `Investment` are recomputed by `addInvestment`, `updateInvestment`, `updateInvestmentPrice`, and `sellInvestment` — never written by the UI directly.
+- **Investment transaction tracking** uses four explicit pointers (`linkedTransactionId`, `linkedApplyTransactionId`, `linkedRefundTransactionId`, `linkedSellTransactionId`). Every one of them must be reversed in `deleteInvestment`. If you add a new transition that moves cash, add a matching field.
 - **Net worth formula:**
 
   ```
   netWorth = Σ(accounts where isIncludedInTotal).balance
            + Σ(loans active).remainingAmount (lent − borrowed)
-           + Σ(investments active).currentValue
+           + Σ(investments).currentValue (active)
+           + Σ(investments).appliedAmount (IPO applied, funds still blocked)
   ```
 
   Buying an investment swaps cash for an asset, so it is **net-worth neutral at purchase time**. Only price appreciation/depreciation and realized P&L move the needle.
-- **Form remounting:** `TransactionSheet`, `LoanSheet`, `AccountSheet`, `BudgetSheet`, and the investment sheets all remount their inner form on open (`key={open ? id : 'closed'}`) so local state never goes stale between openings.
+- **Form remounting:** `TransactionSheet`, `LoanSheet`, `AccountSheet`, `BudgetSheet`, `CategorySheet`, and the investment sheets all remount their inner form on open (`key={open ? id : 'closed'}`) so local state never goes stale between openings.
+- **Zustand subscriptions:** use `useShallow` whenever a component selects more than one field from the store. Selecting the entire store (`const { a, b, c, ... } = useStore()`) will re-render the component on *any* collection change and is a bug, not a style preference.
+- **Destructive actions** must use `<ConfirmDialog>` (Radix Dialog). Toasts (Sonner) are not focus-trapped and are not accessible for destructive confirmations.
+- **Deleting a category** recursively removes its descendants (BFS) so grandchildren are never orphaned.
+- **`formatCurrencyCompact`** uses `Intl.NumberFormat` with `notation: 'compact'` — avoids the `"1000.0K"` bug at the million boundary.
 
 ---
 
 ## Known Limitations
 
-- **Invite-only by design.** There is no sign-up UI; users must be created manually in Firebase Console and added to `allowlist`.
+- **Invite-only by design.** There is no sign-up UI; users must be created manually in Firebase Console → Authentication. Access is revoked by deleting the Auth user.
 - **Carry-over budgets** are stored but not yet applied in `getBudgetProgress` — the flag is forward-compatible.
 - **Recurring transactions** are not implemented (categories include a `Repeat` icon, but no scheduler exists).
 - **Multi-currency conversion** is not supported — one currency per user (set in Preferences); account-level currency field exists but is informational.
@@ -893,6 +1014,8 @@ python -m pytest test_phase2.py::test_ipo_status_transitions -v --headed
 - **Investment prices are manual.** There is no market-data feed yet — you update `currentPrice` per position. A future version could add a scheduled cloud function that fetches quotes from a provider (Alpha Vantage, Yahoo Finance, etc.) and calls `updateInvestmentPrice`.
 - **Investment quantities cannot be split.** Selling always sells the full position. Partial sells would require splitting the record into "sold lot" + "remaining position" (or tracking lots) — deliberately out of scope for v1.
 - **Workbox `dev-dist/`** is a generated artifact — regenerated on `npm run dev`. Don't edit it directly.
+- **No `allowlist` collection.** Earlier versions of the README and test files mentioned one; it was removed. Access control is Firebase Auth + Firestore `isOwner(uid)` rules only.
+- **`Investment.appliedAmount`** is typed `number | null` but always written as `0` for non-IPO investments. Any code that reads it should use `?? 0`.
 
 ---
 
