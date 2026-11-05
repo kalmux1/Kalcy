@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { motion } from 'framer-motion';
 import {
   PieChart as PieChartIcon,
@@ -36,7 +37,13 @@ import {
 } from '@/lib/finance';
 
 export function StatsTab() {
-  const { transactions, categories, preferences } = useStore();
+  const { transactions, categories, preferences } = useStore(
+    useShallow((s) => ({
+      transactions: s.transactions,
+      categories: s.categories,
+      preferences: s.preferences,
+    }))
+  );
   const [selectedMonth, setSelectedMonth] = useState(() => new Date());
   const [chartType, setChartType] = useState<'expense' | 'income'>('expense');
 

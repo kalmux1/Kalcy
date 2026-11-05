@@ -38,10 +38,14 @@ export function TransactionItem({
   const linkedToLoan = !!(
     transaction.linkedLoanId || transaction.linkedPaymentId
   );
+  // Include *all* investment-linked transaction slots so an IPO apply or
+  // refund row also shows the "linked" guard instead of a delete button.
   const linkedToInvestment = investments.some(
     (i) =>
       i.linkedTransactionId === transaction.id ||
-      i.linkedSellTransactionId === transaction.id
+      i.linkedSellTransactionId === transaction.id ||
+      i.linkedApplyTransactionId === transaction.id ||
+      i.linkedRefundTransactionId === transaction.id
   );
   const isLinked = linkedToLoan || linkedToInvestment;
 

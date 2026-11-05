@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { useShallow } from 'zustand/react/shallow';
 import {
   Plus,
   Pencil,
@@ -71,12 +72,22 @@ export function AccountsTab() {
     addAccount,
     updateAccount,
     deleteAccount,
-  } = useStore();
+  } = useStore(
+    useShallow((s) => ({
+      accounts: s.accounts,
+      loans: s.loans,
+      investments: s.investments,
+      preferences: s.preferences,
+      addAccount: s.addAccount,
+      updateAccount: s.updateAccount,
+      deleteAccount: s.deleteAccount,
+    }))
+  );
   const [segment, setSegment] = useState<AccountsSegment>('accounts');
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
-  
+
   const [accountToDelete, setAccountToDelete] = useState<Account | null>(null);
 
   const cashBalance = getTotalBalance(accounts);
@@ -376,13 +387,12 @@ function AccountSheet({
     id?: string
   ) => void | Promise<void>;
 }) {
-  const { preferences } = useStore();
+  const preferences = useStore((s) => s.preferences);
   const formKey = open ? account?.id ?? 'new' : 'closed';
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        
         {/* Fixed Header */}
         <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 border-b border-border/40">
           <h2 className="text-xl font-bold">
@@ -426,7 +436,6 @@ function AccountSheet({
             <Check className="h-4 w-4 mr-1" /> Save
           </Button>
         </div>
-
       </DrawerContent>
     </Drawer>
   );
@@ -490,7 +499,14 @@ function AccountForm({
   };
 
   return (
-    <form id="account-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex flex-col gap-4">
+    <form
+      id="account-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
       <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/40">
         <div
           className="h-12 w-12 rounded-2xl flex items-center justify-center"
@@ -631,7 +647,13 @@ function TransferDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { accounts, preferences, addTransaction } = useStore();
+  const { accounts, preferences, addTransaction } = useStore(
+    useShallow((s) => ({
+      accounts: s.accounts,
+      preferences: s.preferences,
+      addTransaction: s.addTransaction,
+    }))
+  );
   const [fromId, setFromId] = useState('');
   const [toId, setToId] = useState('');
   const [amount, setAmount] = useState('');
@@ -673,7 +695,7 @@ function TransferDialog({
       onOpenChange(false);
     } catch (err) {
       console.error(err);
-      toast.error('Failed to complete transfer');
+      toast.error(err instanceof Error ? err.message : 'Failed to complete transfer');
     } finally {
       setSubmitting(false);
     }

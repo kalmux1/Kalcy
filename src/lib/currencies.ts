@@ -37,9 +37,22 @@ export function formatCurrency(amount: number, symbol: string = '$', showSign: b
   return `${sign}${symbol}${formatted}`;
 }
 
+const _compactFormatter = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
+
+/**
+ * Compact currency formatting:
+ *   - < $1,000   → full precision (`$123.45`)
+ *   - ≥ $1,000   → compact (`$1.2K`, `$3.4M`, `$5.6B`)
+ *
+ * Uses `Intl.NumberFormat`'s `notation: 'compact'` so sub-million edge
+ * cases (e.g. 999,999) roll into `1M` rather than `1000.0K`.
+ */
 export function formatCurrencyCompact(amount: number, symbol: string = '$'): string {
   const abs = Math.abs(amount);
-  if (abs >= 1_000_000) return `${amount < 0 ? '-' : ''}${symbol}${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${amount < 0 ? '-' : ''}${symbol}${(abs / 1_000).toFixed(1)}K`;
-  return formatCurrency(amount, symbol);
+  if (abs < 1_000) return formatCurrency(amount, symbol);
+  const sign = amount < 0 ? '-' : '';
+  return `${sign}${symbol}${_compactFormatter.format(abs)}`;
 }

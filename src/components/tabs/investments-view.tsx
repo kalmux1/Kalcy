@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useShallow } from 'zustand/react/shallow';
 import {
   Plus, Pencil, Trash2, TrendingUp, TrendingDown, X, Check,
   LineChart as LineChartIcon, RefreshCw, DollarSign, Calendar as CalendarIcon,
@@ -36,7 +37,18 @@ export function InvestmentsView() {
   const {
     investments, accounts, preferences, addInvestment, updateInvestment,
     updateInvestmentPrice, sellInvestment, deleteInvestment,
-  } = useStore();
+  } = useStore(
+    useShallow((s) => ({
+      investments: s.investments,
+      accounts: s.accounts,
+      preferences: s.preferences,
+      addInvestment: s.addInvestment,
+      updateInvestment: s.updateInvestment,
+      updateInvestmentPrice: s.updateInvestmentPrice,
+      sellInvestment: s.sellInvestment,
+      deleteInvestment: s.deleteInvestment,
+    }))
+  );
 
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Investment | null>(null);
@@ -49,8 +61,9 @@ export function InvestmentsView() {
   const sold = investments.filter((i) => i.status === 'sold');
   const applied = investments.filter((i) => i.status === 'applied');
   const notAllotted = investments.filter((i) => i.status === 'not_allotted');
-  
+
   const isPositive = summary.unrealizedPnl >= 0;
+  const realizedPositive = summary.realizedPnl >= 0;
 
   const handleDeleteInvestment = async () => {
     if (!investmentToDelete) return;
@@ -91,8 +104,13 @@ export function InvestmentsView() {
           </div>
           <div className="rounded-2xl bg-white/15 p-3 md:p-4">
             <span className="text-xs opacity-90">Realized P&amp;L</span>
-            <p className="text-base md:text-xl font-bold tabular-nums">
-              {summary.realizedPnl >= 0 ? '+' : ''}
+            <p
+              className={cn(
+                'text-base md:text-xl font-bold tabular-nums',
+                realizedPositive ? 'text-white' : 'text-white/80'
+              )}
+            >
+              {realizedPositive ? '+' : ''}
               {formatCurrency(summary.realizedPnl, preferences.currencySymbol)}
             </p>
           </div>
@@ -104,7 +122,9 @@ export function InvestmentsView() {
           <h3 className="text-xs font-semibold text-muted-foreground uppercase mb-4">Allocation</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
             {INVESTMENT_TYPES.map((meta) => {
-              const value = active.filter((i) => i.type === meta.value).reduce((s, i) => s + (i.currentValue ?? (i.units * (i.currentPrice ?? i.buyPrice))), 0);
+              const value = active
+                .filter((i) => i.type === meta.value)
+                .reduce((s, i) => s + (i.currentValue ?? i.units * (i.currentPrice ?? i.buyPrice)), 0);
               if (value === 0) return null;
               const pct = summary.currentValue > 0 ? (value / summary.currentValue) * 100 : 0;
               return (
@@ -244,7 +264,7 @@ export function InvestmentsView() {
         open={investmentToDelete !== null}
         onOpenChange={(open) => !open && setInvestmentToDelete(null)}
         title="Delete Investment"
-        description={`Are you sure you want to delete ${investmentToDelete?.name}? All associated buy and sell transactions will be permanently removed.`}
+        description={`Are you sure you want to delete ${investmentToDelete?.name}? All associated buy, refund, and sell transactions will be permanently removed.`}
         confirmText="Delete Investment"
         onConfirm={handleDeleteInvestment}
       />
@@ -301,7 +321,7 @@ function InvestmentCard({
               {!isApplied && !isNotAllotted && ` · ${investment.units} units @ ${formatCurrency(investment.buyPrice, currencySymbol)}`}
             </p>
             <p className="text-base font-bold tabular-nums mt-1">
-              {isApplied ? `Blocked: ${formatCurrency(investment.appliedAmount || 0, currencySymbol)}` 
+              {isApplied ? `Blocked: ${formatCurrency(investment.appliedAmount || 0, currencySymbol)}`
                : isNotAllotted ? 'Refunded'
                : formatCurrency(displayValue, currencySymbol)}
             </p>
@@ -397,7 +417,7 @@ function InvestmentForm({
   const [type, setType] = useState<InvestmentType>(initial?.type ?? 'stocks');
   const [name, setName] = useState(initial?.name ?? '');
   const [symbol, setSymbol] = useState(initial?.symbol ?? '');
-  
+
   const [status, setStatus] = useState<InvestmentStatus>(
     initial?.status ?? (initial?.type === 'ipo' ? 'applied' : 'active')
   );
@@ -406,10 +426,10 @@ function InvestmentForm({
   const [units, setUnits] = useState(initial ? String(initial.units) : '');
   const [buyPrice, setBuyPrice] = useState(initial ? String(initial.buyPrice) : '');
   const [currentPrice, setCurrentPrice] = useState(initial ? String(initial.currentPrice ?? initial.buyPrice) : '');
-  
+
   const [listingPrice, setListingPrice] = useState(initial?.listingPrice ? String(initial.listingPrice) : '');
   const [listingDate, setListingDate] = useState(initial?.listingDate ? toDateInputValue(initial.listingDate) : '');
-  
+
   const [sellPriceInput, setSellPriceInput] = useState(
     initial?.soldPrice ? String(initial.soldPrice) : (initial ? String(initial.currentPrice ?? initial.buyPrice) : '')
   );
@@ -741,7 +761,7 @@ function InvestmentDetailSheet({
                     {isApplied ? 'Amount Blocked' : isNotAllotted ? 'Refund Status' : isSold ? 'Proceeds' : 'Market value'}
                   </span>
                   <span className="text-2xl font-bold tabular-nums">
-                    {isApplied ? formatCurrency(liveInvestment.appliedAmount || 0, preferences.currencySymbol) 
+                    {isApplied ? formatCurrency(liveInvestment.appliedAmount || 0, preferences.currencySymbol)
                      : isNotAllotted ? 'Refunded'
                      : formatCurrency(
                       liveInvestment.status === 'sold' && liveInvestment.soldPrice !== null
@@ -751,7 +771,7 @@ function InvestmentDetailSheet({
                     )}
                   </span>
                 </div>
-                
+
                 {(!isApplied && !isNotAllotted) && (
                   <>
                     <div className="grid grid-cols-3 gap-2 mt-3 text-xs">

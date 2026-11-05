@@ -234,7 +234,12 @@ export const useStore = create<StoreState>((set, get) => ({
         await batch.commit();
       }
     } catch (err) {
+      // Surface the failure — a silent swallow leaves the user staring at an
+      // empty app with no indication anything went wrong.
       console.error('Failed to seed defaults for new user', err);
+      toast.error(
+        'Could not initialize your workspace. Check your connection and try again.'
+      );
     }
 
     const READY_TARGET = 8;
@@ -445,11 +450,14 @@ export const useStore = create<StoreState>((set, get) => ({
       return;
     }
 
+    // Include the refund transaction in the link check so an IPO refund
+    // cannot be deleted in isolation (it would orphan the investment).
     const linkedInv = investments.find(
       (i) =>
         i.linkedTransactionId === tx.id ||
         i.linkedSellTransactionId === tx.id ||
-        i.linkedApplyTransactionId === tx.id
+        i.linkedApplyTransactionId === tx.id ||
+        i.linkedRefundTransactionId === tx.id
     );
     if (linkedInv) {
       await get().deleteInvestment(linkedInv.id);
@@ -488,7 +496,11 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const docRef = doc(db, 'users', user.uid, 'accounts', id);
 
-    const { balance: _ignoredBalance, ...rest } = updates;
+    // `balance` is always derived (initialBalance + transaction deltas); if a
+    // caller passes it, ignore it. Editing `initialBalance` shifts the live
+    // balance by the same delta so existing transactional drift is preserved.
+    const { balance: _ignored, ...rest } = updates;
+    void _ignored;
 
     if (
       typeof rest.initialBalance === 'number' &&
@@ -542,6 +554,7 @@ export const useStore = create<StoreState>((set, get) => ({
       if (inv.linkedTransactionId) txIdsToDelete.add(inv.linkedTransactionId);
       if (inv.linkedSellTransactionId) txIdsToDelete.add(inv.linkedSellTransactionId);
       if (inv.linkedApplyTransactionId) txIdsToDelete.add(inv.linkedApplyTransactionId);
+      if (inv.linkedRefundTransactionId) txIdsToDelete.add(inv.linkedRefundTransactionId);
     });
 
     transactions.forEach((t) => {
@@ -611,18 +624,28 @@ export const useStore = create<StoreState>((set, get) => ({
     const { user, categories, transactions, budgets } = get();
     if (!user) return;
 
-    const toDelete = [
-      id,
-      ...categories.filter((c) => c.parentId === id).map((c) => c.id),
-    ];
+    // Recursively collect all descendants so grandchildren don't become
+    // orphans pointing at a deleted parent.
+    const toDelete = new Set<string>();
+    const stack = [id];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      if (toDelete.has(cur)) continue;
+      toDelete.add(cur);
+      categories
+        .filter((c) => c.parentId === cur)
+        .forEach((c) => stack.push(c.id));
+    }
+    const idsToDelete = Array.from(toDelete);
+
     const batch = writeBatch(db);
 
-    toDelete.forEach((cid) =>
+    idsToDelete.forEach((cid) =>
       batch.delete(doc(db, 'users', user.uid, 'categories', cid))
     );
 
     transactions
-      .filter((t) => t.categoryId && toDelete.includes(t.categoryId))
+      .filter((t) => t.categoryId && idsToDelete.includes(t.categoryId))
       .forEach((t) =>
         batch.update(doc(db, 'users', user.uid, 'transactions', t.id), {
           categoryId: null,
@@ -630,7 +653,7 @@ export const useStore = create<StoreState>((set, get) => ({
       );
 
     budgets
-      .filter((b) => b.categoryId && toDelete.includes(b.categoryId))
+      .filter((b) => b.categoryId && idsToDelete.includes(b.categoryId))
       .forEach((b) => batch.delete(doc(db, 'users', user.uid, 'budgets', b.id)));
 
     await batch.commit();
@@ -738,52 +761,62 @@ export const useStore = create<StoreState>((set, get) => ({
       balanceDeltas.set(accId, (balanceDeltas.get(accId) ?? 0) + delta);
     };
 
-    if (
-      typeof updates.principalAmount === 'number' &&
-      updates.principalAmount !== loan.principalAmount
-    ) {
-      const paid = loan.principalAmount - loan.remainingAmount;
-      const newRemaining = Math.max(0, updates.principalAmount - paid);
-      patch.remainingAmount = newRemaining;
+    // Snapshot old state, resolve new state, then compute the net delta.
+    // Doing it this way ensures combinations (e.g. amount + type together)
+    // produce the correct balance effect — the earlier per-field approach
+    // double-counted in some combinations.
+    const oldAmount = loan.principalAmount;
+    const oldType = loan.type;
+    const oldAccount = loan.accountId;
+    const oldDate = loan.date;
+    const oldPersonName = loan.personName;
 
-      if (initialTx) {
-        txPatch.amount = updates.principalAmount;
-        const delta = updates.principalAmount - loan.principalAmount;
-        const signedDelta = loan.type === 'lent' ? -delta : delta;
-        bump(loan.accountId, signedDelta);
+    const newAmount =
+      typeof updates.principalAmount === 'number'
+        ? updates.principalAmount
+        : oldAmount;
+    const newType = updates.type ?? oldType;
+    const newAccount = updates.accountId ?? oldAccount;
+    const newDate = typeof updates.date === 'number' ? updates.date : oldDate;
+    const newPersonName = updates.personName ?? oldPersonName;
+
+    if (newAmount !== oldAmount) {
+      const paid = oldAmount - loan.remainingAmount;
+      patch.remainingAmount = Math.max(0, newAmount - paid);
+    }
+
+    if (initialTx) {
+      const oldSign = oldType === 'lent' ? -1 : 1;
+      const newSign = newType === 'lent' ? -1 : 1;
+      const oldEffect = oldSign * oldAmount;
+      const newEffect = newSign * newAmount;
+
+      if (oldAccount === newAccount) {
+        bump(oldAccount, newEffect - oldEffect);
+      } else {
+        bump(oldAccount, -oldEffect);
+        bump(newAccount, newEffect);
       }
-    }
 
-    if (
-      updates.accountId &&
-      updates.accountId !== loan.accountId &&
-      initialTx
-    ) {
-      txPatch.accountId = updates.accountId;
-      const amount = txPatch.amount ?? loan.principalAmount;
-      const signedDelta = loan.type === 'lent' ? -amount : amount;
-      bump(loan.accountId, -signedDelta);
-      bump(updates.accountId, signedDelta);
-    }
+      if (newAmount !== oldAmount) txPatch.amount = newAmount;
+      if (newType !== oldType) {
+        txPatch.type = newType === 'lent' ? 'expense' : 'income';
+      }
+      if (newAccount !== oldAccount) txPatch.accountId = newAccount;
+      if (newDate !== oldDate) txPatch.date = newDate;
 
-    if (typeof updates.date === 'number' && initialTx) {
-      txPatch.date = updates.date;
-    }
-
-    if (
-      updates.personName &&
-      updates.personName !== loan.personName &&
-      initialTx
-    ) {
-      const oldDefault =
-        loan.type === 'lent'
-          ? `Money lent to ${loan.personName}`
-          : `Money borrowed from ${loan.personName}`;
-      if (initialTx.note === oldDefault) {
-        txPatch.note =
-          loan.type === 'lent'
-            ? `Money lent to ${updates.personName}`
-            : `Money borrowed from ${updates.personName}`;
+      // If the note was the auto-generated default, refresh it so a type or
+      // name change doesn't leave a stale "Money lent to X" on a borrowed loan.
+      const oldDefault = `Money ${
+        oldType === 'lent' ? 'lent to' : 'borrowed from'
+      } ${oldPersonName}`;
+      if (
+        initialTx.note === oldDefault &&
+        (newType !== oldType || newPersonName !== oldPersonName)
+      ) {
+        txPatch.note = `Money ${
+          newType === 'lent' ? 'lent to' : 'borrowed from'
+        } ${newPersonName}`;
       }
     }
 
@@ -953,42 +986,54 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   addInvestment: async ({
-    name, symbol, type, units, buyPrice, currentPrice, accountId, date, note, status, listingPrice, listingDate, appliedAmount
+    name, symbol, type, units, buyPrice, currentPrice, accountId, date, note,
+    status, listingPrice, listingDate, appliedAmount,
   }) => {
     const { user } = get();
     if (!user) throw new Error('Not authenticated');
 
     const isApplied = status === 'applied';
     const isActive = status === 'active';
-    
+
     if (!accountId) throw new Error('Account is required');
 
     const invId = genId('inv');
     const txId = isApplied ? genId('apply') : genId('t');
     const now = Date.now();
-    
+
     const blocked = isApplied ? (appliedAmount || 0) : 0;
     const invested = isActive ? units * buyPrice : 0;
-    const effectiveCurrentPrice = isActive ? (typeof currentPrice === 'number' && currentPrice > 0 ? currentPrice : buyPrice) : 0;
+    const effectiveCurrentPrice = isActive
+      ? typeof currentPrice === 'number' && currentPrice > 0
+        ? currentPrice
+        : buyPrice
+      : 0;
     const currentValue = isActive ? units * effectiveCurrentPrice : 0;
 
     const investment: Investment = {
-      id: invId, name, symbol, type,
+      id: invId,
+      name,
+      symbol,
+      type,
       units: isActive ? units : 0,
       buyPrice: isActive ? buyPrice : 0,
       currentPrice: effectiveCurrentPrice,
-      investedAmount: invested, 
+      investedAmount: invested,
       currentValue,
-      accountId, date,
-      soldDate: null, soldPrice: null,
+      accountId,
+      date,
+      soldDate: null,
+      soldPrice: null,
       status: status ?? 'active',
       listingPrice: listingPrice ?? null,
       listingDate: listingDate ?? null,
       appliedAmount: blocked,
-      note, createdAt: now,
+      note,
+      createdAt: now,
       linkedTransactionId: isActive ? txId : null,
       linkedSellTransactionId: null,
       linkedApplyTransactionId: isApplied ? txId : null,
+      linkedRefundTransactionId: null,
     };
 
     const batch = writeBatch(db);
@@ -996,20 +1041,50 @@ export const useStore = create<StoreState>((set, get) => ({
 
     if (isApplied && blocked > 0) {
       const tx: Transaction = {
-        id: txId, type: 'expense', amount: blocked, accountId, toAccountId: null, categoryId: null, date,
+        id: txId,
+        type: 'expense',
+        amount: blocked,
+        accountId,
+        toAccountId: null,
+        categoryId: null,
+        date,
         note: `IPO Applied: ${name}${symbol ? ` (${symbol})` : ''} (Blocked)`,
-        receiptUrl: null, isExcludedFromStats: true, isExcludedFromBudget: true, createdAt: now, linkedLoanId: null, linkedPaymentId: null,
+        receiptUrl: null,
+        isExcludedFromStats: true,
+        isExcludedFromBudget: true,
+        createdAt: now,
+        linkedLoanId: null,
+        linkedPaymentId: null,
       };
       batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
-      txEffects(tx).forEach((delta, accId) => batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(delta) }));
+      txEffects(tx).forEach((delta, accId) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      );
     } else if (isActive && invested > 0 && txId) {
       const tx: Transaction = {
-        id: txId, type: 'expense', amount: invested, accountId, toAccountId: null, categoryId: null, date,
+        id: txId,
+        type: 'expense',
+        amount: invested,
+        accountId,
+        toAccountId: null,
+        categoryId: null,
+        date,
         note: `Investment: ${name}${symbol ? ` (${symbol})` : ''}`,
-        receiptUrl: null, isExcludedFromStats: true, isExcludedFromBudget: true, createdAt: now, linkedLoanId: null, linkedPaymentId: null,
+        receiptUrl: null,
+        isExcludedFromStats: true,
+        isExcludedFromBudget: true,
+        createdAt: now,
+        linkedLoanId: null,
+        linkedPaymentId: null,
       };
       batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
-      txEffects(tx).forEach((delta, accId) => batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(delta) }));
+      txEffects(tx).forEach((delta, accId) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      );
     }
     await batch.commit();
   },
@@ -1027,20 +1102,40 @@ export const useStore = create<StoreState>((set, get) => ({
     const wasActive = inv.status === 'active';
     const isBecomingSold = newStatus === 'sold' && wasActive;
 
+    // Validate before writing anything — silently selling at $0 corrupts data.
+    if (isBecomingSold) {
+      const finalSoldPrice =
+        updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
+      if (typeof finalSoldPrice !== 'number' || finalSoldPrice <= 0) {
+        throw new Error(
+          'A positive sale price is required to mark this investment as sold'
+        );
+      }
+    }
+
     const newUnits = updates.units ?? inv.units;
     const newBuyPrice = updates.buyPrice ?? inv.buyPrice;
     const newAccountId = updates.accountId ?? inv.accountId;
     const newDate = updates.date ?? inv.date;
     const newInvestedAmount = newUnits * newBuyPrice;
 
+    // Allotting with zero units/cost would create a phantom purchase.
+    if (isBecomingAllotted && (newUnits <= 0 || newBuyPrice <= 0)) {
+      throw new Error(
+        'Units and buy price must be positive to allot the investment'
+      );
+    }
+
     const patch: Partial<Investment> = { ...updates };
-    
+
     if (isBecomingAllotted || (wasActive && newStatus === 'active')) {
       patch.investedAmount = newInvestedAmount;
-      const newCurrentPrice = updates.currentPrice ?? inv.currentPrice ?? newBuyPrice;
+      const newCurrentPrice =
+        updates.currentPrice ?? inv.currentPrice ?? newBuyPrice;
       patch.currentValue = newUnits * newCurrentPrice;
     } else if (isBecomingSold) {
-      const finalSoldPrice = updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
+      const finalSoldPrice =
+        updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice!;
       patch.soldPrice = finalSoldPrice;
       patch.soldDate = updates.soldDate ?? Date.now();
       patch.status = 'sold';
@@ -1049,72 +1144,136 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     const batch = writeBatch(db);
-    
-    // 1. Handle "Not Allotted" (Refund blocked amount)
+
+    // 1. "Not Allotted" — refund the blocked amount.
     if (isBecomingNotAllotted && inv.appliedAmount) {
       const refundId = genId('t');
       const refundTx: Transaction = {
-        id: refundId, type: 'income', amount: inv.appliedAmount, accountId: inv.accountId, toAccountId: null, categoryId: null, date: Date.now(),
+        id: refundId,
+        type: 'income',
+        amount: inv.appliedAmount,
+        accountId: inv.accountId,
+        toAccountId: null,
+        categoryId: null,
+        date: Date.now(),
         note: `IPO Refund: ${inv.name} (Not Allotted)`,
-        receiptUrl: null, isExcludedFromStats: true, isExcludedFromBudget: true, createdAt: Date.now(), linkedLoanId: null, linkedPaymentId: null,
+        receiptUrl: null,
+        isExcludedFromStats: true,
+        isExcludedFromBudget: true,
+        createdAt: Date.now(),
+        linkedLoanId: null,
+        linkedPaymentId: null,
       };
       batch.set(doc(db, 'users', user.uid, 'transactions', refundId), refundTx);
-      txEffects(refundTx).forEach((delta, accId) => batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(delta) }));
-      
+      txEffects(refundTx).forEach((delta, accId) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      );
+
       patch.appliedAmount = 0;
       patch.units = 0;
       patch.buyPrice = 0;
       patch.investedAmount = 0;
       patch.currentValue = 0;
-    } 
-    // 2. Handle "Allotted" (Refund block, deduct actual cost)
+      patch.linkedRefundTransactionId = refundId;
+    }
+    // 2. "Allotted" — release block, deduct actual cost.
     else if (isBecomingAllotted) {
       if (inv.appliedAmount && inv.appliedAmount > 0) {
         const refundId = genId('t');
         const refundTx: Transaction = {
-          id: refundId, type: 'income', amount: inv.appliedAmount, accountId: inv.accountId, toAccountId: null, categoryId: null, date: newDate,
+          id: refundId,
+          type: 'income',
+          amount: inv.appliedAmount,
+          accountId: inv.accountId,
+          toAccountId: null,
+          categoryId: null,
+          date: newDate,
           note: `IPO Block Released: ${inv.name}`,
-          receiptUrl: null, isExcludedFromStats: true, isExcludedFromBudget: true, createdAt: Date.now(), linkedLoanId: null, linkedPaymentId: null,
+          receiptUrl: null,
+          isExcludedFromStats: true,
+          isExcludedFromBudget: true,
+          createdAt: Date.now(),
+          linkedLoanId: null,
+          linkedPaymentId: null,
         };
-        batch.set(doc(db, 'users', user.uid, 'transactions', refundId), refundTx);
-        txEffects(refundTx).forEach((delta, accId) => batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(delta) }));
+        batch.set(
+          doc(db, 'users', user.uid, 'transactions', refundId),
+          refundTx
+        );
+        txEffects(refundTx).forEach((delta, accId) =>
+          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+            balance: increment(delta),
+          })
+        );
+        patch.linkedRefundTransactionId = refundId;
       }
-      
+
       if (newInvestedAmount > 0) {
         const buyId = genId('t');
         const buyTx: Transaction = {
-          id: buyId, type: 'expense', amount: newInvestedAmount, accountId: newAccountId, toAccountId: null, categoryId: null, date: newDate,
+          id: buyId,
+          type: 'expense',
+          amount: newInvestedAmount,
+          accountId: newAccountId,
+          toAccountId: null,
+          categoryId: null,
+          date: newDate,
           note: `Investment: ${inv.name}${inv.symbol ? ` (${inv.symbol})` : ''} (Allotted)`,
-          receiptUrl: null, isExcludedFromStats: true, isExcludedFromBudget: true, createdAt: Date.now(), linkedLoanId: null, linkedPaymentId: null,
+          receiptUrl: null,
+          isExcludedFromStats: true,
+          isExcludedFromBudget: true,
+          createdAt: Date.now(),
+          linkedLoanId: null,
+          linkedPaymentId: null,
         };
         batch.set(doc(db, 'users', user.uid, 'transactions', buyId), buyTx);
-        txEffects(buyTx).forEach((delta, accId) => batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(delta) }));
+        txEffects(buyTx).forEach((delta, accId) =>
+          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+            balance: increment(delta),
+          })
+        );
         patch.linkedTransactionId = buyId;
       }
       patch.appliedAmount = 0;
-    } 
-    // 3. Normal Active -> Active Edit (Adjust cash if units/price changed)
+    }
+    // 3. Active → Active (adjust buy transaction if units/price/account changed).
     else if (wasActive && newStatus === 'active') {
-      const buyTx = inv.linkedTransactionId ? transactions.find(t => t.id === inv.linkedTransactionId) : null;
+      const buyTx = inv.linkedTransactionId
+        ? transactions.find((t) => t.id === inv.linkedTransactionId)
+        : null;
       if (buyTx) {
         const accountChanged = newAccountId !== buyTx.accountId;
         const amountChanged = newInvestedAmount !== buyTx.amount;
         if (accountChanged) {
-          batch.update(doc(db, 'users', user.uid, 'accounts', buyTx.accountId), { balance: increment(buyTx.amount) });
-          batch.update(doc(db, 'users', user.uid, 'accounts', newAccountId), { balance: increment(-newInvestedAmount) });
+          batch.update(doc(db, 'users', user.uid, 'accounts', buyTx.accountId), {
+            balance: increment(buyTx.amount),
+          });
+          batch.update(doc(db, 'users', user.uid, 'accounts', newAccountId), {
+            balance: increment(-newInvestedAmount),
+          });
         } else if (amountChanged) {
-          batch.update(doc(db, 'users', user.uid, 'accounts', newAccountId), { balance: increment(buyTx.amount - newInvestedAmount) });
+          batch.update(doc(db, 'users', user.uid, 'accounts', newAccountId), {
+            balance: increment(buyTx.amount - newInvestedAmount),
+          });
         }
         const txPatch: Partial<Transaction> = {};
         if (amountChanged) txPatch.amount = newInvestedAmount;
         if (accountChanged) txPatch.accountId = newAccountId;
         if (newDate !== buyTx.date) txPatch.date = newDate;
-        if (Object.keys(txPatch).length > 0) batch.update(doc(db, 'users', user.uid, 'transactions', buyTx.id), txPatch);
+        if (Object.keys(txPatch).length > 0) {
+          batch.update(
+            doc(db, 'users', user.uid, 'transactions', buyTx.id),
+            txPatch
+          );
+        }
       }
     }
-    // 4. Handle Active -> Sold
+    // 4. Active → Sold.
     else if (isBecomingSold) {
-      const finalSoldPrice = updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
+      const finalSoldPrice =
+        updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice!;
       const finalSoldDate = updates.soldDate ?? Date.now();
 
       patch.soldPrice = finalSoldPrice;
@@ -1126,12 +1285,27 @@ export const useStore = create<StoreState>((set, get) => ({
       const proceeds = finalSoldPrice * newUnits;
       const txId = genId('t');
       const tx: Transaction = {
-        id: txId, type: 'income', amount: proceeds, accountId: newAccountId, toAccountId: null, categoryId: null, date: finalSoldDate,
+        id: txId,
+        type: 'income',
+        amount: proceeds,
+        accountId: newAccountId,
+        toAccountId: null,
+        categoryId: null,
+        date: finalSoldDate,
         note: `Sold: ${inv.name}${inv.symbol ? ` (${inv.symbol})` : ''}`,
-        receiptUrl: null, isExcludedFromStats: true, isExcludedFromBudget: true, createdAt: Date.now(), linkedLoanId: null, linkedPaymentId: null,
+        receiptUrl: null,
+        isExcludedFromStats: true,
+        isExcludedFromBudget: true,
+        createdAt: Date.now(),
+        linkedLoanId: null,
+        linkedPaymentId: null,
       };
       batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
-      txEffects(tx).forEach((delta, accId) => batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(delta) }));
+      txEffects(tx).forEach((delta, accId) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      );
       patch.linkedSellTransactionId = txId;
     }
 
@@ -1144,10 +1318,15 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!user) throw new Error('Not authenticated');
     const inv = investments.find((i) => i.id === id);
     if (!inv) throw new Error('Investment not found');
-    if (inv.status === 'sold') throw new Error('Cannot update price on a sold investment');
-    if (inv.status === 'applied') throw new Error('Cannot update price on an applied investment');
+    if (inv.status === 'sold')
+      throw new Error('Cannot update price on a sold investment');
+    if (inv.status === 'applied')
+      throw new Error('Cannot update price on an applied investment');
     requirePositive(price, 'Price');
-    await updateDoc(doc(db, 'users', user.uid, 'investments', id), { currentPrice: price, currentValue: inv.units * price });
+    await updateDoc(doc(db, 'users', user.uid, 'investments', id), {
+      currentPrice: price,
+      currentValue: inv.units * price,
+    });
   },
 
   sellInvestment: async (id, soldPrice, soldDate) => {
@@ -1156,7 +1335,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const inv = investments.find((i) => i.id === id);
     if (!inv) throw new Error('Investment not found');
     if (inv.status === 'sold') throw new Error('Investment is already sold');
-    if (inv.status === 'applied') throw new Error('Cannot sell an applied investment');
+    if (inv.status === 'applied')
+      throw new Error('Cannot sell an applied investment');
     requirePositive(soldPrice, 'Sell price');
 
     const proceeds = soldPrice * inv.units;
@@ -1164,17 +1344,37 @@ export const useStore = create<StoreState>((set, get) => ({
     const now = Date.now();
 
     const tx: Transaction = {
-      id: txId, type: 'income', amount: proceeds, accountId: inv.accountId, toAccountId: null, categoryId: null, date: soldDate,
+      id: txId,
+      type: 'income',
+      amount: proceeds,
+      accountId: inv.accountId,
+      toAccountId: null,
+      categoryId: null,
+      date: soldDate,
       note: `Sold: ${inv.name}${inv.symbol ? ` (${inv.symbol})` : ''}`,
-      receiptUrl: null, isExcludedFromStats: true, isExcludedFromBudget: true, createdAt: now, linkedLoanId: null, linkedPaymentId: null,
+      receiptUrl: null,
+      isExcludedFromStats: true,
+      isExcludedFromBudget: true,
+      createdAt: now,
+      linkedLoanId: null,
+      linkedPaymentId: null,
     };
 
     const batch = writeBatch(db);
     batch.update(doc(db, 'users', user.uid, 'investments', id), {
-      status: 'sold', soldPrice, soldDate, currentPrice: soldPrice, currentValue: proceeds, linkedSellTransactionId: txId,
+      status: 'sold',
+      soldPrice,
+      soldDate,
+      currentPrice: soldPrice,
+      currentValue: proceeds,
+      linkedSellTransactionId: txId,
     });
     batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
-    txEffects(tx).forEach((delta, accId) => batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(delta) }));
+    txEffects(tx).forEach((delta, accId) =>
+      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+        balance: increment(delta),
+      })
+    );
     await batch.commit();
   },
 
@@ -1190,11 +1390,16 @@ export const useStore = create<StoreState>((set, get) => ({
       const tx = transactions.find((t) => t.id === txId);
       if (!tx) return;
       batch.delete(doc(db, 'users', user.uid, 'transactions', tx.id));
-      txEffects(tx).forEach((delta, accId) => batch.update(doc(db, 'users', user.uid, 'accounts', accId), { balance: increment(-delta) }));
+      txEffects(tx).forEach((delta, accId) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(-delta),
+        })
+      );
     };
     reverseTx(inv.linkedTransactionId);
     reverseTx(inv.linkedSellTransactionId);
     reverseTx(inv.linkedApplyTransactionId);
+    reverseTx(inv.linkedRefundTransactionId);
     batch.delete(doc(db, 'users', user.uid, 'investments', id));
     await batch.commit();
   },
@@ -1204,7 +1409,9 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!user) return;
     try {
       const prefs = { ...preferences, ...updates };
-      if (updates.currency) prefs.currencySymbol = getCurrencySymbol(updates.currency);
+      if (updates.currency) {
+        prefs.currencySymbol = getCurrencySymbol(updates.currency);
+      }
       await setDoc(doc(db, 'users', user.uid, 'profile', 'preferences'), prefs);
     } catch (err) {
       console.error('Failed to save preferences', err);
@@ -1218,57 +1425,129 @@ export const useStore = create<StoreState>((set, get) => ({
     const existingCatIds = new Set(categories.map((c) => c.id));
     const existingAccIds = new Set(accounts.map((a) => a.id));
     const batch = writeBatch(db);
-    SEED_CATEGORIES.forEach((c) => { if (!existingCatIds.has(c.id)) batch.set(doc(db, 'users', user.uid, 'categories', c.id), c); });
+    SEED_CATEGORIES.forEach((c) => {
+      if (!existingCatIds.has(c.id)) {
+        batch.set(doc(db, 'users', user.uid, 'categories', c.id), c);
+      }
+    });
     SEED_ACCOUNTS.forEach((a) => {
-      if (!existingAccIds.has(a.id)) batch.set(doc(db, 'users', user.uid, 'accounts', a.id), { ...a, balance: a.initialBalance, createdAt: Date.now() });
+      if (!existingAccIds.has(a.id)) {
+        batch.set(doc(db, 'users', user.uid, 'accounts', a.id), {
+          ...a,
+          balance: a.initialBalance,
+          createdAt: Date.now(),
+        });
+      }
     });
     await batch.commit();
   },
 
   resetToSampleData: async () => {
-    const { user, accounts, categories, transactions, budgets, loans, loanPayments, investments } = get();
+    const {
+      user, accounts, categories, transactions, budgets,
+      loans, loanPayments, investments,
+    } = get();
     if (!user) return;
 
     const wipe = writeBatch(db);
-    accounts.forEach((a) => wipe.delete(doc(db, 'users', user.uid, 'accounts', a.id)));
-    categories.forEach((c) => wipe.delete(doc(db, 'users', user.uid, 'categories', c.id)));
-    transactions.forEach((t) => wipe.delete(doc(db, 'users', user.uid, 'transactions', t.id)));
-    budgets.forEach((b) => wipe.delete(doc(db, 'users', user.uid, 'budgets', b.id)));
-    loans.forEach((l) => wipe.delete(doc(db, 'users', user.uid, 'loans', l.id)));
-    loanPayments.forEach((p) => wipe.delete(doc(db, 'users', user.uid, 'loanPayments', p.id)));
-    investments.forEach((i) => wipe.delete(doc(db, 'users', user.uid, 'investments', i.id)));
+    accounts.forEach((a) =>
+      wipe.delete(doc(db, 'users', user.uid, 'accounts', a.id))
+    );
+    categories.forEach((c) =>
+      wipe.delete(doc(db, 'users', user.uid, 'categories', c.id))
+    );
+    transactions.forEach((t) =>
+      wipe.delete(doc(db, 'users', user.uid, 'transactions', t.id))
+    );
+    budgets.forEach((b) =>
+      wipe.delete(doc(db, 'users', user.uid, 'budgets', b.id))
+    );
+    loans.forEach((l) =>
+      wipe.delete(doc(db, 'users', user.uid, 'loans', l.id))
+    );
+    loanPayments.forEach((p) =>
+      wipe.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
+    );
+    investments.forEach((i) =>
+      wipe.delete(doc(db, 'users', user.uid, 'investments', i.id))
+    );
     await wipe.commit();
 
     const finalBalances = new Map<string, number>();
     SEED_ACCOUNTS.forEach((a) => finalBalances.set(a.id, a.initialBalance));
     SEED_TRANSACTIONS.forEach((t) => {
-      txEffects(t).forEach((delta, accId) => { finalBalances.set(accId, (finalBalances.get(accId) ?? 0) + delta); });
+      txEffects(t).forEach((delta, accId) => {
+        finalBalances.set(accId, (finalBalances.get(accId) ?? 0) + delta);
+      });
     });
 
     const now = new Date();
-    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentMonthKey = `${now.getFullYear()}-${String(
+      now.getMonth() + 1
+    ).padStart(2, '0')}`;
 
     const batch = writeBatch(db);
-    SEED_CATEGORIES.forEach((c) => batch.set(doc(db, 'users', user.uid, 'categories', c.id), c));
-    SEED_ACCOUNTS.forEach((a) => batch.set(doc(db, 'users', user.uid, 'accounts', a.id), { ...a, balance: finalBalances.get(a.id) ?? a.initialBalance, createdAt: Date.now() }));
-    SEED_TRANSACTIONS.forEach((t) => batch.set(doc(db, 'users', user.uid, 'transactions', t.id), { ...t, createdAt: Date.now() }));
-    SEED_BUDGETS.forEach((b) => batch.set(doc(db, 'users', user.uid, 'budgets', b.id), { ...b, monthYear: currentMonthKey }));
-    batch.set(doc(db, 'users', user.uid, 'profile', 'preferences'), DEFAULT_PREFERENCES);
+    SEED_CATEGORIES.forEach((c) =>
+      batch.set(doc(db, 'users', user.uid, 'categories', c.id), c)
+    );
+    SEED_ACCOUNTS.forEach((a) =>
+      batch.set(doc(db, 'users', user.uid, 'accounts', a.id), {
+        ...a,
+        balance: finalBalances.get(a.id) ?? a.initialBalance,
+        createdAt: Date.now(),
+      })
+    );
+    SEED_TRANSACTIONS.forEach((t) =>
+      batch.set(doc(db, 'users', user.uid, 'transactions', t.id), {
+        ...t,
+        createdAt: Date.now(),
+      })
+    );
+    SEED_BUDGETS.forEach((b) =>
+      batch.set(doc(db, 'users', user.uid, 'budgets', b.id), {
+        ...b,
+        monthYear: currentMonthKey,
+      })
+    );
+    batch.set(
+      doc(db, 'users', user.uid, 'profile', 'preferences'),
+      DEFAULT_PREFERENCES
+    );
     await batch.commit();
   },
 
   clearCloudData: async () => {
-    const { user, accounts, categories, transactions, budgets, loans, loanPayments, investments } = get();
+    const {
+      user, accounts, categories, transactions, budgets,
+      loans, loanPayments, investments,
+    } = get();
     if (!user) return;
     const batch = writeBatch(db);
-    accounts.forEach((a) => batch.delete(doc(db, 'users', user.uid, 'accounts', a.id)));
-    categories.forEach((c) => batch.delete(doc(db, 'users', user.uid, 'categories', c.id)));
-    transactions.forEach((t) => batch.delete(doc(db, 'users', user.uid, 'transactions', t.id)));
-    budgets.forEach((b) => batch.delete(doc(db, 'users', user.uid, 'budgets', b.id)));
-    loans.forEach((l) => batch.delete(doc(db, 'users', user.uid, 'loans', l.id)));
-    loanPayments.forEach((p) => batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id)));
-    investments.forEach((i) => batch.delete(doc(db, 'users', user.uid, 'investments', i.id)));
-    batch.set(doc(db, 'users', user.uid, 'profile', 'preferences'), DEFAULT_PREFERENCES);
+    accounts.forEach((a) =>
+      batch.delete(doc(db, 'users', user.uid, 'accounts', a.id))
+    );
+    categories.forEach((c) =>
+      batch.delete(doc(db, 'users', user.uid, 'categories', c.id))
+    );
+    transactions.forEach((t) =>
+      batch.delete(doc(db, 'users', user.uid, 'transactions', t.id))
+    );
+    budgets.forEach((b) =>
+      batch.delete(doc(db, 'users', user.uid, 'budgets', b.id))
+    );
+    loans.forEach((l) =>
+      batch.delete(doc(db, 'users', user.uid, 'loans', l.id))
+    );
+    loanPayments.forEach((p) =>
+      batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
+    );
+    investments.forEach((i) =>
+      batch.delete(doc(db, 'users', user.uid, 'investments', i.id))
+    );
+    batch.set(
+      doc(db, 'users', user.uid, 'profile', 'preferences'),
+      DEFAULT_PREFERENCES
+    );
     await batch.commit();
   },
 }));

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
+import { useShallow } from 'zustand/react/shallow';
 import {
   Plus,
   Pencil,
@@ -16,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CategoryIcon } from '@/components/icon-map';
 import { useStore } from '@/lib/store';
 import type { Budget, Category } from '@/lib/types';
@@ -39,9 +41,20 @@ export function BudgetsView() {
     addBudget,
     updateBudget,
     deleteBudget,
-  } = useStore();
+  } = useStore(
+    useShallow((s) => ({
+      budgets: s.budgets,
+      transactions: s.transactions,
+      categories: s.categories,
+      preferences: s.preferences,
+      addBudget: s.addBudget,
+      updateBudget: s.updateBudget,
+      deleteBudget: s.deleteBudget,
+    }))
+  );
   const [editing, setEditing] = useState<Budget | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [budgetToDelete, setBudgetToDelete] = useState<Budget | null>(null);
 
   const currentMonth = monthYearKey(Date.now());
   const monthBudgets = useMemo(
@@ -119,6 +132,17 @@ export function BudgetsView() {
     } catch (err) {
       console.error(err);
       toast.error('Failed to save budget');
+    }
+  };
+
+  const handleDeleteBudget = async () => {
+    if (!budgetToDelete) return;
+    try {
+      await deleteBudget(budgetToDelete.id);
+      toast.success('Budget deleted');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete budget');
     }
   };
 
@@ -286,24 +310,7 @@ export function BudgetsView() {
                     variant="ghost"
                     size="sm"
                     className="rounded-lg h-8 px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => {
-                      toast('Delete this budget?', {
-                        duration: 6000,
-                        action: {
-                          label: 'Delete',
-                          onClick: async () => {
-                            try {
-                              await deleteBudget(budget.id);
-                              toast.success('Budget deleted');
-                            } catch (err) {
-                              console.error(err);
-                              toast.error('Failed to delete budget');
-                            }
-                          },
-                        },
-                        cancel: { label: 'Cancel', onClick: () => {} },
-                      });
-                    }}
+                    onClick={() => setBudgetToDelete(budget)}
                   >
                     <Trash2 className="h-4 w-4 mr-1" /> Delete
                   </Button>
@@ -325,6 +332,17 @@ export function BudgetsView() {
         }}
         onSave={handleSave}
       />
+
+      <ConfirmDialog
+        open={budgetToDelete !== null}
+        onOpenChange={(open) => !open && setBudgetToDelete(null)}
+        title="Delete Budget"
+        description={`Are you sure you want to delete this ${
+          budgetToDelete?.categoryId ? 'category' : 'overall'
+        } budget? This action cannot be undone.`}
+        confirmText="Delete Budget"
+        onConfirm={handleDeleteBudget}
+      />
     </div>
   );
 }
@@ -340,13 +358,17 @@ function BudgetSheet({
   onOpenChange: (open: boolean) => void;
   onSave: (data: Omit<Budget, 'id'>, id?: string) => void | Promise<void>;
 }) {
-  const { categories, preferences } = useStore();
+  const { categories, preferences } = useStore(
+    useShallow((s) => ({
+      categories: s.categories,
+      preferences: s.preferences,
+    }))
+  );
   const formKey = open ? budget?.id ?? 'new' : 'closed';
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        
         {/* Fixed Header */}
         <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 border-b border-border/40">
           <h2 className="text-xl font-bold">
@@ -394,7 +416,6 @@ function BudgetSheet({
             <Check className="h-4 w-4 mr-1" /> Save
           </Button>
         </div>
-
       </DrawerContent>
     </Drawer>
   );
@@ -437,7 +458,14 @@ function BudgetForm({
   };
 
   return (
-    <form id="budget-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex flex-col gap-4">
+    <form
+      id="budget-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
       <div>
         <Label className="text-xs text-muted-foreground">
           Budget for Category

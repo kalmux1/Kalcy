@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { getDoc, doc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 import { TransactionsTab } from '@/components/tabs/transactions-tab';
 import { StatsTab } from '@/components/tabs/stats-tab';
 import { AccountsTab } from '@/components/tabs/accounts-tab';
@@ -129,6 +130,30 @@ export default function App() {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       if (!fbUser) {
         setUser(null);
+        return;
+      }
+
+      const email = fbUser.email?.toLowerCase();
+      if (!email) {
+        await signOut(auth);
+        toast.error('Could not verify access. Please sign in again.');
+        return;
+      }
+
+      // Allowlist gate: only emails present in allowlist/{email} with
+      // enabled=true may access the app. Firestore rules must permit
+      // the authenticated user to read their own gate document.
+      try {
+        const allowSnap = await getDoc(doc(db, 'allowlist', email));
+        if (!allowSnap.exists() || !allowSnap.data()?.enabled) {
+          await signOut(auth);
+          toast.error('Could not verify access. Contact the administrator.');
+          return;
+        }
+      } catch (err) {
+        console.error('Allowlist check failed:', err);
+        await signOut(auth);
+        toast.error('Could not verify access. Check your connection.');
         return;
       }
 

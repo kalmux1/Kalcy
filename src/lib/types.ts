@@ -41,6 +41,8 @@ export interface Investment {
   linkedTransactionId?: string | null;
   linkedSellTransactionId?: string | null;
   linkedApplyTransactionId?: string | null;
+  /** Refund transaction produced when an IPO block is released (allotted or not allotted). */
+  linkedRefundTransactionId?: string | null;
 }
 
 export interface AuthUser {

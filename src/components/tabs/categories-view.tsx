@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Plus, Pencil, Trash2, X, Check } from 'lucide-react';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
@@ -21,7 +22,14 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export function CategoriesView() {
-  const { categories, addCategory, updateCategory, deleteCategory } = useStore();
+  const { categories, addCategory, updateCategory, deleteCategory } = useStore(
+    useShallow((s) => ({
+      categories: s.categories,
+      addCategory: s.addCategory,
+      updateCategory: s.updateCategory,
+      deleteCategory: s.deleteCategory,
+    }))
+  );
   const [activeType, setActiveType] = useState<TransactionType>('expense');
   const [editing, setEditing] = useState<Category | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -29,7 +37,7 @@ export function CategoriesView() {
 
   const expenseCategories = categories.filter((c) => c.type === 'expense' && !c.parentId);
   const incomeCategories = categories.filter((c) => c.type === 'income' && !c.parentId);
-  
+
   const currentCategories = activeType === 'expense' ? expenseCategories : incomeCategories;
 
   const handleDeleteCategory = async () => {
@@ -208,13 +216,12 @@ function CategorySheet({
   onOpenChange: (open: boolean) => void;
   onSave: (data: Omit<Category, 'id' | 'order'>, id?: string) => void | Promise<void>;
 }) {
-  const { categories } = useStore();
+  const categories = useStore((s) => s.categories);
   const formKey = open ? category?.id ?? 'new' : 'closed';
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        
         {/* Fixed Header */}
         <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 border-b border-border/40">
           <h2 className="text-xl font-bold">
@@ -242,7 +249,6 @@ function CategorySheet({
             <Check className="h-4 w-4 mr-1" /> Save
           </Button>
         </div>
-
       </DrawerContent>
     </Drawer>
   );
@@ -284,7 +290,14 @@ function CategoryForm({
   };
 
   return (
-    <form id="category-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex flex-col gap-4">
+    <form
+      id="category-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
       <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/40">
         <div
           className="h-12 w-12 rounded-2xl flex items-center justify-center"
@@ -307,7 +320,10 @@ function CategoryForm({
             <button
               key={t}
               type="button"
-              onClick={() => { setType(t); setParentId(''); }}
+              onClick={() => {
+                setType(t);
+                setParentId('');
+              }}
               className={cn(
                 'flex-1 py-2 rounded-xl text-sm font-medium capitalize transition-all',
                 type === t ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'

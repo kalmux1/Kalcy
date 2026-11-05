@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useShallow } from 'zustand/react/shallow';
 import {
   Plus,
   Pencil,
@@ -52,7 +53,19 @@ export function LendingView() {
     deleteLoan,
     addLoanPayment,
     deleteLoanPayment,
-  } = useStore();
+  } = useStore(
+    useShallow((s) => ({
+      loans: s.loans,
+      loanPayments: s.loanPayments,
+      accounts: s.accounts,
+      preferences: s.preferences,
+      addLoan: s.addLoan,
+      updateLoan: s.updateLoan,
+      deleteLoan: s.deleteLoan,
+      addLoanPayment: s.addLoanPayment,
+      deleteLoanPayment: s.deleteLoanPayment,
+    }))
+  );
 
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Loan | null>(null);
@@ -225,7 +238,7 @@ export function LendingView() {
             setEditing(null);
           } catch (err) {
             console.error(err);
-            toast.error('Failed to save loan');
+            toast.error(err instanceof Error ? err.message : 'Failed to save loan');
           }
         }}
       />
@@ -247,7 +260,7 @@ export function LendingView() {
             toast.success('Payment recorded');
           } catch (err) {
             console.error(err);
-            toast.error('Failed to record payment');
+            toast.error(err instanceof Error ? err.message : 'Failed to record payment');
           }
         }}
         onDeletePayment={(payment) => setPaymentToDelete(payment)}
@@ -437,7 +450,6 @@ function LoanSheet({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        
         {/* Fixed Header */}
         <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 border-b border-border/40">
           <h2 className="text-xl font-bold">
@@ -474,7 +486,6 @@ function LoanSheet({
             <Check className="h-4 w-4 mr-1" /> Save
           </Button>
         </div>
-
       </DrawerContent>
     </Drawer>
   );
@@ -542,7 +553,14 @@ function LoanForm({
   };
 
   return (
-    <form id="loan-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex flex-col gap-4">
+    <form
+      id="loan-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
       <div className="flex gap-2 p-1 bg-muted rounded-2xl max-w-sm">
         {(['lent', 'borrowed'] as LoanType[]).map((t) => (
           <button
@@ -603,7 +621,11 @@ function LoanForm({
             <SelectValue placeholder="Select account" />
           </SelectTrigger>
           <SelectContent>
-            {accounts.length === 0 && <SelectItem value="none" disabled>No accounts</SelectItem>}
+            {accounts.length === 0 && (
+              <SelectItem value="none" disabled>
+                No accounts
+              </SelectItem>
+            )}
             {accounts.map((a) => (
               <SelectItem key={a.id} value={a.id}>
                 {a.name}

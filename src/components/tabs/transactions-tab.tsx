@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft,
@@ -47,7 +48,14 @@ function getGreeting(): string {
 }
 
 export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
-  const { transactions, accounts, preferences, deleteTransaction } = useStore();
+  const { transactions, accounts, preferences, deleteTransaction } = useStore(
+    useShallow((s) => ({
+      transactions: s.transactions,
+      accounts: s.accounts,
+      preferences: s.preferences,
+      deleteTransaction: s.deleteTransaction,
+    }))
+  );
   const user = useStore((s) => s.user);
   const [viewMode, setViewMode] = useState<ViewMode>('daily');
   const [selectedMonth, setSelectedMonth] = useState(() => new Date());
@@ -592,16 +600,12 @@ function SummaryView({
   const monthYear = monthYearKey(selectedMonth.getTime());
   const totals = getMonthlyTotals(transactions, monthYear);
 
-  // ✅ Bug #6 — net worth now matches the Accounts tab exactly.
-  //    netWorth = cash + investments + loans
+  // netWorth = cash + investments + loans (matches the Accounts tab exactly)
   const cashNet = getTotalBalance(accounts);
   const investNet = getInvestmentsNetWorth(investments);
   const loansNet = getLoansNetWorth(loans);
   const netWorth = cashNet + investNet + loansNet;
 
-  // Assets / Liabilities must reconcile with the net worth above:
-  //   assets − liabilities = (cashPos − cashNeg) + invest + loansNet
-  //                        = cashNet + invest + loansNet = netWorth
   const positiveCash = accounts
     .filter((a) => a.isIncludedInTotal && a.balance > 0)
     .reduce((s, a) => s + a.balance, 0);
