@@ -214,22 +214,35 @@ function CategorySheet({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 flex items-center justify-between border-b border-border/40">
+        
+        {/* Fixed Header */}
+        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 border-b border-border/40">
           <h2 className="text-xl font-bold">
             {category ? 'Edit Category' : 'New Category'}
           </h2>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4 pb-32">
+        {/* Scrollable Content */}
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4 pb-6">
           <CategoryForm
             key={formKey}
             initial={category}
             defaultType={defaultType}
             categories={categories}
-            onCancel={() => onOpenChange(false)}
             onSubmit={(data) => onSave(data, category?.id)}
           />
         </div>
+
+        {/* Fixed Footer */}
+        <div className="shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t border-border/40 flex gap-2">
+          <Button type="button" variant="outline" className="flex-1 rounded-xl h-11" onClick={() => onOpenChange(false)}>
+            <X className="h-4 w-4 mr-1" /> Cancel
+          </Button>
+          <Button type="submit" form="category-form" className="flex-1 rounded-xl h-11">
+            <Check className="h-4 w-4 mr-1" /> Save
+          </Button>
+        </div>
+
       </DrawerContent>
     </Drawer>
   );
@@ -239,13 +252,11 @@ function CategoryForm({
   initial,
   defaultType,
   categories,
-  onCancel,
   onSubmit,
 }: {
   initial: Category | null;
   defaultType: TransactionType;
   categories: Category[];
-  onCancel: () => void;
   onSubmit: (data: Omit<Category, 'id' | 'order'>) => void;
 }) {
   const [type, setType] = useState<TransactionType>(initial?.type ?? defaultType);
@@ -273,7 +284,7 @@ function CategoryForm({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <form id="category-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex flex-col gap-4">
       <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/40">
         <div
           className="h-12 w-12 rounded-2xl flex items-center justify-center"
@@ -373,15 +384,6 @@ function CategoryForm({
           ))}
         </div>
       </div>
-
-      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t flex gap-2">
-        <Button type="button" variant="outline" className="flex-1 rounded-xl" onClick={onCancel}>
-          <X className="h-4 w-4 mr-1" /> Cancel
-        </Button>
-        <Button type="button" className="flex-1 rounded-xl" onClick={handleSubmit}>
-          <Check className="h-4 w-4 mr-1" /> Save
-        </Button>
-      </div>
-    </div>
+    </form>
   );
 }

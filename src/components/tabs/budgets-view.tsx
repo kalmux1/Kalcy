@@ -346,13 +346,16 @@ function BudgetSheet({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6">
+        
+        {/* Fixed Header */}
+        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 border-b border-border/40">
           <h2 className="text-xl font-bold">
             {budget ? 'Edit Budget' : 'New Budget'}
           </h2>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4">
+        {/* Scrollable Content */}
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4 pb-6">
           <BudgetForm
             key={formKey}
             initialAmount={budget?.amount ?? 0}
@@ -360,7 +363,6 @@ function BudgetSheet({
             initialCarryOver={budget?.carryOver ?? false}
             currencySymbol={preferences.currencySymbol}
             categories={categories}
-            onCancel={() => onOpenChange(false)}
             onSubmit={(data) =>
               onSave(
                 {
@@ -373,6 +375,26 @@ function BudgetSheet({
             }
           />
         </div>
+
+        {/* Fixed Footer */}
+        <div className="shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t border-border/40 flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1 rounded-xl h-11"
+            onClick={() => onOpenChange(false)}
+          >
+            <X className="h-4 w-4 mr-1" /> Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="budget-form"
+            className="flex-1 rounded-xl h-11"
+          >
+            <Check className="h-4 w-4 mr-1" /> Save
+          </Button>
+        </div>
+
       </DrawerContent>
     </Drawer>
   );
@@ -384,7 +406,6 @@ function BudgetForm({
   initialCarryOver,
   currencySymbol,
   categories,
-  onCancel,
   onSubmit,
 }: {
   initialAmount: number;
@@ -392,7 +413,6 @@ function BudgetForm({
   initialCarryOver: boolean;
   currencySymbol: string;
   categories: Category[];
-  onCancel: () => void;
   onSubmit: (data: {
     amount: number;
     categoryId: string | null;
@@ -417,7 +437,7 @@ function BudgetForm({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <form id="budget-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex flex-col gap-4">
       <div>
         <Label className="text-xs text-muted-foreground">
           Budget for Category
@@ -488,24 +508,6 @@ function BudgetForm({
         </div>
         <Switch checked={carryOver} onCheckedChange={setCarryOver} />
       </div>
-
-      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t flex gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="flex-1 rounded-xl"
-          onClick={onCancel}
-        >
-          <X className="h-4 w-4 mr-1" /> Cancel
-        </Button>
-        <Button
-          type="button"
-          className="flex-1 rounded-xl"
-          onClick={handleSubmit}
-        >
-          <Check className="h-4 w-4 mr-1" /> Save
-        </Button>
-      </div>
-    </div>
+    </form>
   );
 }

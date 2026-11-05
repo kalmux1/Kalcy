@@ -437,21 +437,44 @@ function LoanSheet({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6">
+        
+        {/* Fixed Header */}
+        <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 border-b border-border/40">
           <h2 className="text-xl font-bold">
             {loan ? 'Edit Loan' : 'New Loan'}
           </h2>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4">
+
+        {/* Scrollable Content */}
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4 pb-6">
           <LoanForm
             key={formKey}
             initial={loan}
             currencySymbol={preferences.currencySymbol}
             accounts={accounts}
-            onCancel={() => onOpenChange(false)}
             onSubmit={(data) => onSave(data, loan?.id)}
           />
         </div>
+
+        {/* Fixed Footer */}
+        <div className="shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t border-border/40 flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1 rounded-xl h-11"
+            onClick={() => onOpenChange(false)}
+          >
+            <X className="h-4 w-4 mr-1" /> Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="loan-form"
+            className="flex-1 rounded-xl h-11"
+          >
+            <Check className="h-4 w-4 mr-1" /> Save
+          </Button>
+        </div>
+
       </DrawerContent>
     </Drawer>
   );
@@ -461,13 +484,11 @@ function LoanForm({
   initial,
   currencySymbol,
   accounts,
-  onCancel,
   onSubmit,
 }: {
   initial: Loan | null;
   currencySymbol: string;
   accounts: ReturnType<typeof useStore.getState>['accounts'];
-  onCancel: () => void;
   onSubmit: (data: LoanFormData) => void;
 }) {
   const [type, setType] = useState<LoanType>(initial?.type ?? 'lent');
@@ -521,7 +542,7 @@ function LoanForm({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <form id="loan-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex flex-col gap-4">
       <div className="flex gap-2 p-1 bg-muted rounded-2xl max-w-sm">
         {(['lent', 'borrowed'] as LoanType[]).map((t) => (
           <button
@@ -622,25 +643,7 @@ function LoanForm({
           className="mt-1 rounded-xl"
         />
       </div>
-
-      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t flex gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="flex-1 rounded-xl"
-          onClick={onCancel}
-        >
-          <X className="h-4 w-4 mr-1" /> Cancel
-        </Button>
-        <Button
-          type="button"
-          className="flex-1 rounded-xl"
-          onClick={handleSubmit}
-        >
-          <Check className="h-4 w-4 mr-1" /> Save
-        </Button>
-      </div>
-    </div>
+    </form>
   );
 }
 
