@@ -10,6 +10,13 @@ Setup:
      invite-only by virtue of Firebase Auth itself.)
   3. Optional cleanup (destructive, wipes all data after each test):
          KALCY_CLEANUP=1
+
+Note:
+  Balances are **hidden by default** (`hideBalances: true` in the store).
+  The `authenticated_page` fixture reveals them once per session; helpers
+  that read balances (`read_net_worth`, `read_total_balance`,
+  `read_card_balances`) also call `_reveal_balances` defensively so they
+  remain correct if called after a page reload resets the flag.
 """
 from __future__ import annotations
 
@@ -101,7 +108,7 @@ def browser_context_args(browser_context_args):
 
 @pytest.fixture
 def authenticated_page(page: Page) -> Iterator[Page]:
-    """Sign in and wait for the authenticated app shell to mount."""
+    """Sign in, wait for the shell to mount, then reveal balances."""
     page.goto(BASE_URL)
     page.fill('input[type="email"]', TEST_EMAIL)
     page.fill('input[type="password"]', TEST_PASSWORD)
@@ -117,6 +124,9 @@ def authenticated_page(page: Page) -> Iterator[Page]:
     while elapsed_ms < deadline_ms:
         if fab.count() > 0 and fab.first.is_visible():
             _ensure_seeded(page)
+            # Balances are hidden by default — reveal them once per session
+            # so balance-reading tests see real numbers.
+            _reveal_balances(page)
             try:
                 yield page
             finally:
@@ -142,6 +152,36 @@ def authenticated_page(page: Page) -> Iterator[Page]:
         f"  Current URL:     {page.url}\n"
         f"  Body text (300): {body_snippet!r}\n"
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Balance visibility helper
+# ═══════════════════════════════════════════════════════════════════════
+
+def _reveal_balances(page: Page) -> None:
+    """Click the eye button if balances are currently hidden.
+
+    Idempotent: when balances are already visible, the app renders an
+    `aria-label="Hide balances"` button and this helper is a no-op.
+    """
+    try:
+        # Close any stray drawer/dialog that might be covering the hero.
+        if page.locator("[data-vaul-drawer]").count() > 0:
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(250)
+        if page.locator('[role="dialog"]').count() > 0:
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(250)
+
+        # Give the active tab's hero a moment to mount after navigation.
+        page.wait_for_timeout(250)
+
+        show_btn = page.locator('button[aria-label="Show balances"]')
+        if show_btn.count() > 0 and show_btn.first.is_visible():
+            show_btn.first.click()
+            page.wait_for_timeout(250)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[reveal_balances] skipped: {exc}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -245,10 +285,8 @@ def save_transaction_sheet(page: Page) -> None:
 def clear_overall_budget(page: Page) -> None:
     """Delete all Overall Budget cards for this month. Idempotent.
 
-    FIX: BudgetsView deletes via Radix ConfirmDialog (role="dialog"),
-    not via a Sonner toast. The previous selector looked for a toast
-    that does not exist, so on any run after the first the helper
-    timed out with "Delete this budget" hidden.
+    BudgetsView deletes via Radix ConfirmDialog (role="dialog"), not via
+    a Sonner toast.
     """
     open_tab(page, "more")
     page.locator('h2:text-is("Monthly Budgets")').first.scroll_into_view_if_needed()
@@ -280,6 +318,7 @@ def clear_overall_budget(page: Page) -> None:
 def read_net_worth(page: Page) -> float:
     """Read the 'Total Net Worth' value shown on the Accounts tab."""
     open_tab(page, "accounts")
+    _reveal_balances(page)
     expect(page.locator('p:text-is("Total Net Worth")')).to_be_visible(
         timeout=15_000
     )
@@ -296,6 +335,7 @@ def read_net_worth(page: Page) -> float:
 def read_total_balance(page: Page) -> float:
     """Read the 'Total Balance' (cash only) value on the Transactions tab."""
     open_tab(page, "transactions")
+    _reveal_balances(page)
     expect(page.locator('p:text-is("Total Balance")')).to_be_visible(
         timeout=15_000
     )
@@ -307,6 +347,34 @@ def read_total_balance(page: Page) -> float:
         .inner_text()
     )
     return parse_currency(text)
+
+
+def read_card_balances(page: Page) -> list[float]:
+    """Read individual account card balances from the Accounts tab.
+
+    Reveals balances first (they may be hidden by default) so each card
+    shows a real number rather than `$••••••`.
+    """
+    open_tab(page, "accounts")
+    _reveal_balances(page)
+    page.wait_for_timeout(500)
+
+    cards = (
+        page.locator("div.bg-card")
+        .filter(has=page.locator('button:text-is("Edit")'))
+        .filter(has=page.locator('button:text-is("Delete")'))
+    )
+
+    balances: list[float] = []
+    for i in range(cards.count()):
+        card = cards.nth(i)
+        if "Excluded from total" in card.inner_text():
+            continue
+        balance_text = card.locator(
+            ".text-lg.font-bold.tabular-nums"
+        ).first.inner_text()
+        balances.append(parse_currency(balance_text))
+    return balances
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -363,12 +431,7 @@ def _ensure_seeded(page: Page) -> None:
 
 
 def _teardown_wipe(page: Page) -> None:
-    """Delete All Data via the app's UI, then re-seed. Best-effort.
-
-    FIX: same as clear_overall_budget — the wipe confirmation is a
-    Radix ConfirmDialog, not a Sonner toast. The previous selector
-    always failed, so KALCY_CLEANUP=1 silently did nothing.
-    """
+    """Delete All Data via the app's UI, then re-seed. Best-effort."""
     try:
         if page.locator("[data-vaul-drawer]").count() > 0:
             page.keyboard.press("Escape")

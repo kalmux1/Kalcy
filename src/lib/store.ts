@@ -218,7 +218,7 @@ export const useStore = create<StoreState>((set, get) => ({
   // FIX: default to false so values are visible out-of-the-box (and the
   // E2E suite can read balances without extra setup). Users can hide via
   // the eye button on any hero card.
-  hideBalances: false,
+  hideBalances: true,
   accounts: [],
   categories: [],
   transactions: [],

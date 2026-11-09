@@ -13,9 +13,9 @@ from conftest import (
     enter_numpad_amount,
     open_tab,
     open_transaction_sheet,
-    parse_currency,
     pick_account,
     pick_category,
+    read_card_balances,
     read_total_balance,
     save_transaction_sheet,
     set_note,
@@ -39,7 +39,9 @@ def test_data_persistence_after_reload(authenticated_page: Page):
 
     expect(page.locator(f"text={note}")).to_be_visible(timeout=15_000)
 
-    # Hard reload — Firestore SDK rehydrates from IndexedDB + network
+    # Hard reload — Firestore SDK rehydrates from IndexedDB + network.
+    # Note: `hideBalances` resets to hidden after reload; that's fine here
+    # because this test only checks a transaction note, not a balance.
     page.reload()
     expect(page.locator('button[aria-label="Trans"]')).to_be_visible(
         timeout=25_000
@@ -52,34 +54,13 @@ def test_data_persistence_after_reload(authenticated_page: Page):
 def test_balance_reconciliation(authenticated_page: Page):
     """Sum of included account balances must equal Total Balance.
 
-    This replaces the empty 'bank reconciliation' stub. Kalcy has no
-    Bank of Baroda integration — this asserts internal consistency of
-    the app's own balance arithmetic.
+    Asserts internal consistency of the app's own balance arithmetic.
+    `read_card_balances` reveals balances first (the app hides them by
+    default) so every card shows a real number.
     """
     page = authenticated_page
 
-    open_tab(page, "accounts")
-    expect(page.locator('button:text-is("Invest")')).to_be_visible(
-        timeout=15_000
-    )
-    page.wait_for_timeout(1_500)  # let Firestore snapshots settle
-
-    cards = page.locator("div.bg-card").filter(
-        has=page.locator('button:text-is("Edit")')
-    ).filter(
-        has=page.locator('button:text-is("Delete")')
-    )
-
-    balances = []
-    for i in range(cards.count()):
-        card = cards.nth(i)
-        if "Excluded from total" in card.inner_text():
-            continue
-        balance_text = card.locator(
-            ".text-lg.font-bold.tabular-nums"
-        ).first.inner_text()
-        balances.append(parse_currency(balance_text))
-
+    balances = read_card_balances(page)
     expected = round(sum(balances), 2)
     displayed = round(read_total_balance(page), 2)
 
