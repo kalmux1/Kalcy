@@ -35,6 +35,34 @@ import { formatCurrency } from '@/lib/currencies';
 import { getLoansSummary, formatDateKey, toDateInputValue } from '@/lib/finance';
 import { toast } from 'sonner';
 
+/* ─── Custom Aesthetic Eye Icons ─── */
+function OpenEyeIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M7 4.5L5.5 2" />
+      <path d="M12 4V1.5" />
+      <path d="M17 4.5L18.5 2" />
+      <path d="M3 7L1 5" />
+      <path d="M21 7L23 5" />
+    </svg>
+  );
+}
+
+function ClosedEyeIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 10c4 4 16 4 20 0" />
+      <path d="M4 12L2 14" />
+      <path d="M8 14L7 17" />
+      <path d="M12 15V18" />
+      <path d="M16 14L17 17" />
+      <path d="M20 12L22 14" />
+    </svg>
+  );
+}
+
 const formatLedgerDate = (ts: number) =>
   new Date(ts).toLocaleDateString('en-US', {
     month: 'short',
@@ -53,6 +81,8 @@ export function LendingView() {
     deleteLoan,
     addLoanPayment,
     deleteLoanPayment,
+    hideBalances,
+    toggleHideBalances,
   } = useStore(
     useShallow((s) => ({
       loans: s.loans,
@@ -64,6 +94,8 @@ export function LendingView() {
       deleteLoan: s.deleteLoan,
       addLoanPayment: s.addLoanPayment,
       deleteLoanPayment: s.deleteLoanPayment,
+      hideBalances: s.hideBalances,
+      toggleHideBalances: s.toggleHideBalances,
     }))
   );
 
@@ -114,37 +146,64 @@ export function LendingView() {
 
   return (
     <div className="flex flex-col gap-4 md:gap-6">
-      <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20">
-        <div className="flex items-center gap-2 mb-2">
-          <HandCoins className="h-5 w-5" />
-          <span className="text-sm font-medium opacity-90">
-            Lending Overview
-          </span>
-        </div>
-        <p className="text-3xl md:text-5xl font-bold tabular-nums">
-          {summary.netReceivable >= 0 ? '+' : ''}
-          {formatCurrency(summary.netReceivable, preferences.currencySymbol)}
-        </p>
-        <p className="text-xs md:text-sm opacity-75 mt-1">Net position</p>
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20">
+        
+        {/* Absolute Right Eye Icon */}
+        <button
+          type="button"
+          onClick={toggleHideBalances}
+          className="absolute right-4 top-4 md:right-6 md:top-6 p-2 rounded-full hover:bg-white/10 transition-all active:scale-95 z-10 outline-none focus:outline-none"
+          aria-label={hideBalances ? 'Show balances' : 'Hide balances'}
+        >
+          {hideBalances ? (
+            <ClosedEyeIcon className="h-6 w-6 md:h-8 md:w-8 text-white/80 hover:text-white transition-colors" />
+          ) : (
+            <OpenEyeIcon className="h-6 w-6 md:h-8 md:w-8 text-white hover:text-primary-foreground transition-colors" />
+          )}
+        </button>
 
-        <div className="grid grid-cols-2 gap-4 mt-4 md:mt-6 md:max-w-md">
-          <div className="rounded-2xl bg-white/15 p-3 md:p-4">
-            <div className="flex items-center gap-1.5 mb-1">
-              <ArrowDownLeft className="h-3.5 w-3.5" />
-              <span className="text-xs opacity-90">Owed to you</span>
-            </div>
-            <p className="text-base md:text-xl font-bold tabular-nums">
-              {formatCurrency(summary.totalLent, preferences.currencySymbol)}
-            </p>
+        <div className="relative">
+          <div className="flex items-center gap-2 mb-2">
+            <HandCoins className="h-5 w-5" />
+            <span className="text-sm font-medium opacity-90">
+              Lending Overview
+            </span>
           </div>
-          <div className="rounded-2xl bg-white/15 p-3 md:p-4">
-            <div className="flex items-center gap-1.5 mb-1">
-              <ArrowUpRight className="h-3.5 w-3.5" />
-              <span className="text-xs opacity-90">You owe</span>
+          <p className="text-3xl md:text-5xl font-bold tabular-nums">
+            {hideBalances ? (
+              `${preferences.currencySymbol}••••••`
+            ) : (
+              <>
+                {summary.netReceivable >= 0 ? '+' : ''}
+                {formatCurrency(summary.netReceivable, preferences.currencySymbol)}
+              </>
+            )}
+          </p>
+          <p className="text-xs md:text-sm opacity-75 mt-1">Net position</p>
+
+          <div className="grid grid-cols-2 gap-4 mt-4 md:mt-6 md:max-w-md">
+            <div className="rounded-2xl bg-white/15 p-3 md:p-4">
+              <div className="flex items-center gap-1.5 mb-1">
+                <ArrowDownLeft className="h-3.5 w-3.5" />
+                <span className="text-xs opacity-90">Owed to you</span>
+              </div>
+              <p className="text-base md:text-xl font-bold tabular-nums">
+                {hideBalances
+                  ? `${preferences.currencySymbol}••••••`
+                  : formatCurrency(summary.totalLent, preferences.currencySymbol)}
+              </p>
             </div>
-            <p className="text-base md:text-xl font-bold tabular-nums">
-              {formatCurrency(summary.totalBorrowed, preferences.currencySymbol)}
-            </p>
+            <div className="rounded-2xl bg-white/15 p-3 md:p-4">
+              <div className="flex items-center gap-1.5 mb-1">
+                <ArrowUpRight className="h-3.5 w-3.5" />
+                <span className="text-xs opacity-90">You owe</span>
+              </div>
+              <p className="text-base md:text-xl font-bold tabular-nums">
+                {hideBalances
+                  ? `${preferences.currencySymbol}••••••`
+                  : formatCurrency(summary.totalBorrowed, preferences.currencySymbol)}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -181,6 +240,7 @@ export function LendingView() {
                     key={loan.id}
                     loan={loan}
                     currencySymbol={preferences.currencySymbol}
+                    hideBalances={hideBalances}
                     onClick={() => handleCardClick(loan)}
                     onEdit={() => setEditing(loan)}
                     onDelete={() => setLoanToDelete(loan)}
@@ -203,6 +263,7 @@ export function LendingView() {
                     key={loan.id}
                     loan={loan}
                     currencySymbol={preferences.currencySymbol}
+                    hideBalances={hideBalances}
                     onClick={() => handleCardClick(loan)}
                     onEdit={() => setEditing(loan)}
                     onDelete={() => setLoanToDelete(loan)}
@@ -248,6 +309,7 @@ export function LendingView() {
         loanId={detailId}
         initialAdding={autoAddPayment}
         payments={loanPayments}
+        hideBalances={hideBalances}
         onOpenChange={(open) => {
           if (!open) {
             setDetailId(null);
@@ -290,6 +352,7 @@ export function LendingView() {
 function LoanCard({
   loan,
   currencySymbol,
+  hideBalances,
   onClick,
   onEdit,
   onDelete,
@@ -298,6 +361,7 @@ function LoanCard({
 }: {
   loan: Loan;
   currencySymbol: string;
+  hideBalances: boolean;
   onClick: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -364,10 +428,12 @@ function LoanCard({
                 isLent ? 'text-income' : 'text-expense'
               )}
             >
-              {formatCurrency(loan.remainingAmount, currencySymbol)}
+              {hideBalances
+                ? `${currencySymbol}••••••`
+                : formatCurrency(loan.remainingAmount, currencySymbol)}
               <span className="text-xs text-muted-foreground font-normal">
                 {' '}
-                / {formatCurrency(loan.principalAmount, currencySymbol)}
+                / {hideBalances ? `${currencySymbol}••••••` : formatCurrency(loan.principalAmount, currencySymbol)}
               </span>
             </p>
           </div>
@@ -450,14 +516,12 @@ function LoanSheet({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        {/* Fixed Header */}
         <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 border-b border-border/40">
           <h2 className="text-xl font-bold">
             {loan ? 'Edit Loan' : 'New Loan'}
           </h2>
         </div>
 
-        {/* Scrollable Content */}
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4 pb-6">
           <LoanForm
             key={formKey}
@@ -468,7 +532,6 @@ function LoanSheet({
           />
         </div>
 
-        {/* Fixed Footer */}
         <div className="shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t border-border/40 flex gap-2">
           <Button
             type="button"
@@ -673,6 +736,7 @@ function LoanDetailSheet({
   loanId,
   initialAdding = false,
   payments,
+  hideBalances,
   onOpenChange,
   onAddPayment,
   onDeletePayment,
@@ -680,6 +744,7 @@ function LoanDetailSheet({
   loanId: string | null;
   initialAdding?: boolean;
   payments: ReturnType<typeof useStore.getState>['loanPayments'];
+  hideBalances: boolean;
   onOpenChange: (open: boolean) => void;
   onAddPayment: (data: {
     loanId: string;
@@ -813,10 +878,12 @@ function LoanDetailSheet({
                         : 'text-muted-foreground'
                     )}
                   >
-                    {formatCurrency(
-                      liveLoan.remainingAmount,
-                      preferences.currencySymbol
-                    )}
+                    {hideBalances
+                      ? `${preferences.currencySymbol}••••••`
+                      : formatCurrency(
+                          liveLoan.remainingAmount,
+                          preferences.currencySymbol
+                        )}
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between mt-1">
@@ -824,10 +891,12 @@ function LoanDetailSheet({
                     Principal
                   </span>
                   <span className="text-sm tabular-nums text-muted-foreground">
-                    {formatCurrency(
-                      liveLoan.principalAmount,
-                      preferences.currencySymbol
-                    )}
+                    {hideBalances
+                      ? `${preferences.currencySymbol}••••••`
+                      : formatCurrency(
+                          liveLoan.principalAmount,
+                          preferences.currencySymbol
+                        )}
                   </span>
                 </div>
 
@@ -843,11 +912,16 @@ function LoanDetailSheet({
                 <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
                   <span>
                     {paidPercent.toFixed(0)}% repaid ·{' '}
-                    {formatCurrency(totalPaid, preferences.currencySymbol)} of{' '}
-                    {formatCurrency(
-                      liveLoan.principalAmount,
-                      preferences.currencySymbol
-                    )}
+                    {hideBalances
+                      ? `${preferences.currencySymbol}••••••`
+                      : formatCurrency(totalPaid, preferences.currencySymbol)}{' '}
+                    of{' '}
+                    {hideBalances
+                      ? `${preferences.currencySymbol}••••••`
+                      : formatCurrency(
+                          liveLoan.principalAmount,
+                          preferences.currencySymbol
+                        )}
                   </span>
                   {liveLoan.dueDate && (
                     <span className="flex items-center gap-1">
@@ -1019,11 +1093,9 @@ function LoanDetailSheet({
                         isLent ? 'text-expense' : 'text-income'
                       )}
                     >
-                      {isLent ? '−' : '+'}
-                      {formatCurrency(
-                        liveLoan.principalAmount,
-                        preferences.currencySymbol
-                      )}
+                      {hideBalances
+                        ? `${preferences.currencySymbol}••••••`
+                        : `${isLent ? '−' : '+'}${formatCurrency(liveLoan.principalAmount, preferences.currencySymbol)}`}
                     </span>
                   </div>
 
@@ -1051,11 +1123,9 @@ function LoanDetailSheet({
                               isLent ? 'text-income' : 'text-expense'
                             )}
                           >
-                            {isLent ? '+' : '−'}
-                            {formatCurrency(
-                              p.amount,
-                              preferences.currencySymbol
-                            )}
+                            {hideBalances
+                              ? `${preferences.currencySymbol}••••••`
+                              : `${isLent ? '+' : '−'}${formatCurrency(p.amount, preferences.currencySymbol)}`}
                           </span>
                           <button
                             type="button"
@@ -1091,10 +1161,9 @@ function LoanDetailSheet({
                         : 'text-muted-foreground'
                     )}
                   >
-                    {formatCurrency(
-                      liveLoan.remainingAmount,
-                      preferences.currencySymbol
-                    )}
+                    {hideBalances
+                      ? `${preferences.currencySymbol}••••••`
+                      : formatCurrency(liveLoan.remainingAmount, preferences.currencySymbol)}
                   </span>
                 </div>
               </div>

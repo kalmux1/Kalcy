@@ -231,20 +231,18 @@ export function AccountsTab() {
         <>
           <div className="px-4 md:px-8">
             <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20 w-full">
-              <div className="absolute -top-8 -right-8 h-32 w-32 rounded-full bg-white/10 pointer-events-none" />
-              <div className="absolute -bottom-12 -left-4 h-24 w-24 rounded-full bg-white/5 pointer-events-none" />
-
-              {/* Absolute Right Eye Icon */}
+              
+              {/* Absolute Right Eye Icon - No Background/Circle */}
               <button
                 type="button"
                 onClick={toggleHideBalances}
-                className="absolute right-4 top-4 md:right-6 md:top-6 p-2 rounded-full hover:bg-white/10 transition-colors active:scale-95 z-10"
+                className="absolute right-4 top-4 md:right-6 md:top-6 p-2 rounded-full hover:bg-white/10 transition-all active:scale-95 z-10 outline-none focus:outline-none"
                 aria-label={hideBalances ? 'Show balances' : 'Hide balances'}
               >
                 {hideBalances ? (
-                  <ClosedEyeIcon className="h-6 w-6 text-white/70 hover:text-white transition-colors" />
+                  <ClosedEyeIcon className="h-6 w-6 md:h-8 md:w-8 text-white/80 hover:text-white transition-colors" />
                 ) : (
-                  <OpenEyeIcon className="h-6 w-6 text-white hover:text-primary-foreground transition-colors" />
+                  <OpenEyeIcon className="h-6 w-6 md:h-8 md:w-8 text-white hover:text-primary-foreground transition-colors" />
                 )}
               </button>
 

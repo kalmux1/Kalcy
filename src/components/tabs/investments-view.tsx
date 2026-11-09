@@ -29,20 +29,38 @@ import {
 } from '@/lib/finance';
 import { toast } from 'sonner';
 
+/* ─── Custom Aesthetic Eye Icons ─── */
+function OpenEyeIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M7 4.5L5.5 2" />
+      <path d="M12 4V1.5" />
+      <path d="M17 4.5L18.5 2" />
+      <path d="M3 7L1 5" />
+      <path d="M21 7L23 5" />
+    </svg>
+  );
+}
+
+function ClosedEyeIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 10c4 4 16 4 20 0" />
+      <path d="M4 12L2 14" />
+      <path d="M8 14L7 17" />
+      <path d="M12 15V18" />
+      <path d="M16 14L17 17" />
+      <path d="M20 12L22 14" />
+    </svg>
+  );
+}
+
 const TYPE_META = Object.fromEntries(
   INVESTMENT_TYPES.map((t) => [t.value, t])
 ) as Record<InvestmentType, (typeof INVESTMENT_TYPES)[number]>;
 
-/**
- * ── §1.2 (UI side) ────────────────────────────────────────────────────────
- * Which IPO statuses the form may offer, keyed by the investment's *current*
- * status. Mirrors VALID_INVESTMENT_TRANSITIONS in store.ts so the UI never
- * offers a transition the store will reject. A new IPO (no existing record)
- * starts in `applied`, so it may be created as applied / allotted / not-allotted
- * — but never as `sold` (a sold IPO needs a buy price and buy date, which
- * only exist after allotment).
- * ─────────────────────────────────────────────────────────────────────────
- */
 const IPO_STATUS_OPTIONS: Record<InvestmentStatus, InvestmentStatus[]> = {
   applied: ['applied', 'active', 'not_allotted'],
   active: ['active', 'sold'],
@@ -54,6 +72,7 @@ export function InvestmentsView() {
   const {
     investments, accounts, preferences, addInvestment, updateInvestment,
     updateInvestmentPrice, sellInvestment, deleteInvestment,
+    hideBalances, toggleHideBalances,
   } = useStore(
     useShallow((s) => ({
       investments: s.investments,
@@ -64,6 +83,8 @@ export function InvestmentsView() {
       updateInvestmentPrice: s.updateInvestmentPrice,
       sellInvestment: s.sellInvestment,
       deleteInvestment: s.deleteInvestment,
+      hideBalances: s.hideBalances,
+      toggleHideBalances: s.toggleHideBalances,
     }))
   );
 
@@ -96,40 +117,73 @@ export function InvestmentsView() {
 
   return (
     <div className="flex flex-col gap-4 md:gap-6">
-      <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20">
-        <div className="flex items-center gap-2 mb-2">
-          <LineChartIcon className="h-5 w-5" />
-          <span className="text-sm font-medium opacity-90">Portfolio Value</span>
-        </div>
-        <p className="text-3xl md:text-5xl font-bold tabular-nums">
-          {formatCurrency(summary.currentValue, preferences.currencySymbol)}
-        </p>
-        <p className="text-xs md:text-sm opacity-75 mt-2 flex items-center gap-1.5">
-          {isPositive ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
-          {isPositive ? '+' : ''}
-          {formatCurrency(summary.unrealizedPnl, preferences.currencySymbol)} (
-          {summary.totalPnlPercent >= 0 ? '+' : ''}
-          {summary.totalPnlPercent.toFixed(2)}%) unrealized
-        </p>
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20">
+        
+        {/* Absolute Right Eye Icon */}
+        <button
+          type="button"
+          onClick={toggleHideBalances}
+          className="absolute right-4 top-4 md:right-6 md:top-6 p-2 rounded-full hover:bg-white/10 transition-all active:scale-95 z-10 outline-none focus:outline-none"
+          aria-label={hideBalances ? 'Show balances' : 'Hide balances'}
+        >
+          {hideBalances ? (
+            <ClosedEyeIcon className="h-6 w-6 md:h-8 md:w-8 text-white/80 hover:text-white transition-colors" />
+          ) : (
+            <OpenEyeIcon className="h-6 w-6 md:h-8 md:w-8 text-white hover:text-primary-foreground transition-colors" />
+          )}
+        </button>
 
-        <div className="grid grid-cols-2 gap-4 mt-6 md:max-w-md">
-          <div className="rounded-2xl bg-white/15 p-3 md:p-4">
-            <span className="text-xs opacity-90">Invested</span>
-            <p className="text-base md:text-xl font-bold tabular-nums">
-              {formatCurrency(summary.totalInvested, preferences.currencySymbol)}
-            </p>
+        <div className="relative">
+          <div className="flex items-center gap-2 mb-2">
+            <LineChartIcon className="h-5 w-5" />
+            <span className="text-sm font-medium opacity-90">Portfolio Value</span>
           </div>
-          <div className="rounded-2xl bg-white/15 p-3 md:p-4">
-            <span className="text-xs opacity-90">Realized P&amp;L</span>
-            <p
-              className={cn(
-                'text-base md:text-xl font-bold tabular-nums',
-                realizedPositive ? 'text-white' : 'text-white/80'
-              )}
-            >
-              {realizedPositive ? '+' : ''}
-              {formatCurrency(summary.realizedPnl, preferences.currencySymbol)}
-            </p>
+          <p className="text-3xl md:text-5xl font-bold tabular-nums">
+            {hideBalances
+              ? `${preferences.currencySymbol}••••••`
+              : formatCurrency(summary.currentValue, preferences.currencySymbol)}
+          </p>
+          <p className="text-xs md:text-sm opacity-75 mt-2 flex items-center gap-1.5">
+            {isPositive ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+            {hideBalances ? (
+              `${preferences.currencySymbol}•••••• unrealized`
+            ) : (
+              <>
+                {isPositive ? '+' : ''}
+                {formatCurrency(summary.unrealizedPnl, preferences.currencySymbol)} (
+                {summary.totalPnlPercent >= 0 ? '+' : ''}
+                {summary.totalPnlPercent.toFixed(2)}%) unrealized
+              </>
+            )}
+          </p>
+
+          <div className="grid grid-cols-2 gap-4 mt-6 md:max-w-md">
+            <div className="rounded-2xl bg-white/15 p-3 md:p-4">
+              <span className="text-xs opacity-90">Invested</span>
+              <p className="text-base md:text-xl font-bold tabular-nums">
+                {hideBalances
+                  ? `${preferences.currencySymbol}••••••`
+                  : formatCurrency(summary.totalInvested, preferences.currencySymbol)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white/15 p-3 md:p-4">
+              <span className="text-xs opacity-90">Realized P&amp;L</span>
+              <p
+                className={cn(
+                  'text-base md:text-xl font-bold tabular-nums',
+                  realizedPositive ? 'text-white' : 'text-white/80'
+                )}
+              >
+                {hideBalances ? (
+                  `${preferences.currencySymbol}••••••`
+                ) : (
+                  <>
+                    {realizedPositive ? '+' : ''}
+                    {formatCurrency(summary.realizedPnl, preferences.currencySymbol)}
+                  </>
+                )}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -153,7 +207,9 @@ export function InvestmentsView() {
                     <div className="flex justify-between">
                       <span className="text-xs md:text-sm font-medium">{meta.label}</span>
                       <span className="text-xs md:text-sm font-semibold tabular-nums">
-                        {formatCurrency(value, preferences.currencySymbol)}
+                        {hideBalances
+                          ? `${preferences.currencySymbol}••••••`
+                          : formatCurrency(value, preferences.currencySymbol)}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 mt-1.5">
@@ -190,7 +246,7 @@ export function InvestmentsView() {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">IPO Applied ({applied.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {applied.map((inv, i) => (
-                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={i * 0.04} />
+                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} hideBalances={hideBalances} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={i * 0.04} />
                 ))}
               </div>
             </div>
@@ -201,7 +257,7 @@ export function InvestmentsView() {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">Active ({active.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {active.map((inv, i) => (
-                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={i * 0.04} />
+                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} hideBalances={hideBalances} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={i * 0.04} />
                 ))}
               </div>
             </div>
@@ -212,7 +268,7 @@ export function InvestmentsView() {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">Sold ({sold.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {sold.map((inv) => (
-                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={0} />
+                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} hideBalances={hideBalances} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={0} />
                 ))}
               </div>
             </div>
@@ -223,7 +279,7 @@ export function InvestmentsView() {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase px-1">Not Allotted ({notAllotted.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                 {notAllotted.map((inv) => (
-                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={0} />
+                  <InvestmentCard key={inv.id} investment={inv} currencySymbol={preferences.currencySymbol} hideBalances={hideBalances} onClick={() => setDetailId(inv.id)} onEdit={() => setEditing(inv)} onDelete={() => setInvestmentToDelete(inv)} delay={0} />
                 ))}
               </div>
             </div>
@@ -256,6 +312,7 @@ export function InvestmentsView() {
       <InvestmentDetailSheet
         key={detailId ?? 'closed'}
         investmentId={detailId}
+        hideBalances={hideBalances}
         onOpenChange={(open) => { if (!open) setDetailId(null); }}
         onUpdatePrice={async (id, price) => {
           try {
@@ -290,10 +347,11 @@ export function InvestmentsView() {
 }
 
 function InvestmentCard({
-  investment, currencySymbol, onClick, onEdit, onDelete, delay,
+  investment, currencySymbol, hideBalances, onClick, onEdit, onDelete, delay,
 }: {
   investment: Investment;
   currencySymbol: string;
+  hideBalances: boolean;
   onClick: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -335,16 +393,22 @@ function InvestmentCard({
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               {investment.symbol || meta.label}
-              {!isApplied && !isNotAllotted && ` · ${investment.units} units @ ${formatCurrency(investment.buyPrice, currencySymbol)}`}
+              {!isApplied && !isNotAllotted && ` · ${investment.units} units @ ${hideBalances ? `${currencySymbol}••••` : formatCurrency(investment.buyPrice, currencySymbol)}`}
             </p>
             <p className="text-base font-bold tabular-nums mt-1">
-              {isApplied ? `Blocked: ${formatCurrency(investment.appliedAmount || 0, currencySymbol)}`
-               : isNotAllotted ? 'Refunded'
-               : formatCurrency(displayValue, currencySymbol)}
+              {hideBalances ? (
+                `${currencySymbol}••••••`
+              ) : isApplied ? (
+                `Blocked: ${formatCurrency(investment.appliedAmount || 0, currencySymbol)}`
+              ) : isNotAllotted ? (
+                'Refunded'
+              ) : (
+                formatCurrency(displayValue, currencySymbol)
+              )}
             </p>
           </div>
 
-          {!isApplied && !isNotAllotted && (
+          {!isApplied && !isNotAllotted && !hideBalances && (
             <div className="flex flex-col items-end gap-1">
               <span className={cn('text-xs font-semibold tabular-nums flex items-center gap-0.5', isPositive ? 'text-income' : 'text-expense')}>
                 {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
@@ -466,10 +530,6 @@ function InvestmentForm({
 
   const totalCost = (parseFloat(units) || 0) * (parseFloat(buyPrice) || 0);
 
-  // ── §1.2 UI restrictions ─────────────────────────────────────────────
-  // Show only the statuses the state machine will accept. For a *new* IPO
-  // (no existing record) the base state is "applied".
-  // ─────────────────────────────────────────────────────────────────────
   const allowedStatuses: InvestmentStatus[] = initial
     ? IPO_STATUS_OPTIONS[initial.status] ?? [initial.status]
     : ['applied', 'active', 'not_allotted'];
@@ -707,9 +767,10 @@ function InvestmentForm({
 }
 
 function InvestmentDetailSheet({
-  investmentId, onOpenChange, onUpdatePrice, onSell,
+  investmentId, hideBalances, onOpenChange, onUpdatePrice, onSell,
 }: {
   investmentId: string | null;
+  hideBalances: boolean;
   onOpenChange: (open: boolean) => void;
   onUpdatePrice: (id: string, price: number) => Promise<void>;
   onSell: (id: string, soldPrice: number, soldDate: number) => Promise<void>;
@@ -785,13 +846,19 @@ function InvestmentDetailSheet({
                     {isApplied ? 'Amount Blocked' : isNotAllotted ? 'Refund Status' : liveInvestment.status === 'sold' ? 'Proceeds' : 'Market value'}
                   </span>
                   <span className="text-2xl font-bold tabular-nums">
-                    {isApplied ? formatCurrency(liveInvestment.appliedAmount || 0, preferences.currencySymbol)
-                     : isNotAllotted ? 'Refunded'
-                     : formatCurrency(
-                      liveInvestment.status === 'sold' && liveInvestment.soldPrice !== null
-                        ? liveInvestment.soldPrice * liveInvestment.units
-                        : currentValue,
-                      preferences.currencySymbol
+                    {hideBalances ? (
+                      `${preferences.currencySymbol}••••••`
+                    ) : isApplied ? (
+                      formatCurrency(liveInvestment.appliedAmount || 0, preferences.currencySymbol)
+                    ) : isNotAllotted ? (
+                      'Refunded'
+                    ) : (
+                      formatCurrency(
+                        liveInvestment.status === 'sold' && liveInvestment.soldPrice !== null
+                          ? liveInvestment.soldPrice * liveInvestment.units
+                          : currentValue,
+                        preferences.currencySymbol
+                      )
                     )}
                   </span>
                 </div>
@@ -806,13 +873,13 @@ function InvestmentDetailSheet({
                       <div>
                         <p className="text-muted-foreground">Buy</p>
                         <p className="font-semibold tabular-nums">
-                          {formatCurrency(liveInvestment.buyPrice, preferences.currencySymbol)}
+                          {hideBalances ? `${preferences.currencySymbol}••••` : formatCurrency(liveInvestment.buyPrice, preferences.currencySymbol)}
                         </p>
                       </div>
                       <div>
                         <p className="text-muted-foreground">{liveInvestment.status === 'sold' ? 'Sold' : 'Current'}</p>
                         <p className="font-semibold tabular-nums">
-                          {formatCurrency(
+                          {hideBalances ? `${preferences.currencySymbol}••••` : formatCurrency(
                             liveInvestment.status === 'sold' ? liveInvestment.soldPrice ?? 0 : currentPrice,
                             preferences.currencySymbol
                           )}
@@ -820,7 +887,7 @@ function InvestmentDetailSheet({
                       </div>
                     </div>
 
-                    {(() => {
+                    {!hideBalances && (() => {
                       const { pnl, pnlPercent } = getInvestmentPnl(liveInvestment);
                       const pos = pnl >= 0;
                       return (
@@ -835,7 +902,7 @@ function InvestmentDetailSheet({
                       );
                     })()}
 
-                    {liveInvestment.listingPrice && liveInvestment.listingPrice > 0 && (
+                    {!hideBalances && liveInvestment.listingPrice && liveInvestment.listingPrice > 0 && (
                       <div className="mt-3 pt-3 border-t flex items-center justify-between">
                         <span className="text-xs text-muted-foreground">Listing Gain</span>
                         <span className={cn(
@@ -928,14 +995,14 @@ function InvestmentDetailSheet({
                     <div className="flex justify-between p-3 rounded-2xl bg-muted/30">
                       <span className="text-muted-foreground">Buy · {new Date(liveInvestment.date).toLocaleDateString()}</span>
                       <span className="font-semibold tabular-nums text-expense">
-                        -{formatCurrency(liveInvestment.investedAmount ?? (liveInvestment.units * liveInvestment.buyPrice), preferences.currencySymbol)}
+                        {hideBalances ? `${preferences.currencySymbol}••••` : `-${formatCurrency(liveInvestment.investedAmount ?? (liveInvestment.units * liveInvestment.buyPrice), preferences.currencySymbol)}`}
                       </span>
                     </div>
                     {liveInvestment.status === 'sold' && liveInvestment.soldDate && liveInvestment.soldPrice !== null && (
                       <div className="flex justify-between p-3 rounded-2xl bg-muted/30">
                         <span className="text-muted-foreground">Sell · {new Date(liveInvestment.soldDate).toLocaleDateString()}</span>
                         <span className="font-semibold tabular-nums text-income">
-                          +{formatCurrency(liveInvestment.soldPrice * liveInvestment.units, preferences.currencySymbol)}
+                          {hideBalances ? `${preferences.currencySymbol}••••` : `+${formatCurrency(liveInvestment.soldPrice * liveInvestment.units, preferences.currencySymbol)}`}
                         </span>
                       </div>
                     )}
