@@ -76,7 +76,7 @@ export function formatDateLong(timestamp: number): string {
 
 export function formatMonthYear(monthYear: string): string {
   const [year, month] = monthYear.split('-');
-  return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', {
+  return new Date(parseInt(year, 10), parseInt(month, 10) - 1).toLocaleDateString('en-US', {
     month: 'long',
     year: 'numeric',
   });
@@ -281,11 +281,23 @@ export function getMonthTotalSpent(
 /*  CSV export                                                                */
 /* -------------------------------------------------------------------------- */
 
-/** CSV-safe: neutralise formula-injection prefixes. */
-function csvSafe(value: string): string {
-  const trimmed = value.replace(/\r?\n/g, ' ').replace(/"/g, '""');
-  if (/^[=+\-@\t]/.test(trimmed)) return `'${trimmed}`;
-  return trimmed;
+/**
+ * Escapes a value for CSV output AND neutralises formula-injection prefixes.
+ *
+ * Formula-injection: a cell starting with `=`, `+`, `-`, `@`, or a tab is
+ * interpreted as a formula by Excel / Google Sheets. Prefixing with a single
+ * quote neutralises this without corrupting the visible value.
+ *
+ * Quote-escaping: cells containing `,`, `"`, `\n`, or `\r` must be wrapped in
+ * double quotes with internal `"` doubled.
+ */
+function csvField(value: string): string {
+  let v = value.replace(/\r?\n/g, ' ').replace(/"/g, '""');
+  if (/^[=+\-@\t]/.test(v)) v = `'${v}`;
+  if (v.includes(',') || v.includes('"')) {
+    return `"${v}"`;
+  }
+  return v;
 }
 
 export function exportToCSV(
@@ -316,15 +328,13 @@ export function exportToCSV(
       new Date(tx.date).toISOString(),
       tx.type,
       tx.amount.toString(),
-      acc,
-      toAcc,
-      cat,
-      csvSafe(tx.note),
+      csvField(acc),
+      csvField(toAcc),
+      csvField(cat),
+      csvField(tx.note),
       tx.isExcludedFromStats ? 'yes' : 'no',
       tx.isExcludedFromBudget ? 'yes' : 'no',
-    ]
-      .map((v) => (v.includes(',') || v.includes('"') ? `"${v}"` : v))
-      .join(',');
+    ].join(',');
   });
   return [headers.join(','), ...rows].join('\n');
 }
@@ -359,7 +369,6 @@ export function getCalendarDays(
   return days;
 }
 
-/** Trend relative to a reference date (defaults to today). */
 export function getMonthlyTrend(
   transactions: Transaction[],
   months: number,

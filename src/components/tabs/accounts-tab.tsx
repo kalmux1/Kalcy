@@ -53,6 +53,34 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 
+/* ─── Custom Aesthetic Eye Icons ─── */
+function OpenEyeIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M7 4.5L5.5 2" />
+      <path d="M12 4V1.5" />
+      <path d="M17 4.5L18.5 2" />
+      <path d="M3 7L1 5" />
+      <path d="M21 7L23 5" />
+    </svg>
+  );
+}
+
+function ClosedEyeIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 10c4 4 16 4 20 0" />
+      <path d="M4 12L2 14" />
+      <path d="M8 14L7 17" />
+      <path d="M12 15V18" />
+      <path d="M16 14L17 17" />
+      <path d="M20 12L22 14" />
+    </svg>
+  );
+}
+
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: 'cash', label: 'Cash' },
   { value: 'bank', label: 'Bank' },
@@ -72,6 +100,8 @@ export function AccountsTab() {
     addAccount,
     updateAccount,
     deleteAccount,
+    hideBalances,
+    toggleHideBalances,
   } = useStore(
     useShallow((s) => ({
       accounts: s.accounts,
@@ -81,6 +111,8 @@ export function AccountsTab() {
       addAccount: s.addAccount,
       updateAccount: s.updateAccount,
       deleteAccount: s.deleteAccount,
+      hideBalances: s.hideBalances,
+      toggleHideBalances: s.toggleHideBalances,
     }))
   );
   const [segment, setSegment] = useState<AccountsSegment>('accounts');
@@ -198,41 +230,69 @@ export function AccountsTab() {
       {segment === 'accounts' && (
         <>
           <div className="px-4 md:px-8">
-            <div className="rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20 w-full">
-              <p className="text-sm opacity-90 font-medium">Total Net Worth</p>
-              <p className="text-3xl md:text-5xl font-bold mt-2 tabular-nums">
-                {formatCurrency(netWorth, preferences.currencySymbol)}
-              </p>
-              {(loansNet !== 0 || investmentsNet !== 0) && (
-                <div className="mt-4 md:mt-6 pt-4 border-t border-white/20 flex flex-col md:flex-row md:items-center gap-2 md:gap-6 text-xs md:text-sm">
-                  <div className="flex justify-between md:justify-start md:gap-4">
-                    <span className="opacity-75">Cash &amp; accounts</span>
-                    <span className="tabular-nums font-semibold">
-                      {formatCurrency(cashBalance, preferences.currencySymbol)}
-                    </span>
+            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20 w-full">
+              <div className="absolute -top-8 -right-8 h-32 w-32 rounded-full bg-white/10 pointer-events-none" />
+              <div className="absolute -bottom-12 -left-4 h-24 w-24 rounded-full bg-white/5 pointer-events-none" />
+
+              {/* Absolute Right Eye Icon */}
+              <button
+                type="button"
+                onClick={toggleHideBalances}
+                className="absolute right-4 top-4 md:right-6 md:top-6 p-2 rounded-full hover:bg-white/10 transition-colors active:scale-95 z-10"
+                aria-label={hideBalances ? 'Show balances' : 'Hide balances'}
+              >
+                {hideBalances ? (
+                  <ClosedEyeIcon className="h-6 w-6 text-white/70 hover:text-white transition-colors" />
+                ) : (
+                  <OpenEyeIcon className="h-6 w-6 text-white hover:text-primary-foreground transition-colors" />
+                )}
+              </button>
+
+              <div className="relative">
+                <p className="text-sm opacity-90 font-medium">Total Net Worth</p>
+                <p className="text-3xl md:text-5xl font-bold tabular-nums mt-2">
+                  {hideBalances
+                    ? `${preferences.currencySymbol}••••••`
+                    : formatCurrency(netWorth, preferences.currencySymbol)}
+                </p>
+                
+                {(loansNet !== 0 || investmentsNet !== 0) && (
+                  <div className="mt-4 md:mt-6 pt-4 border-t border-white/20 flex flex-col md:flex-row md:items-center gap-2 md:gap-6 text-xs md:text-sm">
+                    <div className="flex justify-between md:justify-start md:gap-4">
+                      <span className="opacity-75">Cash &amp; accounts</span>
+                      <span className="tabular-nums font-semibold">
+                        {hideBalances
+                          ? `${preferences.currencySymbol}••••••`
+                          : formatCurrency(cashBalance, preferences.currencySymbol)}
+                      </span>
+                    </div>
+                    {loansNet !== 0 && (
+                      <div className="flex justify-between md:justify-start md:gap-4">
+                        <span className="opacity-75">Loans (net)</span>
+                        <span className="tabular-nums font-semibold">
+                          {loansNet >= 0 ? '+' : ''}
+                          {hideBalances
+                            ? `${preferences.currencySymbol}••••••`
+                            : formatCurrency(loansNet, preferences.currencySymbol)}
+                        </span>
+                      </div>
+                    )}
+                    {investmentsNet !== 0 && (
+                      <div className="flex justify-between md:justify-start md:gap-4">
+                        <span className="opacity-75">Investments</span>
+                        <span className="tabular-nums font-semibold">
+                          {hideBalances
+                            ? `${preferences.currencySymbol}••••••`
+                            : formatCurrency(
+                                investmentsNet,
+                                preferences.currencySymbol
+                              )}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  {loansNet !== 0 && (
-                    <div className="flex justify-between md:justify-start md:gap-4">
-                      <span className="opacity-75">Loans (net)</span>
-                      <span className="tabular-nums font-semibold">
-                        {loansNet >= 0 ? '+' : ''}
-                        {formatCurrency(loansNet, preferences.currencySymbol)}
-                      </span>
-                    </div>
-                  )}
-                  {investmentsNet !== 0 && (
-                    <div className="flex justify-between md:justify-start md:gap-4">
-                      <span className="opacity-75">Investments</span>
-                      <span className="tabular-nums font-semibold">
-                        {formatCurrency(
-                          investmentsNet,
-                          preferences.currencySymbol
-                        )}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
 
@@ -282,10 +342,12 @@ export function AccountsTab() {
                               : 'text-expense'
                           )}
                         >
-                          {formatCurrency(
-                            acc.balance,
-                            preferences.currencySymbol
-                          )}
+                          {hideBalances
+                            ? `${preferences.currencySymbol}••••••`
+                            : formatCurrency(
+                                acc.balance,
+                                preferences.currencySymbol
+                              )}
                         </p>
                       </div>
                     </div>
@@ -393,14 +455,12 @@ function AccountSheet({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        {/* Fixed Header */}
         <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 border-b border-border/40">
           <h2 className="text-xl font-bold">
             {account ? 'Edit Account' : 'New Account'}
           </h2>
         </div>
 
-        {/* Scrollable Content */}
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4 pb-6">
           <AccountForm
             key={formKey}
@@ -418,7 +478,6 @@ function AccountSheet({
           />
         </div>
 
-        {/* Fixed Footer */}
         <div className="shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] md:pb-4 bg-background border-t border-border/40 flex gap-2">
           <Button
             type="button"

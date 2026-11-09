@@ -2,8 +2,17 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
+import { readFileSync } from 'fs';
+
+/* Read the version at config-load time so the About section can display it. */
+const pkg = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf-8')
+) as { version?: string };
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version ?? '0.1.0'),
+  },
   plugins: [
     react(),
     VitePWA({
@@ -40,17 +49,15 @@ export default defineConfig({
         ],
       },
       pwaAssets: {
-        config: true,
+        // Disabled the auto-generator to prevent 'sharp' native module errors 
+        // on Windows during development. Use `npm run generate-pwa-assets` manually if needed.
+        disabled: true,
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         cleanupOutdatedCaches: true,
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/__/],
-        // NOTE: Firestore REST / WebChannel responses are streamed and cannot
-        // be cached by Workbox; the SDK's own `persistentLocalCache`
-        // (IndexedDB) is the correct offline strategy. The previous
-        // `firestore.googleapis.com` runtime route was a silent no-op at best.
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.origin === 'https://fonts.gstatic.com',

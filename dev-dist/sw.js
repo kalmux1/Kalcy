@@ -67,7 +67,7 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-d488705a'], (function (workbox) { 'use strict';
+define(['./workbox-25613826'], (function (workbox) { 'use strict';
 
   self.skipWaiting();
   workbox.clientsClaim();
@@ -78,23 +78,13 @@ define(['./workbox-d488705a'], (function (workbox) { 'use strict';
    */
   workbox.precacheAndRoute([{
     "url": "/index.html",
-    "revision": "0.t3j8klf7pl"
+    "revision": "0.g31n4la012"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("/index.html"), {
     allowlist: [/^\/$/],
     denylist: [/^\/__/]
   }));
-  workbox.registerRoute(({
-    url
-  }) => url.origin === "https://firestore.googleapis.com", new workbox.NetworkFirst({
-    "cacheName": "firestore",
-    "networkTimeoutSeconds": 5,
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 100,
-      maxAgeSeconds: 86400
-    })]
-  }), 'GET');
   workbox.registerRoute(({
     url
   }) => url.origin === "https://fonts.gstatic.com", new workbox.CacheFirst({

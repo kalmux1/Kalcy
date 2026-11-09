@@ -33,6 +33,23 @@ const TYPE_META = Object.fromEntries(
   INVESTMENT_TYPES.map((t) => [t.value, t])
 ) as Record<InvestmentType, (typeof INVESTMENT_TYPES)[number]>;
 
+/**
+ * ── §1.2 (UI side) ────────────────────────────────────────────────────────
+ * Which IPO statuses the form may offer, keyed by the investment's *current*
+ * status. Mirrors VALID_INVESTMENT_TRANSITIONS in store.ts so the UI never
+ * offers a transition the store will reject. A new IPO (no existing record)
+ * starts in `applied`, so it may be created as applied / allotted / not-allotted
+ * — but never as `sold` (a sold IPO needs a buy price and buy date, which
+ * only exist after allotment).
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+const IPO_STATUS_OPTIONS: Record<InvestmentStatus, InvestmentStatus[]> = {
+  applied: ['applied', 'active', 'not_allotted'],
+  active: ['active', 'sold'],
+  sold: ['sold'],
+  not_allotted: ['not_allotted'],
+};
+
 export function InvestmentsView() {
   const {
     investments, accounts, preferences, addInvestment, updateInvestment,
@@ -449,6 +466,14 @@ function InvestmentForm({
 
   const totalCost = (parseFloat(units) || 0) * (parseFloat(buyPrice) || 0);
 
+  // ── §1.2 UI restrictions ─────────────────────────────────────────────
+  // Show only the statuses the state machine will accept. For a *new* IPO
+  // (no existing record) the base state is "applied".
+  // ─────────────────────────────────────────────────────────────────────
+  const allowedStatuses: InvestmentStatus[] = initial
+    ? IPO_STATUS_OPTIONS[initial.status] ?? [initial.status]
+    : ['applied', 'active', 'not_allotted'];
+
   const handleSubmit = () => {
     if (!name.trim()) { toast.error('Enter a name'); return; }
 
@@ -550,7 +575,7 @@ function InvestmentForm({
         <div>
           <Label className="text-xs text-muted-foreground">IPO Status</Label>
           <div className="flex gap-2 mt-1">
-            {(['applied', 'active', 'not_allotted', 'sold'] as InvestmentStatus[]).map((s) => (
+            {allowedStatuses.map((s) => (
               <button
                 key={s}
                 type="button"
@@ -710,7 +735,6 @@ function InvestmentDetailSheet({
   const isApplied = liveInvestment?.status === 'applied';
   const isNotAllotted = liveInvestment?.status === 'not_allotted';
   const isActive = liveInvestment?.status === 'active';
-  const isSold = liveInvestment?.status === 'sold';
 
   const reset = () => { setMode('view'); setPriceInput(''); setSellPriceInput(''); setSellDate(toDateInputValue(Date.now())); };
 
@@ -758,7 +782,7 @@ function InvestmentDetailSheet({
               <div className="rounded-2xl bg-muted/40 p-4 mb-4">
                 <div className="flex items-baseline justify-between">
                   <span className="text-xs text-muted-foreground">
-                    {isApplied ? 'Amount Blocked' : isNotAllotted ? 'Refund Status' : isSold ? 'Proceeds' : 'Market value'}
+                    {isApplied ? 'Amount Blocked' : isNotAllotted ? 'Refund Status' : liveInvestment.status === 'sold' ? 'Proceeds' : 'Market value'}
                   </span>
                   <span className="text-2xl font-bold tabular-nums">
                     {isApplied ? formatCurrency(liveInvestment.appliedAmount || 0, preferences.currencySymbol)

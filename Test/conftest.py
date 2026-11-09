@@ -5,8 +5,9 @@ Setup:
          KALCY_URL=https://kalcy.vercel.app
          KALCY_TEST_EMAIL=<your-test-email>
          KALCY_TEST_PASSWORD=<your-test-password>
-  2. The Firebase user must exist AND their email must be present in
-     Firestore → allowlist/{email} with enabled=true.
+  2. The Firebase user must exist AND be signable via Firebase Auth.
+     (Note: Kalcy does *not* use an allowlist collection — the app is
+     invite-only by virtue of Firebase Auth itself.)
   3. Optional cleanup (destructive, wipes all data after each test):
          KALCY_CLEANUP=1
 """
@@ -100,17 +101,7 @@ def browser_context_args(browser_context_args):
 
 @pytest.fixture
 def authenticated_page(page: Page) -> Iterator[Page]:
-    """Sign in and wait for the authenticated app shell to mount.
-
-    Polls each 500 ms cycle for three outcomes:
-      1. FAB ("Add transaction") visible    → success
-      2. Sonner error toast visible         → auth rejected, fail fast
-      3. Neither within 20 s                → stall, fail with diagnostics
-
-    NOTE: Success toasts (e.g. "Kalcy installed. You can now use it
-    offline.") fire on every fresh browser context and are ignored — we
-    filter to `data-type="error"` only.
-    """
+    """Sign in and wait for the authenticated app shell to mount."""
     page.goto(BASE_URL)
     page.fill('input[type="email"]', TEST_EMAIL)
     page.fill('input[type="password"]', TEST_PASSWORD)
@@ -125,7 +116,7 @@ def authenticated_page(page: Page) -> Iterator[Page]:
 
     while elapsed_ms < deadline_ms:
         if fab.count() > 0 and fab.first.is_visible():
-            _ensure_seeded(page)  # idempotent — no-op if seeds exist
+            _ensure_seeded(page)
             try:
                 yield page
             finally:
@@ -139,14 +130,6 @@ def authenticated_page(page: Page) -> Iterator[Page]:
                 f"Sign-in rejected: {msg!r}\n"
                 f"  email: {TEST_EMAIL!r}\n"
                 f"  Password length: {len(TEST_PASSWORD)} chars\n"
-                f"\n"
-                f"  Likely causes:\n"
-                f"    • 'Incorrect email or password' — verify the Firebase\n"
-                f"      Auth user exists and the password matches\n"
-                f"      KALCY_TEST_PASSWORD.\n"
-                f"    • 'Could not verify access' — allowlist/{{email}} is\n"
-                f"      missing or enabled=false in Firestore.\n"
-                f"    • 'Too many attempts' — Firebase throttling; wait 15 min.\n"
             )
 
         page.wait_for_timeout(step_ms)
@@ -156,7 +139,6 @@ def authenticated_page(page: Page) -> Iterator[Page]:
     raise AssertionError(
         f"Sign-in stalled for {deadline_ms // 1000}s.\n"
         f"  Email used:      {TEST_EMAIL!r}\n"
-        f"  Password length: {len(TEST_PASSWORD)} chars\n"
         f"  Current URL:     {page.url}\n"
         f"  Body text (300): {body_snippet!r}\n"
     )
@@ -183,10 +165,7 @@ def parse_currency(text: str) -> float:
 
 
 def open_tab(page: Page, tab: str) -> None:
-    """Click a bottom-nav or sidebar tab.
-
-    tab ∈ {'transactions', 'stats', 'accounts', 'more'}
-    """
+    """Click a bottom-nav or sidebar tab."""
     mobile_labels = {
         "transactions": "Trans",
         "stats": "Stats",
@@ -205,9 +184,7 @@ def open_tab(page: Page, tab: str) -> None:
         mobile_btn.first.click()
         return
 
-    sidebar_btn = page.locator("aside button").filter(
-        has_text=desktop_text[tab]
-    )
+    sidebar_btn = page.locator("aside button").filter(has_text=desktop_text[tab])
     if sidebar_btn.count() > 0:
         sidebar_btn.first.click()
         return
@@ -269,8 +246,6 @@ def clear_overall_budget(page: Page) -> None:
     """Delete all Overall Budget cards for this month. Idempotent."""
     open_tab(page, "more")
     page.locator('h2:text-is("Monthly Budgets")').first.scroll_into_view_if_needed()
-
-    # Give Firestore listeners time to populate the budgets array
     page.wait_for_timeout(1_500)
 
     for _ in range(10):
@@ -290,12 +265,10 @@ def clear_overall_budget(page: Page) -> None:
         expect(toast).to_be_visible(timeout=5_000)
         toast.locator('button:text-is("Delete")').click()
 
-        # Wait for Firestore snapshot to propagate before re-checking
         page.wait_for_timeout(1_000)
 
     raise AssertionError(
-        "clear_overall_budget looped 10x without clearing all cards. "
-        "Firestore listeners may be stalled."
+        "clear_overall_budget looped 10x without clearing all cards."
     )
 
 
@@ -336,8 +309,15 @@ def read_total_balance(page: Page) -> float:
 # ═══════════════════════════════════════════════════════════════════════
 
 def _ensure_seeded(page: Page) -> None:
-    """If accounts/categories are missing (e.g. after a prior cleanup),
-    restore seeds via the transaction sheet's "Restore Defaults" button."""
+    """If accounts are missing, restore seeds via Restore Defaults.
+
+    §3.1 FIX: The previous version opened the *category* picker and looked
+    for "Restore Defaults" — but if categories already existed and only
+    accounts were missing (a common state after a partial wipe), the
+    button wouldn't appear and seeding never fired. We now try the account
+    picker first (which is where "No accounts" was detected), then fall
+    back to the category picker.
+    """
     try:
         open_tab(page, "accounts")
         page.wait_for_timeout(1_500)  # let Firestore populate
@@ -354,8 +334,24 @@ def _ensure_seeded(page: Page) -> None:
         drawer = page.locator("[data-vaul-drawer]").last
         expect(drawer).to_be_visible(timeout=5_000)
 
+        # ── Attempt 1: account picker (the empty-state that triggered us) ──
+        acc_btn = drawer.locator('button:has-text("Account")').first
+        if acc_btn.count() > 0 and acc_btn.is_visible():
+            acc_btn.click()
+            picker = page.locator("[data-vaul-drawer]").last
+            restore_btn = picker.locator('button:has-text("Restore Defaults")')
+            if restore_btn.count() > 0 and restore_btn.first.is_visible():
+                restore_btn.first.click()
+                page.wait_for_timeout(1_500)
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(200)
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(500)
+                return
+
+        # ── Attempt 2: category picker (in case categories also need seeding) ──
         cat_btn = drawer.locator('button:has-text("Category")').first
-        if cat_btn.count() > 0:
+        if cat_btn.count() > 0 and cat_btn.is_visible():
             cat_btn.click()
             picker = page.locator("[data-vaul-drawer]").last
             restore_btn = picker.locator('button:has-text("Restore Defaults")')
@@ -374,7 +370,6 @@ def _ensure_seeded(page: Page) -> None:
 def _teardown_wipe(page: Page) -> None:
     """Delete All Data via the app's UI, then re-seed. Best-effort."""
     try:
-        # Close any lingering overlays so nav is clickable
         if page.locator("[data-vaul-drawer]").count() > 0:
             page.keyboard.press("Escape")
             page.wait_for_timeout(500)

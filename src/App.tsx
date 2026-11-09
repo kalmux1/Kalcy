@@ -10,6 +10,7 @@ import { BottomNav, type TabKey } from '@/components/bottom-nav';
 import { TransactionSheet } from '@/components/transaction-sheet';
 import { AuthView } from '@/components/auth-view';
 import { ProfileEditDrawer } from '@/components/profile-edit-drawer';
+import { AboutSection } from '@/components/about-section';
 import { useStore } from '@/lib/store';
 import { CURRENCIES } from '@/lib/currencies';
 import { exportToCSV, downloadCSV } from '@/lib/finance';
@@ -132,10 +133,6 @@ export default function App() {
         return;
       }
 
-      // Access gate is Firebase Auth itself: only users you create manually
-      // in the Firebase Console can obtain a session. Any subsequent
-      // Firestore failure (e.g. permission-denied on users/{uid}) is caught
-      // by initUserData's listener error handler, which signs the user out.
       setUser({
         uid: fbUser.uid,
         email: fbUser.email,
@@ -409,6 +406,9 @@ export default function App() {
                   </Button>
                 </div>
               </div>
+
+              {/* ─── NEW: About section ─── */}
+              <AboutSection />
             </div>
           )}
         </div>

@@ -34,6 +34,34 @@ import {
   parseLocalDate,
 } from '@/lib/finance';
 
+/* ─── Custom Aesthetic Eye Icons ─── */
+function OpenEyeIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M7 4.5L5.5 2" />
+      <path d="M12 4V1.5" />
+      <path d="M17 4.5L18.5 2" />
+      <path d="M3 7L1 5" />
+      <path d="M21 7L23 5" />
+    </svg>
+  );
+}
+
+function ClosedEyeIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 10c4 4 16 4 20 0" />
+      <path d="M4 12L2 14" />
+      <path d="M8 14L7 17" />
+      <path d="M12 15V18" />
+      <path d="M16 14L17 17" />
+      <path d="M20 12L22 14" />
+    </svg>
+  );
+}
+
 type ViewMode = 'daily' | 'calendar' | 'monthly' | 'summary';
 
 interface TransactionsTabProps {
@@ -48,12 +76,14 @@ function getGreeting(): string {
 }
 
 export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
-  const { transactions, accounts, preferences, deleteTransaction } = useStore(
+  const { transactions, accounts, preferences, deleteTransaction, hideBalances, toggleHideBalances } = useStore(
     useShallow((s) => ({
       transactions: s.transactions,
       accounts: s.accounts,
       preferences: s.preferences,
       deleteTransaction: s.deleteTransaction,
+      hideBalances: s.hideBalances,
+      toggleHideBalances: s.toggleHideBalances,
     }))
   );
   const user = useStore((s) => s.user);
@@ -113,13 +143,30 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
           animate={{ opacity: 1, y: 0 }}
           className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-6 shadow-lg shadow-primary/20 w-full"
         >
-          <div className="absolute -top-8 -right-8 h-32 w-32 rounded-full bg-white/10" />
-          <div className="absolute -bottom-12 -left-4 h-24 w-24 rounded-full bg-white/5" />
+          <div className="absolute -top-8 -right-8 h-32 w-32 rounded-full bg-white/10 pointer-events-none" />
+          <div className="absolute -bottom-12 -left-4 h-24 w-24 rounded-full bg-white/5 pointer-events-none" />
+          
+          {/* Absolute Right Eye Icon */}
+          <button
+            type="button"
+            onClick={toggleHideBalances}
+            className="absolute right-4 top-4 md:right-6 md:top-6 p-2 rounded-full hover:bg-white/10 transition-colors active:scale-95 z-10"
+            aria-label={hideBalances ? 'Show balances' : 'Hide balances'}
+          >
+            {hideBalances ? (
+              <ClosedEyeIcon className="h-6 w-6 text-white/70 hover:text-white transition-colors" />
+            ) : (
+              <OpenEyeIcon className="h-6 w-6 text-white hover:text-primary-foreground transition-colors" />
+            )}
+          </button>
+
           <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6 md:gap-8">
             <div>
               <p className="text-sm opacity-90 font-medium">Total Balance</p>
-              <p className="text-3xl md:text-5xl font-bold mt-1 tabular-nums">
-                {formatCurrency(totalBalance, preferences.currencySymbol)}
+              <p className="text-3xl md:text-5xl font-bold tabular-nums mt-1">
+                {hideBalances
+                  ? `${preferences.currencySymbol}••••••`
+                  : formatCurrency(totalBalance, preferences.currencySymbol)}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -130,7 +177,9 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
                 <div className="flex flex-col">
                   <span className="text-[10px] md:text-xs opacity-75">Expense</span>
                   <span className="text-sm md:text-base font-semibold tabular-nums">
-                    {formatCurrencyCompact(totals.expense, preferences.currencySymbol)}
+                    {hideBalances
+                      ? `${preferences.currencySymbol}••••`
+                      : formatCurrencyCompact(totals.expense, preferences.currencySymbol)}
                   </span>
                 </div>
               </div>
@@ -141,7 +190,9 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
                 <div className="flex flex-col">
                   <span className="text-[10px] md:text-xs opacity-75">Income</span>
                   <span className="text-sm md:text-base font-semibold tabular-nums">
-                    {formatCurrencyCompact(totals.income, preferences.currencySymbol)}
+                    {hideBalances
+                      ? `${preferences.currencySymbol}••••`
+                      : formatCurrencyCompact(totals.income, preferences.currencySymbol)}
                   </span>
                 </div>
               </div>
@@ -596,6 +647,7 @@ function SummaryView({
 }) {
   const loans = useStore((s) => s.loans);
   const investments = useStore((s) => s.investments);
+  const hideBalances = useStore((s) => s.hideBalances);
 
   const monthYear = monthYearKey(selectedMonth.getTime());
   const totals = getMonthlyTotals(transactions, monthYear);
@@ -629,7 +681,7 @@ function SummaryView({
           <h3 className="text-sm md:text-base font-semibold">Net Worth</h3>
         </div>
         <p className="text-3xl md:text-4xl font-bold tabular-nums">
-          {formatCurrency(netWorth, symbol)}
+          {hideBalances ? `${symbol}••••••` : formatCurrency(netWorth, symbol)}
         </p>
 
         {(loansNet !== 0 || investNet !== 0) && (
@@ -637,14 +689,14 @@ function SummaryView({
             <div className="flex justify-between">
               <span className="text-muted-foreground">Cash &amp; accounts</span>
               <span className="tabular-nums">
-                {formatCurrency(cashNet, symbol)}
+                {hideBalances ? `${symbol}••••••` : formatCurrency(cashNet, symbol)}
               </span>
             </div>
             {investNet !== 0 && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Investments</span>
                 <span className="tabular-nums">
-                  {formatCurrency(investNet, symbol)}
+                  {hideBalances ? `${symbol}••••••` : formatCurrency(investNet, symbol)}
                 </span>
               </div>
             )}
@@ -652,8 +704,7 @@ function SummaryView({
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Loans (net)</span>
                 <span className="tabular-nums">
-                  {loansNet >= 0 ? '+' : ''}
-                  {formatCurrency(loansNet, symbol)}
+                  {hideBalances ? `${symbol}••••••` : `${loansNet >= 0 ? '+' : ''}${formatCurrency(loansNet, symbol)}`}
                 </span>
               </div>
             )}
@@ -664,13 +715,13 @@ function SummaryView({
           <div className="rounded-xl bg-income/10 p-3 md:p-4">
             <p className="text-xs text-muted-foreground">Total Assets</p>
             <p className="text-lg md:text-xl font-bold text-income tabular-nums">
-              {formatCurrency(totalAssets, symbol)}
+              {hideBalances ? `${symbol}••••••` : formatCurrency(totalAssets, symbol)}
             </p>
           </div>
           <div className="rounded-xl bg-expense/10 p-3 md:p-4">
             <p className="text-xs text-muted-foreground">Liabilities</p>
             <p className="text-lg md:text-xl font-bold text-expense tabular-nums">
-              {formatCurrency(totalLiabilities, symbol)}
+              {hideBalances ? `${symbol}••••••` : formatCurrency(totalLiabilities, symbol)}
             </p>
           </div>
         </div>
@@ -683,21 +734,22 @@ function SummaryView({
         <div className="flex flex-col gap-4">
           <SummaryRow
             label="Total Income"
-            value={formatCurrency(totals.income, symbol)}
+            value={hideBalances ? `${symbol}••••••` : formatCurrency(totals.income, symbol)}
             color="text-income"
           />
           <SummaryRow
             label="Total Expense"
-            value={formatCurrency(totals.expense, symbol)}
+            value={hideBalances ? `${symbol}••••••` : formatCurrency(totals.expense, symbol)}
             color="text-expense"
           />
           <div className="border-t pt-4">
             <SummaryRow
               label="Net Cash Flow"
-              value={`${totals.net >= 0 ? '+' : ''}${formatCurrency(
-                totals.net,
-                symbol
-              )}`}
+              value={
+                hideBalances 
+                  ? `${symbol}••••••` 
+                  : `${totals.net >= 0 ? '+' : ''}${formatCurrency(totals.net, symbol)}`
+              }
               color={totals.net >= 0 ? 'text-income' : 'text-expense'}
               bold
             />
@@ -742,7 +794,7 @@ function SummaryView({
                   acc.balance >= 0 ? 'text-foreground' : 'text-expense'
                 )}
               >
-                {formatCurrency(acc.balance, symbol)}
+                {hideBalances ? `${symbol}••••••` : formatCurrency(acc.balance, symbol)}
               </span>
             </div>
           ))}

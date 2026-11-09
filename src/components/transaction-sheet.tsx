@@ -10,6 +10,7 @@ import {
   Settings2,
   ArrowRight,
   Plus,
+  AlertTriangle,
 } from 'lucide-react';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Switch } from '@/components/ui/switch';
@@ -43,12 +44,6 @@ export function TransactionSheet({
   editingTransaction,
   defaultType = 'expense',
 }: TransactionSheetProps) {
-  /*
-    We remount the inner content whenever the sheet opens or the edited
-    transaction changes. This guarantees that every piece of local state
-    (including the CalculatorNumpad's display) starts from the correct
-    values, without a stale-state sync effect.
-  */
   const innerKey = `${open ? 'o' : 'c'}-${
     editingTransaction?.id ?? 'new'
   }-${defaultType}`;
@@ -84,6 +79,7 @@ function TransactionSheetContent({
   const accounts = useStore((s) => s.accounts);
   const categories = useStore((s) => s.categories);
   const preferences = useStore((s) => s.preferences);
+  const investments = useStore((s) => s.investments);
   const addTransaction = useStore((s) => s.addTransaction);
   const updateTransaction = useStore((s) => s.updateTransaction);
 
@@ -115,8 +111,35 @@ function TransactionSheetContent({
   const [showOptions, setShowOptions] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // ── §1.4 FIX ─────────────────────────────────────────────────────────────
+  // Loan- and investment-linked transactions must never be edited through
+  // this sheet — the parent record would silently desynchronise. This is a
+  // second line of defence; TransactionItem already guards the entry point.
+  // ─────────────────────────────────────────────────────────────────────────
+  const linkedToLoan = !!(
+    editingTransaction?.linkedLoanId || editingTransaction?.linkedPaymentId
+  );
+  const linkedToInvestment = editingTransaction
+    ? investments.some(
+        (i) =>
+          i.linkedTransactionId === editingTransaction.id ||
+          i.linkedSellTransactionId === editingTransaction.id ||
+          i.linkedApplyTransactionId === editingTransaction.id ||
+          i.linkedRefundTransactionId === editingTransaction.id
+      )
+    : false;
+  const isEditingLinked = linkedToLoan || linkedToInvestment;
+
   const handleSave = useCallback(async () => {
     if (saving) return;
+
+    if (isEditingLinked) {
+      toast.error(
+        'This transaction is linked to a loan or investment. Edit it from the Loans or Investments tab instead.'
+      );
+      return;
+    }
+
     if (amount <= 0) {
       toast.error('Please enter an amount');
       return;
@@ -177,6 +200,7 @@ function TransactionSheetContent({
     }
   }, [
     saving,
+    isEditingLinked,
     amount,
     accountId,
     toAccountId,
@@ -470,7 +494,6 @@ function TransactionSheetContent({
       );
     }
 
-    // ---- Main step ----
     return (
       <div className="flex flex-col">
         <div className="flex gap-2 p-1 bg-muted rounded-2xl">
@@ -651,14 +674,31 @@ function TransactionSheetContent({
         <Button
           type="button"
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || isEditingLinked}
           size="sm"
           className="rounded-full h-9 px-4 gap-1"
+          title={
+            isEditingLinked
+              ? 'Linked transactions must be edited from their parent tab'
+              : undefined
+          }
         >
           <Check className="h-4 w-4" />
           {saving ? 'Saving…' : 'Save'}
         </Button>
       </div>
+
+      {isEditingLinked && (
+        <div className="shrink-0 mb-2 p-3 rounded-xl bg-warning/10 border border-warning/20 flex items-start gap-2 text-xs text-warning">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            This transaction is linked to{' '}
+            {linkedToLoan ? 'a loan' : 'an investment'}. Editing it here will
+            not update the parent record. Please edit from the{' '}
+            {linkedToLoan ? 'Lending' : 'Investments'} tab instead.
+          </span>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
         {renderStep()}

@@ -22,14 +22,34 @@ export function TransactionItem({
   onEdit,
   onDelete,
 }: TransactionItemProps) {
-  const { categories, accounts, preferences, investments } = useStore();
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // ── §2.1 FIX ─────────────────────────────────────────────────────────────
+  // Previously this component called `useStore()` with no selector, which
+  // subscribed the row to *every* collection change. Each transaction row
+  // now uses narrow selectors so unrelated updates never re-render it.
+  // ─────────────────────────────────────────────────────────────────────────
+  const category = useStore((s) =>
+    s.categories.find((c) => c.id === transaction.categoryId)
+  );
+  const account = useStore((s) =>
+    s.accounts.find((a) => a.id === transaction.accountId)
+  );
+  const toAccount = useStore((s) =>
+    transaction.toAccountId
+      ? s.accounts.find((a) => a.id === transaction.toAccountId)
+      : null
+  );
+  const currencySymbol = useStore((s) => s.preferences.currencySymbol);
+  const linkedToInvestment = useStore((s) =>
+    s.investments.some(
+      (i) =>
+        i.linkedTransactionId === transaction.id ||
+        i.linkedSellTransactionId === transaction.id ||
+        i.linkedApplyTransactionId === transaction.id ||
+        i.linkedRefundTransactionId === transaction.id
+    )
+  );
 
-  const category = categories.find((c) => c.id === transaction.categoryId);
-  const account = accounts.find((a) => a.id === transaction.accountId);
-  const toAccount = transaction.toAccountId
-    ? accounts.find((a) => a.id === transaction.toAccountId)
-    : null;
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const isExpense = transaction.type === 'expense';
   const isIncome = transaction.type === 'income';
@@ -38,20 +58,11 @@ export function TransactionItem({
   const linkedToLoan = !!(
     transaction.linkedLoanId || transaction.linkedPaymentId
   );
-  // Include *all* investment-linked transaction slots so an IPO apply or
-  // refund row also shows the "linked" guard instead of a delete button.
-  const linkedToInvestment = investments.some(
-    (i) =>
-      i.linkedTransactionId === transaction.id ||
-      i.linkedSellTransactionId === transaction.id ||
-      i.linkedApplyTransactionId === transaction.id ||
-      i.linkedRefundTransactionId === transaction.id
-  );
   const isLinked = linkedToLoan || linkedToInvestment;
 
   const showLinkedError = () => {
     toast.error(
-      'This transaction is linked to a loan or investment. Delete it from the Lending or Investments tab instead.'
+      'This transaction is linked to a loan or investment. Edit or delete it from the Loans or Investments tab instead.'
     );
   };
 
@@ -77,17 +88,35 @@ export function TransactionItem({
     setShowDeleteConfirm(true);
   };
 
+  // ── §1.4 FIX ─────────────────────────────────────────────────────────────
+  // Guard the edit path the same way deletion is guarded. Without this, a
+  // linked transaction could be opened in the sheet and its amount/account
+  // edited directly, silently desynchronising the parent loan/investment.
+  // ─────────────────────────────────────────────────────────────────────────
+  const requestEdit = () => {
+    if (isLinked) {
+      showLinkedError();
+      return;
+    }
+    onEdit(transaction);
+  };
+
   const handleDragEnd = (_e: unknown, info: PanInfo) => {
     if (info.offset.x < -100) {
       requestDelete();
     } else if (info.offset.x > 100) {
-      onEdit(transaction);
+      requestEdit();
     }
   };
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     requestDelete();
+  };
+
+  const handleEditClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    requestEdit();
   };
 
   return (
@@ -167,7 +196,7 @@ export function TransactionItem({
               )}
             >
               {isExpense ? '-' : isIncome ? '+' : ''}
-              {formatCurrency(transaction.amount, preferences.currencySymbol)}
+              {formatCurrency(transaction.amount, currencySymbol)}
             </p>
             {transaction.isExcludedFromStats && (
               <p className="text-[10px] text-muted-foreground">excl. stats</p>
@@ -176,10 +205,7 @@ export function TransactionItem({
 
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit(transaction);
-            }}
+            onClick={handleEditClick}
             aria-label="Edit transaction"
             className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors touch-manipulation"
           >

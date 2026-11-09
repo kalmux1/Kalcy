@@ -77,7 +77,21 @@ body,
   body {
     @apply bg-background text-foreground;
     -webkit-tap-highlight-color: transparent;
+    /*
+     * §3.3 FIX: text selection is disabled on interactive surfaces only,
+     * not globally. Users can now copy amounts, notes, and account names
+     * from the transaction list and details views.
+     */
+  }
+  /* Disable selection only on drag targets and UI chrome */
+  button,
+  [role='button'],
+  [role='tab'],
+  [data-vaul-drawer] > div:first-child,
+  .cursor-grab,
+  .cursor-grabbing {
     user-select: none;
+    -webkit-user-select: none;
   }
 }
 
@@ -91,20 +105,12 @@ body,
 
 /* ---------------------------------------------------------------------------
  * Drawer / keyboard-safe height fallback
- *
- * Modern browsers support `dvh` (dynamic viewport height), which shrinks when
- * the mobile keyboard opens. The drawers use `max-h-[90dvh]` for that reason.
- *
- * iOS Safari < 15.4 and older Android browsers don't understand `dvh`, so the
- * `max-h-[90dvh]` rule is simply dropped and drawers could overflow behind the
- * keyboard. This block provides a `vh` fallback for those browsers only.
  * ------------------------------------------------------------------------- */
 @supports not (height: 100dvh) {
   [data-vaul-drawer] {
     max-height: 85vh;
   }
 }
-
 
 @media screen and (max-width: 640px) {
   input,

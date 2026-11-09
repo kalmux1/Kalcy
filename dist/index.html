@@ -13,9 +13,15 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180x180.png" />
     <link rel="mask-icon" href="/kalcy-logo.svg" color="#3f7a6f" />
 
+    <!--
+      §3.3 FIX: removed `maximum-scale=1.0` and `user-scalable=no`.
+      The original combination prevented pinch-zoom, which is a WCAG 2.1
+      SC 1.4.4 violation. The `viewport-fit=cover` and `initial-scale=1`
+      settings preserve the intended full-screen layout.
+    -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <!-- theme_color should match the darker teal of your purse -->
     <meta name="theme-color" content="#3f7a6f" />
@@ -32,13 +38,9 @@
 
     <meta name="format-detection" content="telephone=no" />
     <title>Kalcy</title>
-    <script type="module" crossorigin src="/assets/index-gffVtj93.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DbKKezHz.css">
-  <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#3f7a6f">
-<link rel="icon" href="/favicon.ico" sizes="48x48">
-<link rel="icon" href="/kalcy-logo.svg" sizes="any" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png"></head>
+    <script type="module" crossorigin src="/assets/index-kQVJ6XTk.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CUOoRD_p.css">
+  <link rel="manifest" href="/manifest.webmanifest"></head>
   <body>
     <div id="root"></div>
   </body>

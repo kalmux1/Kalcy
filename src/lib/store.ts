@@ -23,6 +23,7 @@ import type {
   Loan,
   LoanPayment,
   Investment,
+  InvestmentStatus,
 } from './types';
 import {
   SEED_CATEGORIES,
@@ -36,6 +37,7 @@ import { getCurrencySymbol } from './currencies';
 interface StoreState {
   user: AuthUser | null;
   isLoading: boolean;
+  hideBalances: boolean;
   accounts: Account[];
   categories: Category[];
   transactions: Transaction[];
@@ -48,6 +50,7 @@ interface StoreState {
   setUser: (user: AuthUser | null) => void;
   initUserData: (uid: string) => Promise<void>;
   clearLocalState: () => void;
+  toggleHideBalances: () => void;
 
   addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => Promise<void>;
   updateTransaction: (id: string, updates: Partial<Transaction>) => Promise<void>;
@@ -176,9 +179,24 @@ function validateTxShape(
   }
 }
 
+function pickPositive(...values: (number | null | undefined)[]): number | null {
+  for (const v of values) {
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+}
+
+const VALID_INVESTMENT_TRANSITIONS: Record<InvestmentStatus, InvestmentStatus[]> = {
+  applied: ['active', 'not_allotted'],
+  active: ['sold'],
+  sold: [],
+  not_allotted: [],
+};
+
 export const useStore = create<StoreState>((set, get) => ({
   user: null,
   isLoading: true,
+  hideBalances: true, // Set to true by default as requested
   accounts: [],
   categories: [],
   transactions: [],
@@ -210,6 +228,8 @@ export const useStore = create<StoreState>((set, get) => ({
     });
   },
 
+  toggleHideBalances: () => set((state) => ({ hideBalances: !state.hideBalances })),
+
   initUserData: async (uid: string) => {
     clearUnsubs();
     set({ isLoading: true });
@@ -234,8 +254,6 @@ export const useStore = create<StoreState>((set, get) => ({
         await batch.commit();
       }
     } catch (err) {
-      // Surface the failure — a silent swallow leaves the user staring at an
-      // empty app with no indication anything went wrong.
       console.error('Failed to seed defaults for new user', err);
       toast.error(
         'Could not initialize your workspace. Check your connection and try again.'
@@ -450,8 +468,6 @@ export const useStore = create<StoreState>((set, get) => ({
       return;
     }
 
-    // Include the refund transaction in the link check so an IPO refund
-    // cannot be deleted in isolation (it would orphan the investment).
     const linkedInv = investments.find(
       (i) =>
         i.linkedTransactionId === tx.id ||
@@ -479,9 +495,14 @@ export const useStore = create<StoreState>((set, get) => ({
   addAccount: async (acc) => {
     const { user } = get();
     if (!user) return;
+    if (!acc.name?.trim()) throw new Error('Account name is required');
+    if (!Number.isFinite(acc.initialBalance)) {
+      throw new Error('Initial balance must be a number');
+    }
     const id = genId('acc');
     await setDoc(doc(db, 'users', user.uid, 'accounts', id), {
       ...acc,
+      name: acc.name.trim(),
       id,
       balance: acc.initialBalance,
       createdAt: Date.now(),
@@ -496,9 +517,6 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const docRef = doc(db, 'users', user.uid, 'accounts', id);
 
-    // `balance` is always derived (initialBalance + transaction deltas); if a
-    // caller passes it, ignore it. Editing `initialBalance` shifts the live
-    // balance by the same delta so existing transactional drift is preserved.
     const { balance: _ignored, ...rest } = updates;
     void _ignored;
 
@@ -605,10 +623,12 @@ export const useStore = create<StoreState>((set, get) => ({
   addCategory: async (cat) => {
     const { user, categories } = get();
     if (!user) return;
+    if (!cat.name?.trim()) throw new Error('Category name is required');
     const id = genId('cat');
     const order = categories.filter((c) => c.type === cat.type).length;
     await setDoc(doc(db, 'users', user.uid, 'categories', id), {
       ...cat,
+      name: cat.name.trim(),
       id,
       order,
     });
@@ -624,8 +644,6 @@ export const useStore = create<StoreState>((set, get) => ({
     const { user, categories, transactions, budgets } = get();
     if (!user) return;
 
-    // Recursively collect all descendants so grandchildren don't become
-    // orphans pointing at a deleted parent.
     const toDelete = new Set<string>();
     const stack = [id];
     while (stack.length > 0) {
@@ -662,6 +680,7 @@ export const useStore = create<StoreState>((set, get) => ({
   addBudget: async (b) => {
     const { user } = get();
     if (!user) return;
+    requirePositive(b.amount, 'Budget amount');
     const id = genId('b');
     await setDoc(doc(db, 'users', user.uid, 'budgets', id), { ...b, id });
   },
@@ -669,6 +688,9 @@ export const useStore = create<StoreState>((set, get) => ({
   updateBudget: async (id, updates) => {
     const { user } = get();
     if (!user) return;
+    if (typeof updates.amount === 'number') {
+      requirePositive(updates.amount, 'Budget amount');
+    }
     await updateDoc(doc(db, 'users', user.uid, 'budgets', id), updates);
   },
 
@@ -761,10 +783,6 @@ export const useStore = create<StoreState>((set, get) => ({
       balanceDeltas.set(accId, (balanceDeltas.get(accId) ?? 0) + delta);
     };
 
-    // Snapshot old state, resolve new state, then compute the net delta.
-    // Doing it this way ensures combinations (e.g. amount + type together)
-    // produce the correct balance effect — the earlier per-field approach
-    // double-counted in some combinations.
     const oldAmount = loan.principalAmount;
     const oldType = loan.type;
     const oldAccount = loan.accountId;
@@ -805,8 +823,6 @@ export const useStore = create<StoreState>((set, get) => ({
       if (newAccount !== oldAccount) txPatch.accountId = newAccount;
       if (newDate !== oldDate) txPatch.date = newDate;
 
-      // If the note was the auto-generated default, refresh it so a type or
-      // name change doesn't leave a stale "Money lent to X" on a borrowed loan.
       const oldDefault = `Money ${
         oldType === 'lent' ? 'lent to' : 'borrowed from'
       } ${oldPersonName}`;
@@ -824,6 +840,38 @@ export const useStore = create<StoreState>((set, get) => ({
     patch.isSettled = finalRemaining <= 0;
 
     const batch = writeBatch(db);
+
+    if (newType !== oldType) {
+      const linkedPayments = transactions.filter(
+        (t) => t.linkedLoanId === id && !!t.linkedPaymentId
+      );
+      for (const payTx of linkedPayments) {
+        const oldPaySign = oldType === 'lent' ? 1 : -1;
+        const newPaySign = newType === 'lent' ? 1 : -1;
+        const delta = (newPaySign - oldPaySign) * payTx.amount;
+        bump(payTx.accountId, delta);
+
+        const newPayType: Transaction['type'] =
+          newType === 'lent' ? 'income' : 'expense';
+
+        const oldAutoNote =
+          oldType === 'lent'
+            ? `Repayment from ${oldPersonName}`
+            : `Repayment to ${oldPersonName}`;
+        const payTxPatch: Partial<Transaction> = { type: newPayType };
+        if (payTx.note === oldAutoNote) {
+          payTxPatch.note =
+            newType === 'lent'
+              ? `Repayment from ${newPersonName}`
+              : `Repayment to ${newPersonName}`;
+        }
+        batch.update(
+          doc(db, 'users', user.uid, 'transactions', payTx.id),
+          payTxPatch
+        );
+      }
+    }
+
     batch.update(doc(db, 'users', user.uid, 'loans', id), patch);
     if (initialTx && Object.keys(txPatch).length > 0) {
       batch.update(
@@ -992,27 +1040,42 @@ export const useStore = create<StoreState>((set, get) => ({
     const { user } = get();
     if (!user) throw new Error('Not authenticated');
 
-    const isApplied = status === 'applied';
-    const isActive = status === 'active';
+    const normalizedStatus: InvestmentStatus = status ?? 'active';
+    const isApplied = normalizedStatus === 'applied';
+    const isActive = normalizedStatus === 'active';
 
     if (!accountId) throw new Error('Account is required');
+    if (!name.trim()) throw new Error('Name is required');
+
+    if (isApplied) {
+      if (!appliedAmount || appliedAmount <= 0) {
+        throw new Error('Applied amount must be positive for an IPO');
+      }
+    } else if (isActive) {
+      requirePositive(units, 'Units');
+      requirePositive(buyPrice, 'Buy price');
+    } else {
+      throw new Error(
+        `Cannot create an investment in status "${normalizedStatus}"`
+      );
+    }
 
     const invId = genId('inv');
     const txId = isApplied ? genId('apply') : genId('t');
     const now = Date.now();
 
-    const blocked = isApplied ? (appliedAmount || 0) : 0;
+    const blocked = isApplied ? appliedAmount ?? 0 : 0;
     const invested = isActive ? units * buyPrice : 0;
     const effectiveCurrentPrice = isActive
-      ? typeof currentPrice === 'number' && currentPrice > 0
-        ? currentPrice
-        : buyPrice
+      ? pickPositive(currentPrice, buyPrice) ?? buyPrice
       : 0;
     const currentValue = isActive ? units * effectiveCurrentPrice : 0;
 
+    const hasBuyTx = isActive && invested > 0;
+
     const investment: Investment = {
       id: invId,
-      name,
+      name: name.trim(),
       symbol,
       type,
       units: isActive ? units : 0,
@@ -1024,13 +1087,13 @@ export const useStore = create<StoreState>((set, get) => ({
       date,
       soldDate: null,
       soldPrice: null,
-      status: status ?? 'active',
+      status: normalizedStatus,
       listingPrice: listingPrice ?? null,
       listingDate: listingDate ?? null,
       appliedAmount: blocked,
       note,
       createdAt: now,
-      linkedTransactionId: isActive ? txId : null,
+      linkedTransactionId: hasBuyTx ? txId : null,
       linkedSellTransactionId: null,
       linkedApplyTransactionId: isApplied ? txId : null,
       linkedRefundTransactionId: null,
@@ -1062,7 +1125,7 @@ export const useStore = create<StoreState>((set, get) => ({
           balance: increment(delta),
         })
       );
-    } else if (isActive && invested > 0 && txId) {
+    } else if (hasBuyTx) {
       const tx: Transaction = {
         id: txId,
         type: 'expense',
@@ -1096,13 +1159,22 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!inv) return;
 
     const newStatus = updates.status ?? inv.status;
+
+    if (newStatus !== inv.status) {
+      const allowed = VALID_INVESTMENT_TRANSITIONS[inv.status];
+      if (!allowed.includes(newStatus)) {
+        throw new Error(
+          `Cannot transition investment from "${inv.status}" to "${newStatus}"`
+        );
+      }
+    }
+
     const wasApplied = inv.status === 'applied';
     const isBecomingNotAllotted = newStatus === 'not_allotted' && wasApplied;
     const isBecomingAllotted = newStatus === 'active' && wasApplied;
     const wasActive = inv.status === 'active';
     const isBecomingSold = newStatus === 'sold' && wasActive;
 
-    // Validate before writing anything — silently selling at $0 corrupts data.
     if (isBecomingSold) {
       const finalSoldPrice =
         updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
@@ -1119,7 +1191,6 @@ export const useStore = create<StoreState>((set, get) => ({
     const newDate = updates.date ?? inv.date;
     const newInvestedAmount = newUnits * newBuyPrice;
 
-    // Allotting with zero units/cost would create a phantom purchase.
     if (isBecomingAllotted && (newUnits <= 0 || newBuyPrice <= 0)) {
       throw new Error(
         'Units and buy price must be positive to allot the investment'
@@ -1131,11 +1202,12 @@ export const useStore = create<StoreState>((set, get) => ({
     if (isBecomingAllotted || (wasActive && newStatus === 'active')) {
       patch.investedAmount = newInvestedAmount;
       const newCurrentPrice =
-        updates.currentPrice ?? inv.currentPrice ?? newBuyPrice;
+        pickPositive(updates.currentPrice, inv.currentPrice, newBuyPrice) ??
+        newBuyPrice;
       patch.currentValue = newUnits * newCurrentPrice;
     } else if (isBecomingSold) {
       const finalSoldPrice =
-        updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice!;
+        pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
       patch.soldPrice = finalSoldPrice;
       patch.soldDate = updates.soldDate ?? Date.now();
       patch.status = 'sold';
@@ -1145,7 +1217,6 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const batch = writeBatch(db);
 
-    // 1. "Not Allotted" — refund the blocked amount.
     if (isBecomingNotAllotted && inv.appliedAmount) {
       const refundId = genId('t');
       const refundTx: Transaction = {
@@ -1177,9 +1248,7 @@ export const useStore = create<StoreState>((set, get) => ({
       patch.investedAmount = 0;
       patch.currentValue = 0;
       patch.linkedRefundTransactionId = refundId;
-    }
-    // 2. "Allotted" — release block, deduct actual cost.
-    else if (isBecomingAllotted) {
+    } else if (isBecomingAllotted) {
       if (inv.appliedAmount && inv.appliedAmount > 0) {
         const refundId = genId('t');
         const refundTx: Transaction = {
@@ -1237,9 +1306,7 @@ export const useStore = create<StoreState>((set, get) => ({
         patch.linkedTransactionId = buyId;
       }
       patch.appliedAmount = 0;
-    }
-    // 3. Active → Active (adjust buy transaction if units/price/account changed).
-    else if (wasActive && newStatus === 'active') {
+    } else if (wasActive && newStatus === 'active') {
       const buyTx = inv.linkedTransactionId
         ? transactions.find((t) => t.id === inv.linkedTransactionId)
         : null;
@@ -1269,11 +1336,9 @@ export const useStore = create<StoreState>((set, get) => ({
           );
         }
       }
-    }
-    // 4. Active → Sold.
-    else if (isBecomingSold) {
+    } else if (isBecomingSold) {
       const finalSoldPrice =
-        updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice!;
+        pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
       const finalSoldDate = updates.soldDate ?? Date.now();
 
       patch.soldPrice = finalSoldPrice;
