@@ -110,8 +110,14 @@ export function getDailyTotals(
   transactions: Transaction[],
   dayKey: string
 ): { income: number; expense: number } {
+  // FIX: honour isExcludedFromStats so daily totals agree with monthly
+  // totals. Previously a blocked IPO (a $15k "expense") appeared as a
+  // −$15k day total even though the month total excluded it.
   const dayTxs = transactions.filter(
-    (tx) => formatDateKey(tx.date) === dayKey && tx.type !== 'transfer'
+    (tx) =>
+      formatDateKey(tx.date) === dayKey &&
+      tx.type !== 'transfer' &&
+      !tx.isExcludedFromStats
   );
   return {
     income: dayTxs.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0),
@@ -281,16 +287,6 @@ export function getMonthTotalSpent(
 /*  CSV export                                                                */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Escapes a value for CSV output AND neutralises formula-injection prefixes.
- *
- * Formula-injection: a cell starting with `=`, `+`, `-`, `@`, or a tab is
- * interpreted as a formula by Excel / Google Sheets. Prefixing with a single
- * quote neutralises this without corrupting the visible value.
- *
- * Quote-escaping: cells containing `,`, `"`, `\n`, or `\r` must be wrapped in
- * double quotes with internal `"` doubled.
- */
 function csvField(value: string): string {
   let v = value.replace(/\r?\n/g, ' ').replace(/"/g, '""');
   if (/^[=+\-@\t]/.test(v)) v = `'${v}`;
@@ -440,6 +436,7 @@ export function getLoanProgress(loan: Loan): number {
 export function getInvestmentsSummary(investments: Investment[]): {
   totalInvested: number;
   currentValue: number;
+  blockedValue: number;
   unrealizedPnl: number;
   realizedPnl: number;
   totalPnl: number;
@@ -449,14 +446,18 @@ export function getInvestmentsSummary(investments: Investment[]): {
 } {
   let totalInvested = 0;
   let currentValue = 0;
+  let blockedValue = 0;
   let realizedPnl = 0;
   let activeCount = 0;
   let soldCount = 0;
 
   for (const inv of investments) {
+    // FIX: an applied IPO is *blocked cash*, not a portfolio position.
+    // It contributes to net worth (still an asset) but must NOT count as
+    // current value or unrealized profit — otherwise the header falsely
+    // showed "+$15,000 unrealized" the moment an IPO was applied for.
     if (inv.status === 'applied') {
-      currentValue += inv.appliedAmount ?? 0;
-      activeCount += 1;
+      blockedValue += inv.appliedAmount ?? 0;
       continue;
     }
 
@@ -482,6 +483,7 @@ export function getInvestmentsSummary(investments: Investment[]): {
   return {
     totalInvested,
     currentValue,
+    blockedValue,
     unrealizedPnl,
     realizedPnl,
     totalPnl,

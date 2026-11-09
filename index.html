@@ -3,27 +3,17 @@
   <head>
     <meta charset="UTF-8" />
 
-    <!-- Favicon (SVG for modern browsers) -->
+    <!-- Favicon (SVG covers all modern browsers) -->
     <link rel="icon" type="image/svg+xml" href="/kalcy-logo.svg" />
-    <!-- Fallback PNG favicon for older browsers -->
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="mask-icon" href="/kalcy-logo.svg" color="#3f7a6f" />
 
     <!-- Apple touch icon (iOS home screen) -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180x180.png" />
-    <link rel="mask-icon" href="/kalcy-logo.svg" color="#3f7a6f" />
 
-    <!--
-      §3.3 FIX: removed `maximum-scale=1.0` and `user-scalable=no`.
-      The original combination prevented pinch-zoom, which is a WCAG 2.1
-      SC 1.4.4 violation. The `viewport-fit=cover` and `initial-scale=1`
-      settings preserve the intended full-screen layout.
-    -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <!-- theme_color should match the darker teal of your purse -->
     <meta name="theme-color" content="#3f7a6f" />
     <meta
       name="description"

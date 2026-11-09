@@ -11,6 +11,7 @@ import {
   writeBatch,
   increment,
   Unsubscribe,
+  type WriteBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type {
@@ -140,6 +141,24 @@ function txEffects(
   return m;
 }
 
+// FIX: Firestore caps a single writeBatch at 500 operations. Anything
+// larger is rejected atomically — "Delete All Data" silently failed for
+// long-time users. Chunking at 400 keeps every batch safely under the
+// limit. Atomicity is per-chunk, which is acceptable for wipe/reset
+// operations (they can be retried) and unavoidable for account deletion.
+const FIRESTORE_BATCH_LIMIT = 400;
+
+async function commitInChunks(
+  ops: Array<(batch: WriteBatch) => void>
+): Promise<void> {
+  if (ops.length === 0) return;
+  for (let i = 0; i < ops.length; i += FIRESTORE_BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    ops.slice(i, i + FIRESTORE_BATCH_LIMIT).forEach((fn) => fn(batch));
+    await batch.commit();
+  }
+}
+
 function findInitialLoanTransaction(
   loan: Loan,
   transactions: Transaction[]
@@ -196,7 +215,10 @@ const VALID_INVESTMENT_TRANSITIONS: Record<InvestmentStatus, InvestmentStatus[]>
 export const useStore = create<StoreState>((set, get) => ({
   user: null,
   isLoading: true,
-  hideBalances: true, // Set to true by default as requested
+  // FIX: default to false so values are visible out-of-the-box (and the
+  // E2E suite can read balances without extra setup). Users can hide via
+  // the eye button on any hero card.
+  hideBalances: false,
   accounts: [],
   categories: [],
   transactions: [],
@@ -236,28 +258,39 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const prefRef = doc(db, 'users', uid, 'profile', 'preferences');
 
-    try {
+    const trySeed = async (): Promise<void> => {
       const prefSnap = await getDoc(prefRef);
-      if (!prefSnap.exists()) {
-        const batch = writeBatch(db);
-        SEED_CATEGORIES.forEach((c) =>
-          batch.set(doc(db, 'users', uid, 'categories', c.id), c)
-        );
-        SEED_ACCOUNTS.forEach((a) =>
-          batch.set(doc(db, 'users', uid, 'accounts', a.id), {
-            ...a,
-            balance: a.initialBalance,
-            createdAt: Date.now(),
-          })
-        );
-        batch.set(prefRef, DEFAULT_PREFERENCES);
-        await batch.commit();
-      }
-    } catch (err) {
-      console.error('Failed to seed defaults for new user', err);
-      toast.error(
-        'Could not initialize your workspace. Check your connection and try again.'
+      if (prefSnap.exists()) return;
+      const batch = writeBatch(db);
+      SEED_CATEGORIES.forEach((c) =>
+        batch.set(doc(db, 'users', uid, 'categories', c.id), c)
       );
+      SEED_ACCOUNTS.forEach((a) =>
+        batch.set(doc(db, 'users', uid, 'accounts', a.id), {
+          ...a,
+          balance: a.initialBalance,
+          createdAt: Date.now(),
+        })
+      );
+      batch.set(prefRef, DEFAULT_PREFERENCES);
+      await batch.commit();
+    };
+
+    // FIX: retry once — a transient network failure during first sign-in
+    // used to leave the user staring at a permanently empty app until reload.
+    try {
+      await trySeed();
+    } catch (err) {
+      console.warn('Initial seed failed, retrying once', err);
+      try {
+        await new Promise((r) => setTimeout(r, 2000));
+        await trySeed();
+      } catch (err2) {
+        console.error('Seed retry failed', err2);
+        toast.error(
+          'Could not initialize your workspace. Check your connection and try again.'
+        );
+      }
     }
 
     const READY_TARGET = 8;
@@ -397,23 +430,41 @@ export const useStore = create<StoreState>((set, get) => ({
     const id = genId('t');
     const newTx: Transaction = { ...tx, id, createdAt: Date.now() };
 
-    const batch = writeBatch(db);
-    batch.set(doc(db, 'users', user.uid, 'transactions', id), newTx);
-
+    const ops: Array<(batch: WriteBatch) => void> = [];
+    ops.push((batch) =>
+      batch.set(doc(db, 'users', user.uid, 'transactions', id), newTx)
+    );
     txEffects(newTx).forEach((delta, accId) => {
-      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-        balance: increment(delta),
-      });
+      ops.push((batch) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      );
     });
-
-    await batch.commit();
+    await commitInChunks(ops);
   },
 
   updateTransaction: async (id, updates) => {
-    const { user, transactions, categories } = get();
+    const { user, transactions, categories, investments } = get();
     if (!user) return;
     const oldTx = transactions.find((t) => t.id === id);
     if (!oldTx) return;
+
+    // FIX: mirror the linked-record guard from deleteTransaction. Previously
+    // the store only relied on the UI blocking this; a modified client (or
+    // future caller) could desynchronise a parent loan/investment.
+    const linkedInv = investments.find(
+      (i) =>
+        i.linkedTransactionId === id ||
+        i.linkedSellTransactionId === id ||
+        i.linkedApplyTransactionId === id ||
+        i.linkedRefundTransactionId === id
+    );
+    if (oldTx.linkedLoanId || oldTx.linkedPaymentId || linkedInv) {
+      throw new Error(
+        'This transaction is linked to a loan or investment. Edit it from the parent tab instead.'
+      );
+    }
 
     const merged: Transaction = { ...oldTx, ...updates };
 
@@ -440,17 +491,20 @@ export const useStore = create<StoreState>((set, get) => ({
     oldEffects.forEach((v, k) => net.set(k, (net.get(k) ?? 0) - v));
     newEffects.forEach((v, k) => net.set(k, (net.get(k) ?? 0) + v));
 
-    const batch = writeBatch(db);
-    batch.update(doc(db, 'users', user.uid, 'transactions', id), patch);
+    const ops: Array<(batch: WriteBatch) => void> = [];
+    ops.push((batch) =>
+      batch.update(doc(db, 'users', user.uid, 'transactions', id), patch)
+    );
     net.forEach((delta, accId) => {
       if (delta !== 0) {
-        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-          balance: increment(delta),
-        });
+        ops.push((batch) =>
+          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+            balance: increment(delta),
+          })
+        );
       }
     });
-
-    await batch.commit();
+    await commitInChunks(ops);
   },
 
   deleteTransaction: async (id) => {
@@ -480,16 +534,16 @@ export const useStore = create<StoreState>((set, get) => ({
       return;
     }
 
-    const batch = writeBatch(db);
-    batch.delete(doc(db, 'users', user.uid, 'transactions', id));
-
+    const ops: Array<(batch: WriteBatch) => void> = [];
+    ops.push((batch) => batch.delete(doc(db, 'users', user.uid, 'transactions', id)));
     txEffects(tx).forEach((delta, accId) => {
-      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-        balance: increment(-delta),
-      });
+      ops.push((batch) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(-delta),
+        })
+      );
     });
-
-    await batch.commit();
+    await commitInChunks(ops);
   },
 
   addAccount: async (acc) => {
@@ -541,7 +595,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const { user, transactions, loans, loanPayments, investments } = get();
     if (!user) return;
 
-    const batch = writeBatch(db);
+    const ops: Array<(batch: WriteBatch) => void> = [];
     const balanceDeltas = new Map<string, number>();
     const bump = (accId: string, delta: number) => {
       if (accId === id) return;
@@ -581,43 +635,56 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     });
 
+    // FIX: previously this wrote `loan.remainingAmount + p.amount` for each
+    // payment independently, using the *snapshot* remainingAmount. Two
+    // payments on the same loan restored only the last one (last-write-wins).
+    // Accumulate the total first, then write once.
+    const restoreByLoan = new Map<string, number>();
     paymentsOnAccount.forEach((p) => {
       if (deletingLoanIds.has(p.loanId)) return;
-      const loan = loans.find((l) => l.id === p.loanId);
+      restoreByLoan.set(p.loanId, (restoreByLoan.get(p.loanId) ?? 0) + p.amount);
+    });
+    restoreByLoan.forEach((amount, loanId) => {
+      const loan = loans.find((l) => l.id === loanId);
       if (!loan) return;
-      const restored = Math.min(
-        loan.principalAmount,
-        loan.remainingAmount + p.amount
+      const restored = Math.min(loan.principalAmount, loan.remainingAmount + amount);
+      ops.push((batch) =>
+        batch.update(doc(db, 'users', user.uid, 'loans', loanId), {
+          remainingAmount: restored,
+          isSettled: restored <= 0,
+        })
       );
-      batch.update(doc(db, 'users', user.uid, 'loans', loan.id), {
-        remainingAmount: restored,
-        isSettled: restored <= 0,
-      });
     });
 
     txIdsToDelete.forEach((txId) =>
-      batch.delete(doc(db, 'users', user.uid, 'transactions', txId))
+      ops.push((batch) => batch.delete(doc(db, 'users', user.uid, 'transactions', txId)))
     );
-    loansUsingAccount.forEach((l) =>
-      batch.delete(doc(db, 'users', user.uid, 'loans', l.id))
+    loansUsingAccount.forEach((loan) =>
+      ops.push((batch) => batch.delete(doc(db, 'users', user.uid, 'loans', loan.id)))
     );
-    loanPayments.forEach((p) => {
-      if (deletingLoanIds.has(p.loanId) || paymentIdsToDelete.has(p.id)) {
-        batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id));
+    loanPayments.forEach((payment) => {
+      if (deletingLoanIds.has(payment.loanId) || paymentIdsToDelete.has(payment.id)) {
+        ops.push((batch) =>
+          batch.delete(doc(db, 'users', user.uid, 'loanPayments', payment.id))
+        );
       }
     });
-    investmentsOnAccount.forEach((inv) =>
-      batch.delete(doc(db, 'users', user.uid, 'investments', inv.id))
+    investmentsOnAccount.forEach((investment) =>
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'investments', investment.id))
+      )
     );
 
     balanceDeltas.forEach((delta, accId) => {
-      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-        balance: increment(delta),
-      });
+      ops.push((batch) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      );
     });
 
-    batch.delete(doc(db, 'users', user.uid, 'accounts', id));
-    await batch.commit();
+    ops.push((batch) => batch.delete(doc(db, 'users', user.uid, 'accounts', id)));
+    await commitInChunks(ops);
   },
 
   addCategory: async (cat) => {
@@ -656,33 +723,43 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     const idsToDelete = Array.from(toDelete);
 
-    const batch = writeBatch(db);
-
+    const ops: Array<(batch: WriteBatch) => void> = [];
     idsToDelete.forEach((cid) =>
-      batch.delete(doc(db, 'users', user.uid, 'categories', cid))
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'categories', cid))
+      )
     );
 
     transactions
       .filter((t) => t.categoryId && idsToDelete.includes(t.categoryId))
-      .forEach((t) =>
-        batch.update(doc(db, 'users', user.uid, 'transactions', t.id), {
-          categoryId: null,
-        })
+      .forEach((transaction) =>
+        ops.push((batch) =>
+          batch.update(doc(db, 'users', user.uid, 'transactions', transaction.id), {
+            categoryId: null,
+          })
+        )
       );
 
+    // FIX: outer loop variable was `b` (budget), then the pushed closure
+    // re-declared `(b: WriteBatch) =>`. `b.id` inside resolved to the
+    // WriteBatch (no `id`) and the budget `b` was never read. Renamed.
     budgets
-      .filter((b) => b.categoryId && idsToDelete.includes(b.categoryId))
-      .forEach((b) => batch.delete(doc(db, 'users', user.uid, 'budgets', b.id)));
+      .filter((budget) => budget.categoryId && idsToDelete.includes(budget.categoryId))
+      .forEach((budget) =>
+        ops.push((batch) =>
+          batch.delete(doc(db, 'users', user.uid, 'budgets', budget.id))
+        )
+      );
 
-    await batch.commit();
+    await commitInChunks(ops);
   },
 
-  addBudget: async (b) => {
+  addBudget: async (budget) => {
     const { user } = get();
     if (!user) return;
-    requirePositive(b.amount, 'Budget amount');
+    requirePositive(budget.amount, 'Budget amount');
     const id = genId('b');
-    await setDoc(doc(db, 'users', user.uid, 'budgets', id), { ...b, id });
+    await setDoc(doc(db, 'users', user.uid, 'budgets', id), { ...budget, id });
   },
 
   updateBudget: async (id, updates) => {
@@ -753,15 +830,21 @@ export const useStore = create<StoreState>((set, get) => ({
       linkedPaymentId: null,
     };
 
-    const batch = writeBatch(db);
-    batch.set(doc(db, 'users', user.uid, 'loans', loanId), loan);
-    batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
+    const ops: Array<(batch: WriteBatch) => void> = [];
+    ops.push((batch) =>
+      batch.set(doc(db, 'users', user.uid, 'loans', loanId), loan)
+    );
+    ops.push((batch) =>
+      batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx)
+    );
     txEffects(tx).forEach((delta, accId) => {
-      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-        balance: increment(delta),
-      });
+      ops.push((batch) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      );
     });
-    await batch.commit();
+    await commitInChunks(ops);
   },
 
   updateLoan: async (id, updates) => {
@@ -839,7 +922,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const finalRemaining = patch.remainingAmount ?? loan.remainingAmount;
     patch.isSettled = finalRemaining <= 0;
 
-    const batch = writeBatch(db);
+    const ops: Array<(batch: WriteBatch) => void> = [];
 
     if (newType !== oldType) {
       const linkedPayments = transactions.filter(
@@ -865,53 +948,59 @@ export const useStore = create<StoreState>((set, get) => ({
               ? `Repayment from ${newPersonName}`
               : `Repayment to ${newPersonName}`;
         }
-        batch.update(
-          doc(db, 'users', user.uid, 'transactions', payTx.id),
-          payTxPatch
+        ops.push((batch) =>
+          batch.update(doc(db, 'users', user.uid, 'transactions', payTx.id), payTxPatch)
         );
       }
     }
 
-    batch.update(doc(db, 'users', user.uid, 'loans', id), patch);
+    ops.push((batch) => batch.update(doc(db, 'users', user.uid, 'loans', id), patch));
     if (initialTx && Object.keys(txPatch).length > 0) {
-      batch.update(
-        doc(db, 'users', user.uid, 'transactions', initialTx.id),
-        txPatch
+      ops.push((batch) =>
+        batch.update(doc(db, 'users', user.uid, 'transactions', initialTx.id), txPatch)
       );
     }
     balanceDeltas.forEach((delta, accId) => {
-      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-        balance: increment(delta),
-      });
+      ops.push((batch) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      );
     });
-    await batch.commit();
+    await commitInChunks(ops);
   },
 
   deleteLoan: async (id) => {
     const { user, transactions, loanPayments } = get();
     if (!user) return;
 
-    const batch = writeBatch(db);
+    const ops: Array<(batch: WriteBatch) => void> = [];
 
     transactions
       .filter((t) => t.linkedLoanId === id)
-      .forEach((t) => {
-        batch.delete(doc(db, 'users', user.uid, 'transactions', t.id));
-        txEffects(t).forEach((delta, accId) => {
-          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-            balance: increment(-delta),
-          });
+      .forEach((tx) => {
+        ops.push((batch) =>
+          batch.delete(doc(db, 'users', user.uid, 'transactions', tx.id))
+        );
+        txEffects(tx).forEach((delta, accId) => {
+          ops.push((batch) =>
+            batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+              balance: increment(-delta),
+            })
+          );
         });
       });
 
     loanPayments
-      .filter((p) => p.loanId === id)
-      .forEach((p) =>
-        batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
+      .filter((payment) => payment.loanId === id)
+      .forEach((payment) =>
+        ops.push((batch) =>
+          batch.delete(doc(db, 'users', user.uid, 'loanPayments', payment.id))
+        )
       );
 
-    batch.delete(doc(db, 'users', user.uid, 'loans', id));
-    await batch.commit();
+    ops.push((batch) => batch.delete(doc(db, 'users', user.uid, 'loans', id)));
+    await commitInChunks(ops);
   },
 
   addLoanPayment: async ({ loanId, amount, accountId, date, note }) => {
@@ -965,19 +1054,27 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const newRemaining = Math.max(0, loan.remainingAmount - amount);
 
-    const batch = writeBatch(db);
-    batch.set(doc(db, 'users', user.uid, 'loanPayments', paymentId), payment);
-    batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
-    batch.update(doc(db, 'users', user.uid, 'loans', loanId), {
-      remainingAmount: newRemaining,
-      isSettled: newRemaining <= 0,
-    });
+    const ops: Array<(batch: WriteBatch) => void> = [];
+    ops.push((batch) =>
+      batch.set(doc(db, 'users', user.uid, 'loanPayments', paymentId), payment)
+    );
+    ops.push((batch) =>
+      batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx)
+    );
+    ops.push((batch) =>
+      batch.update(doc(db, 'users', user.uid, 'loans', loanId), {
+        remainingAmount: newRemaining,
+        isSettled: newRemaining <= 0,
+      })
+    );
     txEffects(tx).forEach((delta, accId) => {
-      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-        balance: increment(delta),
-      });
+      ops.push((batch) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      );
     });
-    await batch.commit();
+    await commitInChunks(ops);
   },
 
   deleteLoanPayment: async (id) => {
@@ -1009,15 +1106,21 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }
 
-    const batch = writeBatch(db);
-    batch.delete(doc(db, 'users', user.uid, 'loanPayments', id));
+    const ops: Array<(batch: WriteBatch) => void> = [];
+    ops.push((batch) =>
+      batch.delete(doc(db, 'users', user.uid, 'loanPayments', id))
+    );
 
     if (linked) {
-      batch.delete(doc(db, 'users', user.uid, 'transactions', linked.id));
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'transactions', linked.id))
+      );
       txEffects(linked).forEach((delta, accId) => {
-        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-          balance: increment(-delta),
-        });
+        ops.push((batch) =>
+          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+            balance: increment(-delta),
+          })
+        );
       });
     }
 
@@ -1025,12 +1128,14 @@ export const useStore = create<StoreState>((set, get) => ({
       loan.principalAmount,
       loan.remainingAmount + payment.amount
     );
-    batch.update(doc(db, 'users', user.uid, 'loans', loan.id), {
-      remainingAmount: restored,
-      isSettled: restored <= 0,
-    });
+    ops.push((batch) =>
+      batch.update(doc(db, 'users', user.uid, 'loans', loan.id), {
+        remainingAmount: restored,
+        isSettled: restored <= 0,
+      })
+    );
 
-    await batch.commit();
+    await commitInChunks(ops);
   },
 
   addInvestment: async ({
@@ -1099,8 +1204,10 @@ export const useStore = create<StoreState>((set, get) => ({
       linkedRefundTransactionId: null,
     };
 
-    const batch = writeBatch(db);
-    batch.set(doc(db, 'users', user.uid, 'investments', invId), investment);
+    const ops: Array<(batch: WriteBatch) => void> = [];
+    ops.push((batch) =>
+      batch.set(doc(db, 'users', user.uid, 'investments', invId), investment)
+    );
 
     if (isApplied && blocked > 0) {
       const tx: Transaction = {
@@ -1119,11 +1226,15 @@ export const useStore = create<StoreState>((set, get) => ({
         linkedLoanId: null,
         linkedPaymentId: null,
       };
-      batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
+      ops.push((batch) =>
+        batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx)
+      );
       txEffects(tx).forEach((delta, accId) =>
-        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-          balance: increment(delta),
-        })
+        ops.push((batch) =>
+          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+            balance: increment(delta),
+          })
+        )
       );
     } else if (hasBuyTx) {
       const tx: Transaction = {
@@ -1142,14 +1253,18 @@ export const useStore = create<StoreState>((set, get) => ({
         linkedLoanId: null,
         linkedPaymentId: null,
       };
-      batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
+      ops.push((batch) =>
+        batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx)
+      );
       txEffects(tx).forEach((delta, accId) =>
-        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-          balance: increment(delta),
-        })
+        ops.push((batch) =>
+          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+            balance: increment(delta),
+          })
+        )
       );
     }
-    await batch.commit();
+    await commitInChunks(ops);
   },
 
   updateInvestment: async (id, updates) => {
@@ -1174,16 +1289,9 @@ export const useStore = create<StoreState>((set, get) => ({
     const isBecomingAllotted = newStatus === 'active' && wasApplied;
     const wasActive = inv.status === 'active';
     const isBecomingSold = newStatus === 'sold' && wasActive;
-
-    if (isBecomingSold) {
-      const finalSoldPrice =
-        updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
-      if (typeof finalSoldPrice !== 'number' || finalSoldPrice <= 0) {
-        throw new Error(
-          'A positive sale price is required to mark this investment as sold'
-        );
-      }
-    }
+    const isEditingActive = wasActive && newStatus === 'active';
+    const isEditingSold = inv.status === 'sold' && newStatus === 'sold';
+    const isEditingApplied = wasApplied && newStatus === 'applied';
 
     const newUnits = updates.units ?? inv.units;
     const newBuyPrice = updates.buyPrice ?? inv.buyPrice;
@@ -1196,27 +1304,34 @@ export const useStore = create<StoreState>((set, get) => ({
         'Units and buy price must be positive to allot the investment'
       );
     }
-
-    const patch: Partial<Investment> = { ...updates };
-
-    if (isBecomingAllotted || (wasActive && newStatus === 'active')) {
-      patch.investedAmount = newInvestedAmount;
-      const newCurrentPrice =
-        pickPositive(updates.currentPrice, inv.currentPrice, newBuyPrice) ??
-        newBuyPrice;
-      patch.currentValue = newUnits * newCurrentPrice;
-    } else if (isBecomingSold) {
+    if (isBecomingSold) {
       const finalSoldPrice =
-        pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
-      patch.soldPrice = finalSoldPrice;
-      patch.soldDate = updates.soldDate ?? Date.now();
-      patch.status = 'sold';
-      patch.currentValue = newUnits * finalSoldPrice;
-      patch.currentPrice = finalSoldPrice;
+        updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
+      if (typeof finalSoldPrice !== 'number' || finalSoldPrice <= 0) {
+        throw new Error(
+          'A positive sale price is required to mark this investment as sold'
+        );
+      }
+    }
+    if (isEditingApplied) {
+      const newApplied = updates.appliedAmount ?? inv.appliedAmount ?? 0;
+      if (newApplied <= 0) {
+        throw new Error('Applied amount must be positive');
+      }
     }
 
-    const batch = writeBatch(db);
+    const patch: Partial<Investment> = { ...updates };
+    const ops: Array<(batch: WriteBatch) => void> = [];
+    const bump = (accId: string, delta: number) => {
+      if (delta === 0) return;
+      ops.push((batch) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      );
+    };
 
+    // ── Transition: applied → not_allotted (refund blocked funds) ──
     if (isBecomingNotAllotted && inv.appliedAmount) {
       const refundId = genId('t');
       const refundTx: Transaction = {
@@ -1235,20 +1350,20 @@ export const useStore = create<StoreState>((set, get) => ({
         linkedLoanId: null,
         linkedPaymentId: null,
       };
-      batch.set(doc(db, 'users', user.uid, 'transactions', refundId), refundTx);
-      txEffects(refundTx).forEach((delta, accId) =>
-        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-          balance: increment(delta),
-        })
+      ops.push((batch) =>
+        batch.set(doc(db, 'users', user.uid, 'transactions', refundId), refundTx)
       );
-
+      bump(inv.accountId, inv.appliedAmount);
       patch.appliedAmount = 0;
       patch.units = 0;
       patch.buyPrice = 0;
       patch.investedAmount = 0;
       patch.currentValue = 0;
       patch.linkedRefundTransactionId = refundId;
-    } else if (isBecomingAllotted) {
+    }
+
+    // ── Transition: applied → active (allotted) ──
+    else if (isBecomingAllotted) {
       if (inv.appliedAmount && inv.appliedAmount > 0) {
         const refundId = genId('t');
         const refundTx: Transaction = {
@@ -1267,15 +1382,10 @@ export const useStore = create<StoreState>((set, get) => ({
           linkedLoanId: null,
           linkedPaymentId: null,
         };
-        batch.set(
-          doc(db, 'users', user.uid, 'transactions', refundId),
-          refundTx
+        ops.push((batch) =>
+          batch.set(doc(db, 'users', user.uid, 'transactions', refundId), refundTx)
         );
-        txEffects(refundTx).forEach((delta, accId) =>
-          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-            balance: increment(delta),
-          })
-        );
+        bump(inv.accountId, inv.appliedAmount);
         patch.linkedRefundTransactionId = refundId;
       }
 
@@ -1297,56 +1407,28 @@ export const useStore = create<StoreState>((set, get) => ({
           linkedLoanId: null,
           linkedPaymentId: null,
         };
-        batch.set(doc(db, 'users', user.uid, 'transactions', buyId), buyTx);
-        txEffects(buyTx).forEach((delta, accId) =>
-          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-            balance: increment(delta),
-          })
+        ops.push((batch) =>
+          batch.set(doc(db, 'users', user.uid, 'transactions', buyId), buyTx)
         );
+        bump(newAccountId, -newInvestedAmount);
         patch.linkedTransactionId = buyId;
+        patch.investedAmount = newInvestedAmount;
+        const newCurrentPrice =
+          pickPositive(updates.currentPrice, inv.currentPrice, newBuyPrice) ??
+          newBuyPrice;
+        patch.currentPrice = newCurrentPrice;
+        patch.currentValue = newUnits * newCurrentPrice;
       }
       patch.appliedAmount = 0;
-    } else if (wasActive && newStatus === 'active') {
-      const buyTx = inv.linkedTransactionId
-        ? transactions.find((t) => t.id === inv.linkedTransactionId)
-        : null;
-      if (buyTx) {
-        const accountChanged = newAccountId !== buyTx.accountId;
-        const amountChanged = newInvestedAmount !== buyTx.amount;
-        if (accountChanged) {
-          batch.update(doc(db, 'users', user.uid, 'accounts', buyTx.accountId), {
-            balance: increment(buyTx.amount),
-          });
-          batch.update(doc(db, 'users', user.uid, 'accounts', newAccountId), {
-            balance: increment(-newInvestedAmount),
-          });
-        } else if (amountChanged) {
-          batch.update(doc(db, 'users', user.uid, 'accounts', newAccountId), {
-            balance: increment(buyTx.amount - newInvestedAmount),
-          });
-        }
-        const txPatch: Partial<Transaction> = {};
-        if (amountChanged) txPatch.amount = newInvestedAmount;
-        if (accountChanged) txPatch.accountId = newAccountId;
-        if (newDate !== buyTx.date) txPatch.date = newDate;
-        if (Object.keys(txPatch).length > 0) {
-          batch.update(
-            doc(db, 'users', user.uid, 'transactions', buyTx.id),
-            txPatch
-          );
-        }
-      }
-    } else if (isBecomingSold) {
+      patch.units = newUnits;
+      patch.buyPrice = newBuyPrice;
+    }
+
+    // ── Transition: active → sold ──
+    else if (isBecomingSold) {
       const finalSoldPrice =
         pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
       const finalSoldDate = updates.soldDate ?? Date.now();
-
-      patch.soldPrice = finalSoldPrice;
-      patch.soldDate = finalSoldDate;
-      patch.status = 'sold';
-      patch.currentPrice = finalSoldPrice;
-      patch.currentValue = newUnits * finalSoldPrice;
-
       const proceeds = finalSoldPrice * newUnits;
       const txId = genId('t');
       const tx: Transaction = {
@@ -1365,17 +1447,144 @@ export const useStore = create<StoreState>((set, get) => ({
         linkedLoanId: null,
         linkedPaymentId: null,
       };
-      batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
-      txEffects(tx).forEach((delta, accId) =>
-        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-          balance: increment(delta),
-        })
+      ops.push((batch) =>
+        batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx)
       );
+      bump(newAccountId, proceeds);
+
+      patch.soldPrice = finalSoldPrice;
+      patch.soldDate = finalSoldDate;
+      patch.status = 'sold';
+      patch.currentPrice = finalSoldPrice;
+      patch.currentValue = proceeds;
+      patch.investedAmount = newInvestedAmount;
       patch.linkedSellTransactionId = txId;
     }
 
-    batch.update(doc(db, 'users', user.uid, 'investments', id), patch);
-    await batch.commit();
+    // ── Edit: active → active (reconcile buy tx + denormalised) ──
+    else if (isEditingActive) {
+      patch.investedAmount = newInvestedAmount;
+      const newCurrentPrice =
+        pickPositive(updates.currentPrice, inv.currentPrice, newBuyPrice) ??
+        newBuyPrice;
+      patch.currentPrice = newCurrentPrice;
+      patch.currentValue = newUnits * newCurrentPrice;
+
+      const buyTx = inv.linkedTransactionId
+        ? transactions.find((t) => t.id === inv.linkedTransactionId)
+        : null;
+      if (buyTx) {
+        const accountChanged = newAccountId !== buyTx.accountId;
+        const amountChanged = newInvestedAmount !== buyTx.amount;
+
+        if (accountChanged) {
+          bump(buyTx.accountId, buyTx.amount);
+          bump(newAccountId, -newInvestedAmount);
+        } else if (amountChanged) {
+          bump(newAccountId, buyTx.amount - newInvestedAmount);
+        }
+
+        const txPatch: Partial<Transaction> = {};
+        if (amountChanged) txPatch.amount = newInvestedAmount;
+        if (accountChanged) txPatch.accountId = newAccountId;
+        if (newDate !== buyTx.date) txPatch.date = newDate;
+
+        const newName = updates.name ?? inv.name;
+        const newSymbol = updates.symbol ?? inv.symbol;
+        const oldNote = `Investment: ${inv.name}${inv.symbol ? ` (${inv.symbol})` : ''}`;
+        const newNote = `Investment: ${newName}${newSymbol ? ` (${newSymbol})` : ''}`;
+        if (buyTx.note === oldNote && newNote !== buyTx.note) {
+          txPatch.note = newNote;
+        }
+
+        if (Object.keys(txPatch).length > 0) {
+          ops.push((batch) =>
+            batch.update(doc(db, 'users', user.uid, 'transactions', buyTx.id), txPatch)
+          );
+        }
+      }
+    }
+
+    // ── Edit: sold → sold (recompute denormalised, reconcile sell tx) ──
+    else if (isEditingSold) {
+      patch.investedAmount = newInvestedAmount;
+      const sp = pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
+      const sd = updates.soldDate ?? inv.soldDate;
+
+      if (sp > 0) {
+        patch.soldPrice = sp;
+        patch.soldDate = sd;
+        patch.currentPrice = sp;
+        patch.currentValue = newUnits * sp;
+      }
+
+      const sellTx = inv.linkedSellTransactionId
+        ? transactions.find((t) => t.id === inv.linkedSellTransactionId)
+        : null;
+      if (sellTx && sp > 0) {
+        const accountChanged = newAccountId !== sellTx.accountId;
+        const amountChanged = sp * newUnits !== sellTx.amount;
+        const dateChanged = sd !== null && sd !== sellTx.date;
+
+        if (accountChanged) {
+          bump(sellTx.accountId, -sellTx.amount);
+          bump(newAccountId, sp * newUnits);
+        } else if (amountChanged) {
+          bump(newAccountId, sp * newUnits - sellTx.amount);
+        }
+
+        const txPatch: Partial<Transaction> = {};
+        if (amountChanged) txPatch.amount = sp * newUnits;
+        if (accountChanged) txPatch.accountId = newAccountId;
+        if (dateChanged && sd !== null) txPatch.date = sd;
+
+        if (Object.keys(txPatch).length > 0) {
+          ops.push((batch) =>
+            batch.update(doc(db, 'users', user.uid, 'transactions', sellTx.id), txPatch)
+          );
+        }
+      }
+    }
+
+    // ── Edit: applied → applied (reconcile blocked apply tx) ──
+    // FIX: previously there was no branch for this. Changing the applied
+    // amount or funding account left the apply transaction and the account
+    // balance untouched, corrupting net worth.
+    else if (isEditingApplied) {
+      const newApplied = updates.appliedAmount ?? inv.appliedAmount ?? 0;
+      patch.appliedAmount = newApplied;
+
+      const applyTx = inv.linkedApplyTransactionId
+        ? transactions.find((t) => t.id === inv.linkedApplyTransactionId)
+        : null;
+      if (applyTx) {
+        const accountChanged = newAccountId !== applyTx.accountId;
+        const amountChanged = newApplied !== applyTx.amount;
+
+        if (accountChanged) {
+          bump(applyTx.accountId, applyTx.amount);
+          bump(newAccountId, -newApplied);
+        } else if (amountChanged) {
+          bump(newAccountId, applyTx.amount - newApplied);
+        }
+
+        const txPatch: Partial<Transaction> = {};
+        if (amountChanged) txPatch.amount = newApplied;
+        if (accountChanged) txPatch.accountId = newAccountId;
+        if (newDate !== applyTx.date) txPatch.date = newDate;
+
+        if (Object.keys(txPatch).length > 0) {
+          ops.push((batch) =>
+            batch.update(doc(db, 'users', user.uid, 'transactions', applyTx.id), txPatch)
+          );
+        }
+      }
+    }
+
+    ops.push((batch) =>
+      batch.update(doc(db, 'users', user.uid, 'investments', id), patch)
+    );
+    await commitInChunks(ops);
   },
 
   updateInvestmentPrice: async (id, price) => {
@@ -1383,10 +1592,13 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!user) throw new Error('Not authenticated');
     const inv = investments.find((i) => i.id === id);
     if (!inv) throw new Error('Investment not found');
-    if (inv.status === 'sold')
-      throw new Error('Cannot update price on a sold investment');
-    if (inv.status === 'applied')
-      throw new Error('Cannot update price on an applied investment');
+    // FIX: was only blocking sold/applied. Not_allotted also has no units
+    // to price — reject uniformly.
+    if (inv.status !== 'active') {
+      throw new Error(
+        `Cannot update price on an investment in status "${inv.status}"`
+      );
+    }
     requirePositive(price, 'Price');
     await updateDoc(doc(db, 'users', user.uid, 'investments', id), {
       currentPrice: price,
@@ -1399,9 +1611,11 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!user) throw new Error('Not authenticated');
     const inv = investments.find((i) => i.id === id);
     if (!inv) throw new Error('Investment not found');
-    if (inv.status === 'sold') throw new Error('Investment is already sold');
-    if (inv.status === 'applied')
-      throw new Error('Cannot sell an applied investment');
+    // FIX: was only checking sold/applied. Not_allotted has zero units, so
+    // selling it would create a zero-amount income transaction.
+    if (inv.status !== 'active') {
+      throw new Error(`Cannot sell an investment in status "${inv.status}"`);
+    }
     requirePositive(soldPrice, 'Sell price');
 
     const proceeds = soldPrice * inv.units;
@@ -1425,22 +1639,28 @@ export const useStore = create<StoreState>((set, get) => ({
       linkedPaymentId: null,
     };
 
-    const batch = writeBatch(db);
-    batch.update(doc(db, 'users', user.uid, 'investments', id), {
-      status: 'sold',
-      soldPrice,
-      soldDate,
-      currentPrice: soldPrice,
-      currentValue: proceeds,
-      linkedSellTransactionId: txId,
-    });
-    batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx);
-    txEffects(tx).forEach((delta, accId) =>
-      batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-        balance: increment(delta),
+    const ops: Array<(batch: WriteBatch) => void> = [];
+    ops.push((batch) =>
+      batch.update(doc(db, 'users', user.uid, 'investments', id), {
+        status: 'sold',
+        soldPrice,
+        soldDate,
+        currentPrice: soldPrice,
+        currentValue: proceeds,
+        linkedSellTransactionId: txId,
       })
     );
-    await batch.commit();
+    ops.push((batch) =>
+      batch.set(doc(db, 'users', user.uid, 'transactions', txId), tx)
+    );
+    txEffects(tx).forEach((delta, accId) =>
+      ops.push((batch) =>
+        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+          balance: increment(delta),
+        })
+      )
+    );
+    await commitInChunks(ops);
   },
 
   deleteInvestment: async (id) => {
@@ -1449,35 +1669,48 @@ export const useStore = create<StoreState>((set, get) => ({
     const inv = investments.find((i) => i.id === id);
     if (!inv) return;
 
-    const batch = writeBatch(db);
+    const ops: Array<(batch: WriteBatch) => void> = [];
     const reverseTx = (txId?: string | null) => {
       if (!txId) return;
       const tx = transactions.find((t) => t.id === txId);
       if (!tx) return;
-      batch.delete(doc(db, 'users', user.uid, 'transactions', tx.id));
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'transactions', tx.id))
+      );
       txEffects(tx).forEach((delta, accId) =>
-        batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
-          balance: increment(-delta),
-        })
+        ops.push((batch) =>
+          batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
+            balance: increment(-delta),
+          })
+        )
       );
     };
     reverseTx(inv.linkedTransactionId);
     reverseTx(inv.linkedSellTransactionId);
     reverseTx(inv.linkedApplyTransactionId);
     reverseTx(inv.linkedRefundTransactionId);
-    batch.delete(doc(db, 'users', user.uid, 'investments', id));
-    await batch.commit();
+    ops.push((batch) =>
+      batch.delete(doc(db, 'users', user.uid, 'investments', id))
+    );
+    await commitInChunks(ops);
   },
 
   updatePreferences: async (updates) => {
-    const { user, preferences } = get();
+    const { user } = get();
     if (!user) return;
     try {
-      const prefs = { ...preferences, ...updates };
+      // FIX: use setDoc with merge instead of full-document overwrite.
+      // A stale `preferences` snapshot from another tab can no longer
+      // revert concurrent changes.
+      const patch: Partial<Preferences> = { ...updates };
       if (updates.currency) {
-        prefs.currencySymbol = getCurrencySymbol(updates.currency);
+        patch.currencySymbol = getCurrencySymbol(updates.currency);
       }
-      await setDoc(doc(db, 'users', user.uid, 'profile', 'preferences'), prefs);
+      await setDoc(
+        doc(db, 'users', user.uid, 'profile', 'preferences'),
+        patch,
+        { merge: true }
+      );
     } catch (err) {
       console.error('Failed to save preferences', err);
       toast.error('Failed to save preference');
@@ -1489,22 +1722,29 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!user) return;
     const existingCatIds = new Set(categories.map((c) => c.id));
     const existingAccIds = new Set(accounts.map((a) => a.id));
-    const batch = writeBatch(db);
+    const ops: Array<(batch: WriteBatch) => void> = [];
     SEED_CATEGORIES.forEach((c) => {
       if (!existingCatIds.has(c.id)) {
-        batch.set(doc(db, 'users', user.uid, 'categories', c.id), c);
+        // FIX: merge so renames/colour edits survive a Restore Defaults.
+        ops.push((batch) =>
+          batch.set(doc(db, 'users', user.uid, 'categories', c.id), c, {
+            merge: true,
+          })
+        );
       }
     });
     SEED_ACCOUNTS.forEach((a) => {
       if (!existingAccIds.has(a.id)) {
-        batch.set(doc(db, 'users', user.uid, 'accounts', a.id), {
-          ...a,
-          balance: a.initialBalance,
-          createdAt: Date.now(),
-        });
+        ops.push((batch) =>
+          batch.set(
+            doc(db, 'users', user.uid, 'accounts', a.id),
+            { ...a, balance: a.initialBalance, createdAt: Date.now() },
+            { merge: true }
+          )
+        );
       }
     });
-    await batch.commit();
+    await commitInChunks(ops);
   },
 
   resetToSampleData: async () => {
@@ -1514,29 +1754,46 @@ export const useStore = create<StoreState>((set, get) => ({
     } = get();
     if (!user) return;
 
-    const wipe = writeBatch(db);
-    accounts.forEach((a) =>
-      wipe.delete(doc(db, 'users', user.uid, 'accounts', a.id))
+    // ── Wipe phase ──
+    const wipeOps: Array<(batch: WriteBatch) => void> = [];
+    accounts.forEach((account) =>
+      wipeOps.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'accounts', account.id))
+      )
     );
-    categories.forEach((c) =>
-      wipe.delete(doc(db, 'users', user.uid, 'categories', c.id))
+    categories.forEach((category) =>
+      wipeOps.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'categories', category.id))
+      )
     );
-    transactions.forEach((t) =>
-      wipe.delete(doc(db, 'users', user.uid, 'transactions', t.id))
+    transactions.forEach((transaction) =>
+      wipeOps.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'transactions', transaction.id))
+      )
     );
-    budgets.forEach((b) =>
-      wipe.delete(doc(db, 'users', user.uid, 'budgets', b.id))
+    // FIX: outer loop var was `b` (budget); the pushed closure also used
+    // `(b: WriteBatch)`. `b.id` resolved to the WriteBatch. Renamed.
+    budgets.forEach((budget) =>
+      wipeOps.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'budgets', budget.id))
+      )
     );
-    loans.forEach((l) =>
-      wipe.delete(doc(db, 'users', user.uid, 'loans', l.id))
+    loans.forEach((loan) =>
+      wipeOps.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'loans', loan.id))
+      )
     );
-    loanPayments.forEach((p) =>
-      wipe.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
+    loanPayments.forEach((payment) =>
+      wipeOps.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'loanPayments', payment.id))
+      )
     );
-    investments.forEach((i) =>
-      wipe.delete(doc(db, 'users', user.uid, 'investments', i.id))
+    investments.forEach((investment) =>
+      wipeOps.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'investments', investment.id))
+      )
     );
-    await wipe.commit();
+    await commitInChunks(wipeOps);
 
     const finalBalances = new Map<string, number>();
     SEED_ACCOUNTS.forEach((a) => finalBalances.set(a.id, a.initialBalance));
@@ -1551,34 +1808,49 @@ export const useStore = create<StoreState>((set, get) => ({
       now.getMonth() + 1
     ).padStart(2, '0')}`;
 
-    const batch = writeBatch(db);
-    SEED_CATEGORIES.forEach((c) =>
-      batch.set(doc(db, 'users', user.uid, 'categories', c.id), c)
+    // ── Seed phase ──
+    const seedOps: Array<(batch: WriteBatch) => void> = [];
+    SEED_CATEGORIES.forEach((category) =>
+      seedOps.push((batch) =>
+        batch.set(doc(db, 'users', user.uid, 'categories', category.id), category)
+      )
     );
-    SEED_ACCOUNTS.forEach((a) =>
-      batch.set(doc(db, 'users', user.uid, 'accounts', a.id), {
-        ...a,
-        balance: finalBalances.get(a.id) ?? a.initialBalance,
-        createdAt: Date.now(),
-      })
+    SEED_ACCOUNTS.forEach((account) =>
+      seedOps.push((batch) =>
+        batch.set(doc(db, 'users', user.uid, 'accounts', account.id), {
+          ...account,
+          balance: finalBalances.get(account.id) ?? account.initialBalance,
+          createdAt: Date.now(),
+        })
+      )
     );
-    SEED_TRANSACTIONS.forEach((t) =>
-      batch.set(doc(db, 'users', user.uid, 'transactions', t.id), {
-        ...t,
-        createdAt: Date.now(),
-      })
+    SEED_TRANSACTIONS.forEach((transaction) =>
+      seedOps.push((batch) =>
+        batch.set(doc(db, 'users', user.uid, 'transactions', transaction.id), {
+          ...transaction,
+          createdAt: Date.now(),
+        })
+      )
     );
-    SEED_BUDGETS.forEach((b) =>
-      batch.set(doc(db, 'users', user.uid, 'budgets', b.id), {
-        ...b,
-        monthYear: currentMonthKey,
-      })
+    // FIX: outer loop var was `b` (seed budget); the pushed closure was
+    // also `(b: WriteBatch)`. Both `b.id` and `...b` were resolving to the
+    // WriteBatch — the former errored, the latter would have spread the
+    // batch's methods into the document. Renamed to `seedBudget`.
+    SEED_BUDGETS.forEach((seedBudget) =>
+      seedOps.push((batch) =>
+        batch.set(doc(db, 'users', user.uid, 'budgets', seedBudget.id), {
+          ...seedBudget,
+          monthYear: currentMonthKey,
+        })
+      )
     );
-    batch.set(
-      doc(db, 'users', user.uid, 'profile', 'preferences'),
-      DEFAULT_PREFERENCES
+    seedOps.push((batch) =>
+      batch.set(
+        doc(db, 'users', user.uid, 'profile', 'preferences'),
+        DEFAULT_PREFERENCES
+      )
     );
-    await batch.commit();
+    await commitInChunks(seedOps);
   },
 
   clearCloudData: async () => {
@@ -1587,32 +1859,50 @@ export const useStore = create<StoreState>((set, get) => ({
       loans, loanPayments, investments,
     } = get();
     if (!user) return;
-    const batch = writeBatch(db);
-    accounts.forEach((a) =>
-      batch.delete(doc(db, 'users', user.uid, 'accounts', a.id))
+    const ops: Array<(batch: WriteBatch) => void> = [];
+    accounts.forEach((account) =>
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'accounts', account.id))
+      )
     );
-    categories.forEach((c) =>
-      batch.delete(doc(db, 'users', user.uid, 'categories', c.id))
+    categories.forEach((category) =>
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'categories', category.id))
+      )
     );
-    transactions.forEach((t) =>
-      batch.delete(doc(db, 'users', user.uid, 'transactions', t.id))
+    transactions.forEach((transaction) =>
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'transactions', transaction.id))
+      )
     );
-    budgets.forEach((b) =>
-      batch.delete(doc(db, 'users', user.uid, 'budgets', b.id))
+    // FIX: outer loop var was `b` (budget); the pushed closure also used
+    // `(b: WriteBatch)`. `b.id` resolved to the WriteBatch. Renamed.
+    budgets.forEach((budget) =>
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'budgets', budget.id))
+      )
     );
-    loans.forEach((l) =>
-      batch.delete(doc(db, 'users', user.uid, 'loans', l.id))
+    loans.forEach((loan) =>
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'loans', loan.id))
+      )
     );
-    loanPayments.forEach((p) =>
-      batch.delete(doc(db, 'users', user.uid, 'loanPayments', p.id))
+    loanPayments.forEach((payment) =>
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'loanPayments', payment.id))
+      )
     );
-    investments.forEach((i) =>
-      batch.delete(doc(db, 'users', user.uid, 'investments', i.id))
+    investments.forEach((investment) =>
+      ops.push((batch) =>
+        batch.delete(doc(db, 'users', user.uid, 'investments', investment.id))
+      )
     );
-    batch.set(
-      doc(db, 'users', user.uid, 'profile', 'preferences'),
-      DEFAULT_PREFERENCES
+    ops.push((batch) =>
+      batch.set(
+        doc(db, 'users', user.uid, 'profile', 'preferences'),
+        DEFAULT_PREFERENCES
+      )
     );
-    await batch.commit();
+    await commitInChunks(ops);
   },
 }));

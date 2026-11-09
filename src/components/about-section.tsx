@@ -15,10 +15,11 @@ const CREATOR = {
   name: 'Kalmux',
   role: 'Creator & Maintainer',
   email: '',
+  portfolio: 'https://kalmux1.github.io/Kalmux-Portfolio/',
   github: 'https://github.com/kalmux1',
 };
 
-const APP_VERSION = '1.3';
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0';
 
 export function AboutSection() {
   return (
@@ -53,9 +54,16 @@ export function AboutSection() {
           Created by
         </h4>
         
-        {/* Avatar removed here */}
         <div className="min-w-0 mb-3">
-          <p className="font-semibold text-sm truncate">{CREATOR.name}</p>
+          {/* Name linked to Portfolio */}
+          <a 
+            href={CREATOR.portfolio} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="font-semibold text-sm truncate hover:underline text-foreground inline-block"
+          >
+            {CREATOR.name}
+          </a>
           <p className="text-xs text-muted-foreground truncate">
             {CREATOR.role}
           </p>
@@ -117,7 +125,7 @@ export function AboutSection() {
       <p className="text-[10px] text-muted-foreground text-center pt-2">
         Made By{' '}
         <a
-          href="https://github.com/kalmux1"
+          href={CREATOR.portfolio}
           target="_blank"
           rel="noopener noreferrer"
           className="underline hover:text-primary transition-colors font-medium"

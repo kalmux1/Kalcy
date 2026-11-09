@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -18,7 +19,9 @@ interface ConfirmDialogProps {
   description: string;
   confirmText?: string;
   cancelText?: string;
-  onConfirm: () => void;
+  // FIX: allow async handlers so the dialog can await completion,
+  // swallow (log) rejections, and keep itself open on failure.
+  onConfirm: () => void | Promise<void>;
   isDestructive?: boolean;
 }
 
@@ -32,6 +35,23 @@ export function ConfirmDialog({
   onConfirm,
   isDestructive = true,
 }: ConfirmDialogProps) {
+  const [loading, setLoading] = useState(false);
+
+  const handleConfirm = async () => {
+    if (loading) return;
+    try {
+      setLoading(true);
+      await onConfirm();
+      onOpenChange(false);
+    } catch (err) {
+      // Handlers are expected to toast the specific failure; we keep the
+      // dialog open so the user can retry or cancel.
+      console.error('Confirm action failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md rounded-[2rem] p-6 gap-6">
@@ -51,6 +71,7 @@ export function ConfirmDialog({
             type="button"
             variant="outline"
             onClick={() => onOpenChange(false)}
+            disabled={loading}
             className="rounded-xl flex-1 h-11"
           >
             {cancelText}
@@ -58,13 +79,11 @@ export function ConfirmDialog({
           <Button
             type="button"
             variant={isDestructive ? 'destructive' : 'default'}
-            onClick={() => {
-              onConfirm();
-              onOpenChange(false);
-            }}
+            onClick={handleConfirm}
+            disabled={loading}
             className="rounded-xl flex-1 h-11"
           >
-            {confirmText}
+            {loading ? 'Working…' : confirmText}
           </Button>
         </DialogFooter>
       </DialogContent>

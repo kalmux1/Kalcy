@@ -27,35 +27,8 @@ import { formatCurrency } from '@/lib/currencies';
 import {
   getInvestmentsSummary, getInvestmentPnl, toDateInputValue,
 } from '@/lib/finance';
+import { OpenEyeIcon, ClosedEyeIcon } from '@/components/ui/icons';
 import { toast } from 'sonner';
-
-/* ─── Custom Aesthetic Eye Icons ─── */
-function OpenEyeIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-      <circle cx="12" cy="12" r="3" />
-      <path d="M7 4.5L5.5 2" />
-      <path d="M12 4V1.5" />
-      <path d="M17 4.5L18.5 2" />
-      <path d="M3 7L1 5" />
-      <path d="M21 7L23 5" />
-    </svg>
-  );
-}
-
-function ClosedEyeIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M2 10c4 4 16 4 20 0" />
-      <path d="M4 12L2 14" />
-      <path d="M8 14L7 17" />
-      <path d="M12 15V18" />
-      <path d="M16 14L17 17" />
-      <path d="M20 12L22 14" />
-    </svg>
-  );
-}
 
 const TYPE_META = Object.fromEntries(
   INVESTMENT_TYPES.map((t) => [t.value, t])
@@ -118,8 +91,6 @@ export function InvestmentsView() {
   return (
     <div className="flex flex-col gap-4 md:gap-6">
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20">
-        
-        {/* Absolute Right Eye Icon */}
         <button
           type="button"
           onClick={toggleHideBalances}
@@ -156,6 +127,13 @@ export function InvestmentsView() {
               </>
             )}
           </p>
+
+          {summary.blockedValue > 0 && !hideBalances && (
+            <p className="text-xs opacity-70 mt-1">
+              + {formatCurrency(summary.blockedValue, preferences.currencySymbol)} blocked in{' '}
+              {applied.length} applied IPO{applied.length !== 1 ? 's' : ''}
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-4 mt-6 md:max-w-md">
             <div className="rounded-2xl bg-white/15 p-3 md:p-4">
@@ -528,6 +506,15 @@ function InvestmentForm({
   const isAllotted = status === 'active';
   const isSold = status === 'sold';
 
+  // FIX: `isSold` means the position is already disposed of. Its buy-side
+  // details (units, buy price, funding account, purchase date) back a
+  // transaction that the store's `isEditingSold` branch does NOT reconcile.
+  // Leaving these editable would let a user silently desync the buy
+  // transaction's amount/account/date from the investment record. We now
+  // lock every field that would trigger that desync, matching the
+  // "Buy-side details are locked" message shown above the form.
+  const lockBuySide = isSold;
+
   const totalCost = (parseFloat(units) || 0) * (parseFloat(buyPrice) || 0);
 
   const allowedStatuses: InvestmentStatus[] = initial
@@ -551,8 +538,15 @@ function InvestmentForm({
     const [y, m, d] = date.split('-').map(Number);
     const ts = new Date(y, m - 1, d).getTime();
 
-    let cp = 0;
-    if (isAllotted) {
+    // For sold positions we derive currentPrice from the sale price so
+    // getInvestmentPnl never sees a zero market value on a profitable sale.
+    let cp: number;
+    if (isApplied || isNotAllotted) {
+      cp = 0;
+    } else if (isSold) {
+      const spRaw = parseFloat(sellPriceInput);
+      cp = !Number.isNaN(spRaw) && spRaw > 0 ? spRaw : bp;
+    } else {
       const cpRaw = currentPrice.trim() ? parseFloat(currentPrice) : NaN;
       if (!Number.isNaN(cpRaw) && cpRaw < 0) { toast.error('Current price cannot be negative'); return; }
       cp = !Number.isNaN(cpRaw) && cpRaw > 0 ? cpRaw : bp;
@@ -589,7 +583,9 @@ function InvestmentForm({
       accountId,
       date: ts,
       note: note.trim(),
-      status: isIpo ? status : 'active',
+      // Preserve the true status: forcing 'active' here used to make sold
+      // positions impossible to edit (invalid transition sold→active).
+      status,
       listingPrice: lp,
       listingDate: ld,
       appliedAmount: blockedAmt,
@@ -602,7 +598,8 @@ function InvestmentForm({
     <form id="investment-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex flex-col gap-4">
       {isSold && (
         <div className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
-          This position is already sold. Buy-side details are locked.
+          This position is already sold. Buy-side details are locked — only the
+          sale price, sale date, and note can be edited.
         </div>
       )}
 
@@ -613,13 +610,15 @@ function InvestmentForm({
             <button
               key={meta.value}
               type="button"
+              disabled={lockBuySide}
               onClick={() => {
                 setType(meta.value);
                 if (meta.value === 'ipo' && !initial) setStatus('applied');
               }}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all',
-                type === meta.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                type === meta.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                lockBuySide && 'opacity-50 cursor-not-allowed'
               )}
             >
               <span style={{ color: type === meta.value ? 'inherit' : meta.color }}>
@@ -639,10 +638,12 @@ function InvestmentForm({
               <button
                 key={s}
                 type="button"
+                disabled={lockBuySide && s !== status}
                 onClick={() => setStatus(s)}
                 className={cn(
                   'flex-1 py-2 rounded-xl text-xs font-medium capitalize transition-all',
-                  status === s ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                  status === s ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                  lockBuySide && s !== status && 'opacity-50 cursor-not-allowed'
                 )}
               >
                 {s === 'active' ? 'Allotted' : s === 'not_allotted' ? 'Not Allotted' : s}
@@ -655,11 +656,25 @@ function InvestmentForm({
       <div className="grid grid-cols-3 gap-3">
         <div className="col-span-2">
           <Label className="text-xs text-muted-foreground">Name</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Tata Tech" className="mt-1 rounded-xl" />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Tata Tech"
+            className="mt-1 rounded-xl"
+            disabled={lockBuySide}
+            title={lockBuySide ? 'Locked: this position is already sold' : undefined}
+          />
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Symbol</Label>
-          <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="TATATECH" className="mt-1 rounded-xl uppercase" />
+          <Input
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            placeholder="TATATECH"
+            className="mt-1 rounded-xl uppercase"
+            disabled={lockBuySide}
+            title={lockBuySide ? 'Locked: this position is already sold' : undefined}
+          />
         </div>
       </div>
 
@@ -679,13 +694,31 @@ function InvestmentForm({
           <div className="grid grid-cols-2 gap-3 max-w-sm mt-2">
             <div>
               <Label className="text-xs text-muted-foreground">Units / Shares</Label>
-              <Input type="number" inputMode="decimal" value={units} onChange={(e) => setUnits(e.target.value)} placeholder="10" className="mt-1 rounded-xl" />
+              <Input
+                type="number"
+                inputMode="decimal"
+                value={units}
+                onChange={(e) => setUnits(e.target.value)}
+                placeholder="10"
+                className="mt-1 rounded-xl"
+                disabled={lockBuySide}
+                title={lockBuySide ? 'Locked: this position is already sold' : undefined}
+              />
             </div>
             <div>
               <Label className="text-xs text-muted-foreground">Buy Price (per unit)</Label>
               <div className="relative mt-1">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
-                <Input type="number" inputMode="decimal" value={buyPrice} onChange={(e) => setBuyPrice(e.target.value)} placeholder="0.00" className="rounded-xl pl-7" />
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  value={buyPrice}
+                  onChange={(e) => setBuyPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="rounded-xl pl-7"
+                  disabled={lockBuySide}
+                  title={lockBuySide ? 'Locked: this position is already sold' : undefined}
+                />
               </div>
             </div>
           </div>
@@ -742,8 +775,8 @@ function InvestmentForm({
       <div className="grid grid-cols-2 gap-3 max-w-sm">
         <div>
           <Label className="text-xs text-muted-foreground">{initial ? 'Source account' : 'Funded from'}</Label>
-          <Select value={accountId} onValueChange={setAccountId}>
-            <SelectTrigger className="mt-1 rounded-xl h-11">
+          <Select value={accountId} onValueChange={setAccountId} disabled={lockBuySide}>
+            <SelectTrigger className="mt-1 rounded-xl h-11" title={lockBuySide ? 'Locked: this position is already sold' : undefined}>
               <SelectValue placeholder="Select account" />
             </SelectTrigger>
             <SelectContent>
@@ -754,7 +787,14 @@ function InvestmentForm({
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">{isApplied ? 'Apply Date' : 'Purchase date'}</Label>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 rounded-xl" />
+          <Input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="mt-1 rounded-xl"
+            disabled={lockBuySide}
+            title={lockBuySide ? 'Locked: this position is already sold' : undefined}
+          />
         </div>
       </div>
 

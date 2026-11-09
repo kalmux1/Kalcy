@@ -19,6 +19,7 @@ import { TransactionItem } from '../transaction-item';
 import type { Transaction } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency, formatCurrencyCompact } from '@/lib/currencies';
+import { OpenEyeIcon, ClosedEyeIcon } from '@/components/ui/icons';
 import {
   groupTransactionsByDay,
   getDailyTotals,
@@ -33,34 +34,6 @@ import {
   getInvestmentsNetWorth,
   parseLocalDate,
 } from '@/lib/finance';
-
-/* ─── Custom Aesthetic Eye Icons ─── */
-function OpenEyeIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-      <circle cx="12" cy="12" r="3" />
-      <path d="M7 4.5L5.5 2" />
-      <path d="M12 4V1.5" />
-      <path d="M17 4.5L18.5 2" />
-      <path d="M3 7L1 5" />
-      <path d="M21 7L23 5" />
-    </svg>
-  );
-}
-
-function ClosedEyeIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M2 10c4 4 16 4 20 0" />
-      <path d="M4 12L2 14" />
-      <path d="M8 14L7 17" />
-      <path d="M12 15V18" />
-      <path d="M16 14L17 17" />
-      <path d="M20 12L22 14" />
-    </svg>
-  );
-}
 
 type ViewMode = 'daily' | 'calendar' | 'monthly' | 'summary';
 
@@ -126,7 +99,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
 
   return (
     <div className="flex flex-col h-full min-h-0 w-full max-w-7xl mx-auto">
-      {/* Header & Balance Container */}
       <div className="px-4 md:px-8 pt-4 md:pt-8 flex flex-col gap-4">
         <div>
           <p className="text-sm text-muted-foreground">
@@ -143,7 +115,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
           animate={{ opacity: 1, y: 0 }}
           className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-6 shadow-lg shadow-primary/20 w-full"
         >
-          {/* Absolute Right Eye Icon - No Background/Circle */}
           <button
             type="button"
             onClick={toggleHideBalances}
@@ -198,7 +169,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
         </motion.div>
       </div>
 
-      {/* Controls Container */}
       <div className="px-4 md:px-8 pt-6 pb-2 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center justify-between w-full md:w-auto md:gap-6">
           <button
@@ -243,7 +213,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
         </div>
       </div>
 
-      {/* List Container */}
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 md:px-8 pb-40 md:pb-8">
         <AnimatePresence mode="wait">
           <motion.div
@@ -411,15 +380,10 @@ function CalendarView({
           {days.map((day, i) => {
             if (!day) return <div key={i} />;
             const dayKey = formatDateKey(day.getTime());
-            const dayTxs = transactions.filter(
-              (t) => formatDateKey(t.date) === dayKey && t.type !== 'transfer'
-            );
-            const expense = dayTxs
-              .filter((t) => t.type === 'expense')
-              .reduce((s, t) => s + t.amount, 0);
-            const income = dayTxs
-              .filter((t) => t.type === 'income')
-              .reduce((s, t) => s + t.amount, 0);
+            // FIX: reuse the (now stats-aware) helper so the calendar day
+            // net agrees with monthly totals for stats-excluded rows like
+            // blocked IPO capital and loan transfers.
+            const { income, expense } = getDailyTotals(transactions, dayKey);
             const net = income - expense;
             const isToday = formatDateKey(Date.now()) === dayKey;
             const isSelected = selectedDate === dayKey;
@@ -649,7 +613,6 @@ function SummaryView({
   const monthYear = monthYearKey(selectedMonth.getTime());
   const totals = getMonthlyTotals(transactions, monthYear);
 
-  // netWorth = cash + investments + loans (matches the Accounts tab exactly)
   const cashNet = getTotalBalance(accounts);
   const investNet = getInvestmentsNetWorth(investments);
   const loansNet = getLoansNetWorth(loans);
@@ -743,8 +706,8 @@ function SummaryView({
             <SummaryRow
               label="Net Cash Flow"
               value={
-                hideBalances 
-                  ? `${symbol}••••••` 
+                hideBalances
+                  ? `${symbol}••••••`
                   : `${totals.net >= 0 ? '+' : ''}${formatCurrency(totals.net, symbol)}`
               }
               color={totals.net >= 0 ? 'text-income' : 'text-expense'}

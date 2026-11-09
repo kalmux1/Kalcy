@@ -6,7 +6,7 @@ Setup:
          KALCY_TEST_EMAIL=<your-test-email>
          KALCY_TEST_PASSWORD=<your-test-password>
   2. The Firebase user must exist AND be signable via Firebase Auth.
-     (Note: Kalcy does *not* use an allowlist collection — the app is
+     (Kalcy does *not* use an allowlist collection — the app is
      invite-only by virtue of Firebase Auth itself.)
   3. Optional cleanup (destructive, wipes all data after each test):
          KALCY_CLEANUP=1
@@ -243,7 +243,13 @@ def save_transaction_sheet(page: Page) -> None:
 
 
 def clear_overall_budget(page: Page) -> None:
-    """Delete all Overall Budget cards for this month. Idempotent."""
+    """Delete all Overall Budget cards for this month. Idempotent.
+
+    FIX: BudgetsView deletes via Radix ConfirmDialog (role="dialog"),
+    not via a Sonner toast. The previous selector looked for a toast
+    that does not exist, so on any run after the first the helper
+    timed out with "Delete this budget" hidden.
+    """
     open_tab(page, "more")
     page.locator('h2:text-is("Monthly Budgets")').first.scroll_into_view_if_needed()
     page.wait_for_timeout(1_500)
@@ -259,11 +265,10 @@ def clear_overall_budget(page: Page) -> None:
 
         cards.first.locator('button:text-is("Delete")').click()
 
-        toast = page.locator("[data-sonner-toast]").filter(
-            has_text="Delete this budget"
-        )
-        expect(toast).to_be_visible(timeout=5_000)
-        toast.locator('button:text-is("Delete")').click()
+        dialog = page.locator('[role="dialog"]').filter(has_text="Delete Budget")
+        expect(dialog).to_be_visible(timeout=5_000)
+        dialog.locator('button:text-is("Delete Budget")').click()
+        expect(dialog).not_to_be_visible(timeout=10_000)
 
         page.wait_for_timeout(1_000)
 
@@ -309,21 +314,13 @@ def read_total_balance(page: Page) -> float:
 # ═══════════════════════════════════════════════════════════════════════
 
 def _ensure_seeded(page: Page) -> None:
-    """If accounts are missing, restore seeds via Restore Defaults.
-
-    §3.1 FIX: The previous version opened the *category* picker and looked
-    for "Restore Defaults" — but if categories already existed and only
-    accounts were missing (a common state after a partial wipe), the
-    button wouldn't appear and seeding never fired. We now try the account
-    picker first (which is where "No accounts" was detected), then fall
-    back to the category picker.
-    """
+    """If accounts are missing, restore seeds via Restore Defaults."""
     try:
         open_tab(page, "accounts")
-        page.wait_for_timeout(1_500)  # let Firestore populate
+        page.wait_for_timeout(1_500)
 
         if page.locator("text=No accounts yet").count() == 0:
-            return  # Already seeded — nothing to do
+            return
 
         open_tab(page, "transactions")
         fab = page.locator('button[aria-label="Add transaction"]')
@@ -334,7 +331,6 @@ def _ensure_seeded(page: Page) -> None:
         drawer = page.locator("[data-vaul-drawer]").last
         expect(drawer).to_be_visible(timeout=5_000)
 
-        # ── Attempt 1: account picker (the empty-state that triggered us) ──
         acc_btn = drawer.locator('button:has-text("Account")').first
         if acc_btn.count() > 0 and acc_btn.is_visible():
             acc_btn.click()
@@ -349,7 +345,6 @@ def _ensure_seeded(page: Page) -> None:
                 page.wait_for_timeout(500)
                 return
 
-        # ── Attempt 2: category picker (in case categories also need seeding) ──
         cat_btn = drawer.locator('button:has-text("Category")').first
         if cat_btn.count() > 0 and cat_btn.is_visible():
             cat_btn.click()
@@ -368,7 +363,12 @@ def _ensure_seeded(page: Page) -> None:
 
 
 def _teardown_wipe(page: Page) -> None:
-    """Delete All Data via the app's UI, then re-seed. Best-effort."""
+    """Delete All Data via the app's UI, then re-seed. Best-effort.
+
+    FIX: same as clear_overall_budget — the wipe confirmation is a
+    Radix ConfirmDialog, not a Sonner toast. The previous selector
+    always failed, so KALCY_CLEANUP=1 silently did nothing.
+    """
     try:
         if page.locator("[data-vaul-drawer]").count() > 0:
             page.keyboard.press("Escape")
@@ -381,11 +381,10 @@ def _teardown_wipe(page: Page) -> None:
         page.locator("text=Delete All Data").scroll_into_view_if_needed()
         page.click('button:has-text("Delete All Data")')
 
-        toast = page.locator("[data-sonner-toast]").filter(
-            has_text="Delete ALL records"
-        )
-        expect(toast).to_be_visible(timeout=5_000)
-        toast.locator('button:has-text("Delete Everything")').click()
+        dialog = page.locator('[role="dialog"]').filter(has_text="Delete All Data")
+        expect(dialog).to_be_visible(timeout=5_000)
+        dialog.locator('button:text-is("Delete Everything")').click()
+        expect(dialog).not_to_be_visible(timeout=15_000)
 
         page.wait_for_timeout(2_000)
         _ensure_seeded(page)

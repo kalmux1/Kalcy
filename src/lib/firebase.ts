@@ -2,8 +2,10 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import {
   initializeFirestore,
+  getFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  type Firestore,
 } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -19,11 +21,23 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 
-// Enable offline persistence — essential for a PWA.
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
-  }),
-});
+// FIX: `initializeFirestore` throws if called twice on the same app
+// (e.g. under Vite HMR). Fall back to `getFirestore` which returns the
+// already-initialised instance.
+function getDb(): Firestore {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch (err) {
+    // Already initialised — reuse the existing instance.
+    console.warn('Firestore already initialised, reusing instance', err);
+    return getFirestore(app);
+  }
+}
+
+export const db = getDb();
 
 export default app;
