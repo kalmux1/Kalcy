@@ -1,6 +1,4 @@
-Here is the complete, updated `README.md` file wrapped in a markdown block so you can easily copy and paste the entire document at once.
 
-```markdown
 # Kalcy 💰
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
