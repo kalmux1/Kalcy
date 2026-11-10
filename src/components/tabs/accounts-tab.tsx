@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import {
@@ -112,7 +112,8 @@ export function AccountsTab() {
       toast.success('Account deleted');
     } catch (err) {
       console.error(err);
-      toast.error('Failed to delete account');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete account');
+      throw err;
     }
   };
 
@@ -204,7 +205,7 @@ export function AccountsTab() {
         <>
           <div className="px-4 md:px-8">
             <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20 w-full">
-              
+
               <button
                 type="button"
                 onClick={toggleHideBalances}
@@ -225,7 +226,7 @@ export function AccountsTab() {
                     ? `${preferences.currencySymbol}••••••`
                     : formatCurrency(netWorth, preferences.currencySymbol)}
                 </p>
-                
+
                 {(loansNet !== 0 || investmentsNet !== 0) && (
                   <div className="mt-4 md:mt-6 pt-4 border-t border-white/20 flex flex-col md:flex-row md:items-center gap-2 md:gap-6 text-xs md:text-sm">
                     <div className="flex justify-between md:justify-start md:gap-4">
@@ -687,6 +688,16 @@ function TransferDialog({
   const [toId, setToId] = useState('');
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Reset the draft whenever the dialog is opened so a cancelled transfer
+  // never leaks into the next one. Matches the ProfileEditDrawer pattern.
+  useEffect(() => {
+    if (open) {
+      setFromId('');
+      setToId('');
+      setAmount('');
+    }
+  }, [open]);
 
   const handleTransfer = async () => {
     if (submitting) return;

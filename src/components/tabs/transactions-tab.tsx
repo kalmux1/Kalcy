@@ -83,10 +83,13 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
     '';
   const greeting = getGreeting();
 
+  // Normalise to day 1 of the target month. `new Date(y, m + dir, 1)` avoids
+  // the "Feb 31 → March 3" overflow that `setMonth` causes when the current
+  // day exceeds the target month's length. Only year+month matter here.
   const changeMonth = (dir: number) => {
-    const d = new Date(selectedMonth);
-    d.setMonth(d.getMonth() + dir);
-    setSelectedMonth(d);
+    const y = selectedMonth.getFullYear();
+    const m = selectedMonth.getMonth() + dir;
+    setSelectedMonth(new Date(y, m, 1));
     setCalendarSelectedDate(null);
   };
 
@@ -380,9 +383,6 @@ function CalendarView({
           {days.map((day, i) => {
             if (!day) return <div key={i} />;
             const dayKey = formatDateKey(day.getTime());
-            // FIX: reuse the (now stats-aware) helper so the calendar day
-            // net agrees with monthly totals for stats-excluded rows like
-            // blocked IPO capital and loan transfers.
             const { income, expense } = getDailyTotals(transactions, dayKey);
             const net = income - expense;
             const isToday = formatDateKey(Date.now()) === dayKey;

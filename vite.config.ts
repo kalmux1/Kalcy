@@ -18,10 +18,13 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
+      // FIX: previously listed `favicon-32x32.png` and `favicon-16x16.png`,
+      // neither of which exist in `public/` (the README explicitly notes
+      // they were removed). Their absence caused 404s during SW install
+      // and triggered `onRegisterError`. Only real assets are precached now.
       includeAssets: [
         'kalcy-logo.svg',
-        'favicon-32x32.png',
-        'favicon-16x16.png',
+        'favicon.ico',
         'apple-touch-icon-180x180.png',
         'maskable-icon-512x512.png',
       ],
@@ -49,7 +52,7 @@ export default defineConfig({
         ],
       },
       pwaAssets: {
-        // Disabled the auto-generator to prevent 'sharp' native module errors 
+        // Disabled the auto-generator to prevent 'sharp' native module errors
         // on Windows during development. Use `npm run generate-pwa-assets` manually if needed.
         disabled: true,
       },

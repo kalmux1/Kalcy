@@ -55,7 +55,7 @@ export function TransactionSheet({
       shouldScaleBackground={false}
       handleOnly
     >
-      <DrawerContent className="max-h-[92vh] rounded-t-[2rem] flex flex-col overflow-hidden">
+      <DrawerContent className="max-h-[92dvh] rounded-t-[2rem] flex flex-col overflow-hidden">
         <TransactionSheetContent
           key={innerKey}
           editingTransaction={editingTransaction ?? null}
@@ -111,11 +111,6 @@ function TransactionSheetContent({
   const [showOptions, setShowOptions] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // ── §1.4 FIX ─────────────────────────────────────────────────────────────
-  // Loan- and investment-linked transactions must never be edited through
-  // this sheet — the parent record would silently desynchronise. This is a
-  // second line of defence; TransactionItem already guards the entry point.
-  // ─────────────────────────────────────────────────────────────────────────
   const linkedToLoan = !!(
     editingTransaction?.linkedLoanId || editingTransaction?.linkedPaymentId
   );

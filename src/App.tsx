@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { TransactionsTab } from '@/components/tabs/transactions-tab';
@@ -105,7 +105,7 @@ const NAV_ITEMS = [
   { key: 'transactions', label: 'Transactions', icon: ListChecks },
   { key: 'stats', label: 'Statistics', icon: BarChart3 },
   { key: 'accounts', label: 'Accounts', icon: Wallet },
-  { key: 'more', label: 'More & Budgets', icon: Settings },
+  { key: 'settings', label: 'Settings', icon: Settings },
 ] as const;
 
 export default function App() {
@@ -145,6 +145,38 @@ export default function App() {
     return () => unsub();
   }, [setUser, initUserData]);
 
+  const handleEditTransaction = useCallback((tx: Transaction) => {
+    setEditingTx(tx);
+    setIsSheetOpen(true);
+  }, []);
+
+  const handleAddTransaction = useCallback(() => {
+    setEditingTx(null);
+    setIsSheetOpen(true);
+  }, []);
+
+  const handleExportCSV = useCallback(() => {
+    const csv = exportToCSV(transactions, accounts, categories);
+    downloadCSV(csv, `kalcy-export-${new Date().toISOString().slice(0, 10)}.csv`);
+    toast.success('Transactions exported to CSV');
+  }, [transactions, accounts, categories]);
+
+  const handleSignOut = useCallback(async () => {
+    await signOut(auth);
+    toast.success('Signed out');
+  }, []);
+
+  const handleWipeData = useCallback(async () => {
+    try {
+      await clearCloudData();
+      toast.success('All data deleted');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete data');
+      throw err;
+    }
+  }, [clearCloudData]);
+
   if (isLoading && !user) {
     return (
       <main className="flex h-[100dvh] w-full items-center justify-center bg-background">
@@ -161,32 +193,6 @@ export default function App() {
   if (!user) {
     return <AuthView />;
   }
-
-  const handleEditTransaction = (tx: Transaction) => {
-    setEditingTx(tx);
-    setIsSheetOpen(true);
-  };
-
-  const handleAddTransaction = () => {
-    setEditingTx(null);
-    setIsSheetOpen(true);
-  };
-
-  const handleExportCSV = () => {
-    const csv = exportToCSV(transactions, accounts, categories);
-    downloadCSV(csv, `kalcy-export-${new Date().toISOString().slice(0, 10)}.csv`);
-    toast.success('Transactions exported to CSV');
-  };
-
-  const handleSignOut = async () => {
-    await signOut(auth);
-    toast.success('Signed out');
-  };
-
-  const handleWipeData = async () => {
-    await clearCloudData();
-    toast.success('All data deleted');
-  };
 
   return (
     <main className="flex h-[100dvh] w-full bg-background text-foreground overflow-hidden">
@@ -251,14 +257,14 @@ export default function App() {
           {activeTab === 'stats' && <StatsTab />}
           {activeTab === 'accounts' && <AccountsTab />}
 
-          {activeTab === 'more' && (
+          {activeTab === 'settings' && (
             <div className="h-full overflow-y-auto no-scrollbar px-4 pt-4 pb-40 md:pb-10 space-y-6 max-w-4xl mx-auto w-full">
               {/* Header (Mobile only) */}
               <div className="flex md:hidden items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
                   <img src="/kalcy-logo.svg" alt="" className="h-10 w-auto" />
                   <div>
-                    <h1 className="text-xl font-bold">More</h1>
+                    <h1 className="text-xl font-bold">Settings</h1>
                     <p className="text-xs text-muted-foreground truncate max-w-[200px]">
                       {user.displayName || user.email}
                     </p>
@@ -407,13 +413,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ─── NEW: About section ─── */}
               <AboutSection />
             </div>
           )}
         </div>
 
-        {/* ================= MOBILE BOTTOM NAV & FAB ================= */}
         <BottomNav
           activeTab={activeTab}
           onTabChange={setActiveTab}

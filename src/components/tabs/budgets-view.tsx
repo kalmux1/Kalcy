@@ -142,7 +142,11 @@ export function BudgetsView() {
       toast.success('Budget deleted');
     } catch (err) {
       console.error(err);
-      toast.error('Failed to delete budget');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete budget');
+      // FIX: re-throw so ConfirmDialog knows the action failed and keeps
+      // itself open for a retry. Previously the dialog closed silently
+      // even when nothing was deleted.
+      throw err;
     }
   };
 

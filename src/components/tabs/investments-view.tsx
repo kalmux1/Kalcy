@@ -41,6 +41,24 @@ const IPO_STATUS_OPTIONS: Record<InvestmentStatus, InvestmentStatus[]> = {
   not_allotted: ['not_allotted'],
 };
 
+const NEW_INVESTMENT_STATUSES: InvestmentStatus[] = ['applied', 'active'];
+
+/**
+ * Parse a `YYYY-MM-DD` string from an `<input type="date" />` into epoch ms.
+ * Returns `null` for malformed input so callers can show a toast instead of
+ * writing a `NaN` timestamp that JSON-serialises to `null` in Firestore.
+ */
+function parseDateInput(value: string): number | null {
+  if (!value) return null;
+  const parts = value.split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) {
+    return null;
+  }
+  const [y, m, d] = parts;
+  const ts = new Date(y, m - 1, d).getTime();
+  return Number.isFinite(ts) ? ts : null;
+}
+
 export function InvestmentsView() {
   const {
     investments, accounts, preferences, addInvestment, updateInvestment,
@@ -84,7 +102,8 @@ export function InvestmentsView() {
       toast.success('Investment deleted');
     } catch (err) {
       console.error(err);
-      toast.error('Failed to delete investment');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete investment');
+      throw err;
     }
   };
 
@@ -409,6 +428,14 @@ function InvestmentCard({
   );
 }
 
+/**
+ * Form payload submitted by `InvestmentForm`.
+ *
+ * `appliedAmount` is `number` (not `number | null`) because the form always
+ * computes a number via `blockedAmt`, and `Investment.appliedAmount` is now
+ * non-nullable in `types.ts`. Keeping it nullable would make this type
+ * incompatible with `updateInvestment` (which expects `Partial<Investment>`).
+ */
 type InvestmentFormData = {
   name: string;
   symbol: string;
@@ -422,7 +449,7 @@ type InvestmentFormData = {
   status: InvestmentStatus;
   listingPrice: number | null;
   listingDate: number | null;
-  appliedAmount: number | null;
+  appliedAmount: number;
   soldPrice?: number | null;
   soldDate?: number | null;
 };
@@ -506,20 +533,29 @@ function InvestmentForm({
   const isAllotted = status === 'active';
   const isSold = status === 'sold';
 
-  // FIX: `isSold` means the position is already disposed of. Its buy-side
-  // details (units, buy price, funding account, purchase date) back a
-  // transaction that the store's `isEditingSold` branch does NOT reconcile.
-  // Leaving these editable would let a user silently desync the buy
-  // transaction's amount/account/date from the investment record. We now
-  // lock every field that would trigger that desync, matching the
-  // "Buy-side details are locked" message shown above the form.
-  const lockBuySide = isSold;
+  const lockBuySide = isSold || isNotAllotted;
 
   const totalCost = (parseFloat(units) || 0) * (parseFloat(buyPrice) || 0);
 
   const allowedStatuses: InvestmentStatus[] = initial
     ? IPO_STATUS_OPTIONS[initial.status] ?? [initial.status]
-    : ['applied', 'active', 'not_allotted'];
+    : NEW_INVESTMENT_STATUSES;
+
+  const handleTypeChange = (nextType: InvestmentType) => {
+    if (nextType === type) return;
+    setType(nextType);
+    if (!initial) {
+      setStatus(nextType === 'ipo' ? 'applied' : 'active');
+      return;
+    }
+    const validForNewType: InvestmentStatus[] =
+      nextType === 'ipo'
+        ? ['applied', 'active', 'not_allotted', 'sold']
+        : ['active', 'sold'];
+    if (!validForNewType.includes(status)) {
+      setStatus(nextType === 'ipo' ? 'applied' : 'active');
+    }
+  };
 
   const handleSubmit = () => {
     if (!name.trim()) { toast.error('Enter a name'); return; }
@@ -535,11 +571,14 @@ function InvestmentForm({
     }
     if (!accountId) { toast.error('Please select an account'); return; }
 
-    const [y, m, d] = date.split('-').map(Number);
-    const ts = new Date(y, m - 1, d).getTime();
+    // FIX: guard every date input — a malformed value used to become `NaN`
+    // and silently serialise to `null` in Firestore.
+    const ts = parseDateInput(date);
+    if (ts === null) {
+      toast.error('Enter a valid purchase date');
+      return;
+    }
 
-    // For sold positions we derive currentPrice from the sale price so
-    // getInvestmentPnl never sees a zero market value on a profitable sale.
     let cp: number;
     if (isApplied || isNotAllotted) {
       cp = 0;
@@ -560,8 +599,11 @@ function InvestmentForm({
 
     let ld: number | null = null;
     if (isIpo && listingDate) {
-      const [ly, lm, ldd] = listingDate.split('-').map(Number);
-      ld = new Date(ly, lm - 1, ldd).getTime();
+      ld = parseDateInput(listingDate);
+      if (ld === null) {
+        toast.error('Enter a valid listing date');
+        return;
+      }
     }
 
     let sp: number | null = null;
@@ -569,8 +611,11 @@ function InvestmentForm({
     if (isSold) {
       sp = parseFloat(sellPriceInput) || 0;
       if (sp <= 0) { toast.error('Enter a valid sale price'); return; }
-      const [sy, sm, sdd] = sellDateInput.split('-').map(Number);
-      sd = new Date(sy, sm - 1, sdd).getTime();
+      sd = parseDateInput(sellDateInput);
+      if (sd === null) {
+        toast.error('Enter a valid sale date');
+        return;
+      }
     }
 
     onSubmit({
@@ -583,8 +628,6 @@ function InvestmentForm({
       accountId,
       date: ts,
       note: note.trim(),
-      // Preserve the true status: forcing 'active' here used to make sold
-      // positions impossible to edit (invalid transition sold→active).
       status,
       listingPrice: lp,
       listingDate: ld,
@@ -602,6 +645,11 @@ function InvestmentForm({
           sale price, sale date, and note can be edited.
         </div>
       )}
+      {isNotAllotted && (
+        <div className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
+          This IPO was not allotted. Only the note can be edited.
+        </div>
+      )}
 
       <div>
         <Label className="text-xs text-muted-foreground">Type</Label>
@@ -611,10 +659,7 @@ function InvestmentForm({
               key={meta.value}
               type="button"
               disabled={lockBuySide}
-              onClick={() => {
-                setType(meta.value);
-                if (meta.value === 'ipo' && !initial) setStatus('applied');
-              }}
+              onClick={() => handleTypeChange(meta.value)}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all',
                 type === meta.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
@@ -662,7 +707,7 @@ function InvestmentForm({
             placeholder="e.g. Tata Tech"
             className="mt-1 rounded-xl"
             disabled={lockBuySide}
-            title={lockBuySide ? 'Locked: this position is already sold' : undefined}
+            title={lockBuySide ? 'Locked: this position cannot be renamed' : undefined}
           />
         </div>
         <div>
@@ -673,7 +718,7 @@ function InvestmentForm({
             placeholder="TATATECH"
             className="mt-1 rounded-xl uppercase"
             disabled={lockBuySide}
-            title={lockBuySide ? 'Locked: this position is already sold' : undefined}
+            title={lockBuySide ? 'Locked: this position cannot be renamed' : undefined}
           />
         </div>
       </div>
@@ -776,7 +821,7 @@ function InvestmentForm({
         <div>
           <Label className="text-xs text-muted-foreground">{initial ? 'Source account' : 'Funded from'}</Label>
           <Select value={accountId} onValueChange={setAccountId} disabled={lockBuySide}>
-            <SelectTrigger className="mt-1 rounded-xl h-11" title={lockBuySide ? 'Locked: this position is already sold' : undefined}>
+            <SelectTrigger className="mt-1 rounded-xl h-11" title={lockBuySide ? 'Locked: this position cannot be modified' : undefined}>
               <SelectValue placeholder="Select account" />
             </SelectTrigger>
             <SelectContent>
@@ -793,7 +838,7 @@ function InvestmentForm({
             onChange={(e) => setDate(e.target.value)}
             className="mt-1 rounded-xl"
             disabled={lockBuySide}
-            title={lockBuySide ? 'Locked: this position is already sold' : undefined}
+            title={lockBuySide ? 'Locked: this position cannot be modified' : undefined}
           />
         </div>
       </div>
@@ -854,10 +899,11 @@ function InvestmentDetailSheet({
     if (!liveInvestment) return;
     const p = parseFloat(sellPriceInput);
     if (!p || p <= 0) { toast.error('Enter a valid sell price'); return; }
-    const [y, m, d] = sellDate.split('-').map(Number);
+    const sd = parseDateInput(sellDate);
+    if (sd === null) { toast.error('Enter a valid sell date'); return; }
     try {
       setSubmitting(true);
-      await onSell(liveInvestment.id, p, new Date(y, m - 1, d).getTime());
+      await onSell(liveInvestment.id, p, sd);
       reset();
     } finally { setSubmitting(false); }
   };

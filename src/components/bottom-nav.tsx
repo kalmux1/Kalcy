@@ -4,7 +4,7 @@ import { ListChecks, BarChart3, Wallet, Settings, Plus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
-export type TabKey = 'transactions' | 'stats' | 'accounts' | 'more';
+export type TabKey = 'transactions' | 'stats' | 'accounts' | 'settings';
 
 interface BottomNavProps {
   activeTab: TabKey;
@@ -16,7 +16,7 @@ const NAV_ITEMS: { key: TabKey; label: string; icon: typeof ListChecks }[] = [
   { key: 'transactions', label: 'Trans', icon: ListChecks },
   { key: 'stats', label: 'Stats', icon: BarChart3 },
   { key: 'accounts', label: 'Accounts', icon: Wallet },
-  { key: 'more', label: 'More', icon: Settings },
+  { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
 export function BottomNav({ activeTab, onTabChange, onAddClick }: BottomNavProps) {

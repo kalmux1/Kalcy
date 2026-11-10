@@ -1,3 +1,6 @@
+Here is the complete, updated `README.md` file wrapped in a markdown block so you can easily copy and paste the entire document at once.
+
+```markdown
 # Kalcy 💰
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -22,10 +25,9 @@
 11. [Design System](#design-system)
 12. [PWA & Offline Strategy](#pwa--offline-strategy)
 13. [Scripts](#scripts)
-14. [Testing](#testing)
-15. [Conventions & Invariants](#conventions--invariants)
-16. [Known Limitations](#known-limitations)
-17. [License](#license)
+14. [Conventions & Invariants](#conventions--invariants)
+15. [Known Limitations](#known-limitations)
+16. [License](#license)
 
 ---
 
@@ -44,7 +46,7 @@ It is built as a single-page React app that:
 
 The project deliberately avoids a backend server: Firestore + Firebase Auth are the entire "backend", and all business logic lives in a Zustand store that reconciles local state with real-time Firestore snapshots.
 
-Balances are **visible by default** on first launch. The eye button on any hero card (Transactions, Accounts, Lending, Investments) toggles a session-wide hide; the flag is intentionally not persisted so a fresh tab starts visible.
+Balances are **hidden by default** on first launch. The eye button on any hero card (Transactions, Accounts, Lending, Investments) toggles a session-wide unhide; the flag is intentionally not persisted so a fresh tab starts hidden.
 
 ---
 
@@ -64,7 +66,6 @@ Balances are **visible by default** on first launch. The eye button on any hero 
 | Icons | **Lucide React** | Mapped by string name in `icon-map.tsx` |
 | PWA | **vite-plugin-pwa** + **Workbox 7** | `autoUpdate`, runtime font caching, precache |
 | Assets | **@vite-pwa/assets-generator** | Generates maskable/apple icons from `kalcy-logo.svg` |
-| Tests | **Playwright** + **pytest** | End-to-end against the live deployment |
 
 ---
 
@@ -85,7 +86,7 @@ Balances are **visible by default** on first launch. The eye button on any hero 
 - Hierarchical categories (parent → sub-categories)
 - Date + time picker with quick presets (Today / Yesterday / 2 days ago)
 - Notes, "exclude from stats", "exclude from budget" switches
-- Swipe left to delete, swipe right to edit
+- **Tap a row to edit** (in addition to swiping left to delete, right to edit)
 - Four view modes: **Daily**, **Calendar**, **Monthly**, **Summary**
 - Transactions linked to a loan or investment are **edit- and delete-guarded** in the list **and** in the store. The UI surfaces a toast pointing to the parent tab; the store throws on the same operation so a modified client can't bypass the guard.
 - Daily-header and calendar-day sums honour `isExcludedFromStats`, so a blocked IPO block or a loan origination no longer appears as a same-day "expense" while being excluded from the monthly totals.
@@ -95,9 +96,9 @@ Balances are **visible by default** on first launch. The eye button on any hero 
 - Types: cash, bank, card, savings, wallet
 - Editable icon (Lucide) + color
 - Toggle "include in net worth total"
-- **Transfers** between accounts
+- **Transfers** between accounts (with state that resets cleanly if cancelled)
 - Editing an account's *initial* balance shifts its live balance by the same delta (preserving all transactional drift)
-- Deleting an account **cascades** — removes every linked transaction, loan, loan payment, and investment, and reverses each transaction's effect on the surviving accounts. Multiple repayments to the same surviving loan are **aggregated per loan before writing**, so `remainingAmount` is restored to the correct value instead of just the last payment's amount.
+- Deleting an account **cascades** — removes every linked transaction, loan, loan payment, and investment, and reverses each transaction's effect on the surviving accounts. Multiple repayments to the same surviving loan are **aggregated per loan before writing**, so `remainingAmount` is restored to the correct value instead of just the last payment's amount. Any surviving investment that pointed at a transaction being removed has its stale `linked*TransactionId` pointer nulled out, so no dangling references remain.
 
 ### 🎯 Budgets
 
@@ -137,17 +138,18 @@ Balances are **visible by default** on first launch. The eye button on any hero 
 - Deleting an investment **reverses every transaction it ever produced** — buy, apply, refund, and sell — because each is tracked by a dedicated field (`linkedTransactionId`, `linkedApplyTransactionId`, `linkedRefundTransactionId`, `linkedSellTransactionId`).
 - Selling requires a **positive sale price**; the store rejects a `$0` sale before writing.
 - `sellInvestment` and `updateInvestmentPrice` both require `status === 'active'` — an `applied` IPO has no units to sell or re-price, and a `not_allotted` one has zero units, so both are rejected uniformly.
+- All dates submitted by the form are strictly validated. Malformed `YYYY-MM-DD` strings are rejected with a toast rather than serialised as `NaN` (which Firestore would store as `null`, corrupting the model).
 
 **Edit rules — which fields can change**
 
 | Current status | What can be edited | What is reconciled |
 |---|---|---|
 | `active` | name, symbol, units, buy price, current price, funding account, purchase date, note | Buy transaction: amount, account, date, note |
-| `sold` | **sale price**, **sale date**, note *(all buy-side fields are locked in the UI)* | Sell transaction: amount, account, date |
+| `sold` | **sale price**, **sale date**, note *(all buy-side fields are locked in the UI and rejected by the store)* | Sell transaction: amount, account, date |
 | `applied` | applied amount, funding account, apply date, note | Apply transaction: amount, account, date |
 | `not_allotted` | note only *(terminal state)* | — |
 
-Locking buy-side fields on a sold position is a deliberate UI rule: `store.ts`'s `isEditingSold` branch only reconciles the sell transaction. Allowing units/buy-price edits on a sold position would desync the buy transaction from the stored `investedAmount`.
+Locking buy-side fields on a sold position is a strict invariant. `store.ts`'s `updateInvestment` explicitly throws if `name`, `symbol`, `type`, `units`, `buyPrice`, `accountId`, or `date` are modified on a `sold`, `not_allotted`, or transitioning-to-`sold` position. Allowing units/buy-price edits on a sold position would desync the buy transaction from the stored `investedAmount`.
 
 ### 📊 Statistics
 
@@ -155,12 +157,14 @@ Locking buy-side fields on a sold position is a deliberate UI rule: `store.ts`'s
 - 6-month income vs expense bar chart
 - Cash-flow line chart
 - Category progress bars with % of total
+- Month navigation is clamped to the 1st of the month to prevent date overflow bugs (e.g., clicking "next" from Jan 31 safely lands on Feb 1).
 
-### ⚙️ Preferences
+### ⚙️ Preferences & Settings
 
 - 20 fiat currencies with symbol lookup
 - Light / Dark / System theme
 - Week start day (Mon / Sun)
+- Tab labelled **Settings** (previously "More") to accurately reflect its contents.
 
 ### ☁️ Data
 
@@ -417,7 +421,7 @@ Chunking is not fully atomic across chunks, but each chunk is atomic. For a *del
 │   │   ├── icon-map.tsx                # String → Lucide component registry
 │   │   ├── profile-edit-drawer.tsx     # Name + password change
 │   │   ├── theme-provider.tsx          # light/dark/system
-│   │   ├── transaction-item.tsx        # Swipeable row
+│   │   ├── transaction-item.tsx        # Swipeable & clickable row
 │   │   └── transaction-sheet.tsx       # Multi-step add/edit sheet
 │   ├── lib/
 │   │   ├── currencies.ts               # 20 currencies + format helpers
@@ -427,17 +431,10 @@ Chunking is not fully atomic across chunks, but each chunk is atomic. For a *del
 │   │   ├── store.ts                    # Zustand store — the "brain"
 │   │   ├── types.ts                    # All TypeScript domain types
 │   │   └── utils.ts                    # cn() — clsx + tailwind-merge
-│   ├── App.tsx                          # Root shell + auth gate + "More" tab
+│   ├── App.tsx                          # Root shell + auth gate + Settings tab
 │   ├── index.css                        # Tailwind layers + theme tokens
 │   ├── main.tsx                         # SW registration + render
 │   └── vite-env.d.ts                    # Env var + PWA client typings
-├── Test/                           # Playwright E2E test suite
-│   ├── .env.example                # Template — copy to .env (gitignored)
-│   ├── conftest.py                 # Fixtures, helpers, .env loader
-│   ├── test_phase1.py              # Core logic — budgets, transactions
-│   ├── test_phase2.py              # Investments — IPO lifecycle, net worth
-│   ├── test_phase3.py              # UI — mobile viewport, numpad, dialogs
-│   └── test_phase4.py              # Production — persistence, reconciliation
 ├── components.json                 # shadcn CLI config
 ├── index.html                      # PWA meta, theme-color, manifest hints
 ├── package.json
@@ -601,8 +598,9 @@ sequenceDiagram
 
 - The gate is **Firebase Auth itself**. Anyone without an Auth user never gets past `signInWithEmailAndPassword`.
 - `initUserData` seeds defaults only if `users/{uid}/profile/preferences` is missing, then attaches **eight** `onSnapshot` listeners (accounts, categories, transactions, budgets, loans, loanPayments, **investments**, preferences).
+- The `isLoading` state is released when *all* registered listeners have fired their first snapshot. The target count is dynamically derived from the number of listeners registered, so adding/removing a listener in the future won't silently break the loading state.
 - If the **seed batch fails** on the first attempt, the store retries once after 2 s, then surfaces a toast if the retry also fails.
-- Any listener that receives `permission-denied` triggers an immediate `signOut()` + toast. This is the safety net for stale tokens or deleted Auth users.
+- Any listener that receives `permission-denied` triggers an immediate `signOut()` + toast.
 
 ### 2. Adding a Transaction
 
@@ -730,7 +728,7 @@ sequenceDiagram
     Note over U,FS: Edit sold position (sale price only)
     U->>IV: Edit sold → change sale price ₹2800 → ₹2900
     IV->>S: updateInvestment({ soldPrice: 2900 })
-    S->>FS: batch.update transactions/{sellTxId} { amount: 29000, date, account }
+    S->>FS: batch.update transactions/{sellTxId} { amount: 29000, account, date }
     S->>FS: batch.update accounts { increment: +1000 }
 
     Note over U,FS: Delete (any status)
@@ -753,7 +751,7 @@ sequenceDiagram
   - `active → active` → reconciles the buy transaction and recomputes `investedAmount` / `currentValue`.
   - `applied → applied` → reconciles the apply (block) transaction.
   - `sold → sold` → reconciles the sell transaction and recomputes `investedAmount` / `currentValue`.
-  - The UI locks buy-side fields on sold positions to prevent edits the store cannot reconcile.
+  - The store explicitly rejects any attempt to edit buy-side fields (`name`, `symbol`, `type`, `units`, `buyPrice`, `accountId`, `date`) on a `sold`, `not_allotted`, or transitioning-to-`sold` position. This keeps the buy transaction perfectly synchronised with the stored `investedAmount`.
 - The `accountId` is used symmetrically: **funds the buy** and **receives the sell proceeds**, mirroring the loan model.
 
 ### 5. Deleting an Account (Cascade)
@@ -766,7 +764,8 @@ sequenceDiagram
 4. Collects every transaction that references any of: the account itself, a deleted loan, a deleted payment, a deleted investment.
 5. **Reverses** each collected transaction's effects on **surviving** accounts.
 6. **Restores** `remainingAmount` on loans whose *payment* is being removed but whose *loan* survives. **All payments to the same loan are aggregated first**, so a loan with two removed payments has both amounts restored — not just the last one.
-7. Deletes transactions, loans, payments, investments, and finally the account — all committed via `commitInChunks` so a large account doesn't blow the 500-op batch cap.
+7. **Nulls out dangling pointers** on surviving investments that referenced any removed transaction. A surviving investment can only hit this path if it moved to a different funding account after a transition (e.g. IPO applied on X, allotted on Y — then X is deleted). Without this, the investment would carry stale `linked*TransactionId` values.
+8. Deletes transactions, loans, payments, investments, and finally the account — all committed via `commitInChunks` so a large account doesn't blow the 500-op batch cap.
 
 ### 6. Deleting Everything (Wipe)
 
@@ -794,7 +793,7 @@ flowchart LR
 - **Firestore SDK** is initialized with `persistentLocalCache({ tabManager: persistentMultipleTabManager() })`, so writes go to IndexedDB first and sync when connectivity returns. Snapshots still fire from cache while offline.
 - `initializeFirestore` is wrapped in a `try/catch` that falls back to `getFirestore` — Vite HMR re-initialising the module no longer throws *"Firestore has already been initialized"*.
 - **Workbox** adds an HTTP cache layer for fonts (`CacheFirst`, 30 entries, 1 year). No runtime cache is registered for Firestore itself — the SDK's WebChannel responses are streams and cannot be cached by Workbox, and the SDK's own IndexedDB layer already handles offline reads/writes correctly.
-- An online/offline banner in the **More** tab reflects `navigator.onLine` (polled every 5s as a Safari fallback).
+- An online/offline banner in the **Settings** tab reflects `navigator.onLine` (polled every 5s as a Safari fallback).
 
 ### 8. PWA Update Lifecycle
 
@@ -893,12 +892,12 @@ Themes are driven by CSS variables in `src/index.css`, consumed by Tailwind via 
 
 **UI vocabulary:**
 
-- Bottom sheets (Vaul) for all data entry — never modal forms on mobile
+- Bottom sheets (Vaul) for all data entry — never modal forms on mobile. Heights use `dvh` to correctly handle mobile browser UI (URL bars).
 - Rounded-3xl cards with `border-border/40` hairlines
 - Gradient hero cards (`from-primary to-primary/70`) for balance/budget/net-worth/portfolio headers
 - Layout-animated nav pill (`layoutId="nav-pill"`) for tab transitions
 - Lucide icons resolved by **string name** through `icon-map.tsx`, so Firestore can store `icon: "UtensilsCrossed"` and the UI finds the component
-- Every destructive action uses the shared `ConfirmDialog` (Radix Dialog), never a toast — this gives keyboard focus trapping and consistent `role="dialog"` semantics for tests. The dialog **awaits the `onConfirm` promise**, keeps itself open on failure, and shows a "Working…" state while the write is in flight, so a rejected batch (e.g. a quota error) is visible rather than silent.
+- Every destructive action uses the shared `ConfirmDialog` (Radix Dialog), never a toast — this gives keyboard focus trapping and consistent `role="dialog"` semantics. The dialog **awaits the `onConfirm` promise**, keeps itself open on failure, and shows a "Working…" state while the write is in flight, so a rejected batch (e.g. a quota error) is visible rather than silent.
 - Investment types share the same icon registry — `INVESTMENT_TYPES` in `icon-map.tsx` maps each type to `{ label, icon, color }` for consistent rendering across cards, charts, and pickers
 
 ---
@@ -955,121 +954,19 @@ The SDK-level persistence is what makes the app **truly offline-capable**. There
 
 ---
 
-## Testing
-
-Kalcy ships with an end-to-end test suite — **Playwright + pytest** — that validates the deployed app at [kalcy.vercel.app](https://kalcy.vercel.app) in a real Chromium browser.
-
-The suite covers:
-
-| Phase | Test file | What it verifies |
-|---|---|---|
-| 1 — Core logic | `Test/test_phase1.py` | Budget creation, income / expense logging |
-| 2 — Investments | `Test/test_phase2.py` | IPO lifecycle (`Applied → Allotted → Sold`), net worth math |
-| 3 — UI/UX | `Test/test_phase3.py` | Mobile viewport, numpad input, delete confirmation dialog |
-| 4 — Production | `Test/test_phase4.py` | Persistence across reload, balance reconciliation |
-
-### Prerequisites
-
-You need a **dedicated Firebase test user** — do **not** use your personal account, because `KALCY_CLEANUP=1` wipes all data after each test.
-
-1. Firebase Console → **Authentication** → Users → create `test@example.com`
-2. That's it — no allowlist entry required. The test user seeds its own default accounts and categories on first sign-in, exactly like any other user.
-
-### Setup
-
-```bash
-pip install pytest playwright pytest-playwright python-dotenv
-playwright install chromium
-
-cp Test/.env.example Test/.env
-# edit Test/.env with KALCY_TEST_EMAIL / KALCY_TEST_PASSWORD
-```
-
-### Environment variables
-
-`.env` is **gitignored** — never commit it. See `Test/.env.example` for the template.
-
-| Variable | Purpose |
-|---|---|
-| `KALCY_URL` | Target URL (default: `https://kalcy.vercel.app`) |
-| `KALCY_TEST_EMAIL` | Firebase Auth email of the test user |
-| `KALCY_TEST_PASSWORD` | Firebase Auth password of the test user |
-| `KALCY_CLEANUP` | `1` = wipe + reseed after each test (recommended) |
-
-### Running
-
-```bash
-cd Test
-python -m pytest -v
-```
-
-Full suite takes ~2:40 against the live deployment. To run a single test:
-
-```bash
-python -m pytest test_phase2.py::test_ipo_status_transitions -v --headed
-```
-
-### Debugging
-
-- **`--headed`** — open a visible browser window (essential for the first pass)
-- **`PWDEBUG=1`** — drops into the Playwright Inspector; shows every candidate match for the failing selector
-- **Failure output** — prints the aria snapshot of the page at failure time, usually enough to identify a wrong selector without touching code
-
-### What the suite exercises — and what it doesn't
-
-The suite covers the happy path of each phase file. **Not** exercised end-to-end (highest-value targets if you're extending it):
-
-- **IPO deletion** (allotted or not-allotted) → account balance must return to the pre-creation value.
-- **Loan `lent ↔ borrowed` type flip** → transaction type + account balance must flip correctly.
-- **Deleting an account with linked loans, investments, and transactions** → all cascades must reconcile.
-- **Editing an active investment's buy price** → buy transaction amount + account balance must update by the delta.
-- **Editing an applied IPO's blocked amount** → apply transaction amount + account balance must update.
-- **Sold investment edit** → only sale price, sale date, and note should be editable; buy-side fields must be locked.
-
-These are all covered by store logic and were the recent bug-fix targets — they simply don't have E2E coverage yet.
-
-### CI
-
-The repository currently has **no CI workflow file**. If you want to run the suite on every push, add `.github/workflows/test.yml`:
-
-```yaml
-name: Kalcy E2E
-
-on: [push, pull_request]
-
-jobs:
-  e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install pytest playwright pytest-playwright python-dotenv
-      - run: playwright install --with-deps chromium
-      - run: python -m pytest Test/ -v
-        env:
-          KALCY_URL: ${{ vars.KALCY_URL }}
-          KALCY_TEST_EMAIL: ${{ secrets.KALCY_TEST_EMAIL }}
-          KALCY_TEST_PASSWORD: ${{ secrets.KALCY_TEST_PASSWORD }}
-          KALCY_CLEANUP: "1"
-```
-
-Add `KALCY_TEST_EMAIL` and `KALCY_TEST_PASSWORD` under **Settings → Secrets and variables → Actions**.
-
----
-
 ## Conventions & Invariants
 
 - **Path alias:** `@/*` → `src/*` (both in `vite.config.ts` and `tsconfig.json`).
 - **No `any` leaking into components:** Firestore listener callbacks narrow doc data to the domain types in `types.ts`.
 - **CSV safety:** `csvField()` prefixes formula-injection starters (`= + - @` and tabs) with `'`, and doubles embedded quotes before wrapping the cell.
 - **Date handling:** all timestamps are stored as `number` (epoch ms). `formatDateKey` / `parseLocalDate` exist specifically to avoid the UTC shift from `new Date('YYYY-MM-DD')`.
+- **Date input validation:** Forms do not trust `<input type="date" />` blindly. They use a `parseDateInput` helper that strictly validates the `YYYY-MM-DD` shape and returns `null` on failure. This prevents `NaN` timestamps from being written to Firestore (where they would be silently coerced to `null`).
+- **Month navigation:** Changing months in pickers/views normalises to the first of the month (`new Date(y, m + dir, 1)`). This prevents the classic JS date-overflow bug where navigating "next" from Jan 31 (e.g. via `setMonth()`) incorrectly lands on March 3 instead of February.
 - **Loan exclusion:** all auto-generated loan transactions carry `isExcludedFromStats: true` and `isExcludedFromBudget: true` so they don't distort spending analytics or budgets.
 - **Investment exclusion:** same policy — buys, sells, and IPO blocks/refunds are balance-sheet moves, not consumption. They appear in the transaction list but are filtered out of stats and budgets. Daily-view and calendar-view headers honour `isExcludedFromStats` so their per-day totals agree with the monthly totals.
 - **Denormalization discipline:** `investedAmount` and `currentValue` on `Investment` are recomputed by `addInvestment`, `updateInvestment`, `updateInvestmentPrice`, and `sellInvestment` — never written by the UI directly.
-- **Investment transaction tracking** uses four explicit pointers (`linkedTransactionId`, `linkedApplyTransactionId`, `linkedRefundTransactionId`, `linkedSellTransactionId`). Every one of them must be reversed in `deleteInvestment`, and the relevant pointer must be reconciled in the matching `updateInvestment` edit branch. If you add a new transition that moves cash, add a matching field **and** an edit branch.
-- **Sold investments are read-locked on the buy side.** `InvestmentForm` disables `type`, `status`, `name`, `symbol`, `units`, `buyPrice`, `accountId`, and purchase `date` when `status === 'sold'`, because `store.ts`'s `isEditingSold` branch only reconciles the sell transaction. Sale price, sale date, and note remain editable.
+- **Investment transaction tracking** uses four explicit pointers (`linkedTransactionId`, `linkedApplyTransactionId`, `linkedRefundTransactionId`, `linkedSellTransactionId`). Every one of them must be reversed in `deleteInvestment`, and the relevant pointer must be reconciled in the matching `updateInvestment` edit branch. If you add a new transition that moves cash, add a matching field **and** an edit branch. When a transaction is removed by any other path (e.g. account deletion), the pointer on any surviving investment must be **nulled** — not left dangling.
+- **Sold investments are read-locked on the buy side.** `InvestmentForm` disables `type`, `status`, `name`, `symbol`, `units`, `buyPrice`, `accountId`, and purchase `date` when `status === 'sold'`, because `store.ts`'s `isEditingSold` branch only reconciles the sell transaction. Sale price, sale date, and note remain editable. The store explicitly enforces this via `INVESTMENT_BUY_SIDE_FIELDS` and throws if bypassed.
 - **Net worth formula:**
 
   ```
@@ -1080,13 +977,13 @@ Add `KALCY_TEST_EMAIL` and `KALCY_TEST_PASSWORD` under **Settings → Secrets an
   ```
 
   Buying an investment swaps cash for an asset, so it is **net-worth neutral at purchase time**. Only price appreciation/depreciation and realized P&L move the needle. **Blocked IPO capital contributes to net worth but not to unrealized P&L** — `getInvestmentsSummary` tracks `blockedValue` separately from `currentValue` / `totalInvested`, and the portfolio header surfaces it as a distinct line.
-- **Form remounting:** `TransactionSheet`, `LoanSheet`, `AccountSheet`, `BudgetSheet`, `CategorySheet`, and the investment sheets all remount their inner form on open (`key={open ? id : 'closed'}`) so local state never goes stale between openings.
+- **Form remounting:** `TransactionSheet`, `LoanSheet`, `AccountSheet`, `BudgetSheet`, `CategorySheet`, and the investment sheets all remount their inner form on open (`key={open ? id : 'closed'}`) so local state never goes stale between openings. `TransferDialog` explicitly resets its internal state on open to match this behaviour.
 - **Zustand subscriptions:** use `useShallow` whenever a component selects more than one field from the store. Selecting the entire store (`const { a, b, c, ... } = useStore()`) will re-render the component on *any* collection change and is a bug, not a style preference.
 - **Destructive actions** must use `<ConfirmDialog>` (Radix Dialog). Toasts (Sonner) are not focus-trapped and are not accessible for destructive confirmations. The dialog awaits the returned promise; rejections keep the dialog open so the user can retry or cancel.
 - **Deleting a category** recursively removes its descendants (BFS) so grandchildren are never orphaned.
 - **Large writes must go through `commitInChunks`.** Firestore rejects a `writeBatch` above 500 ops. `commitInChunks` splits at 400. If you add a new bulk operation (a cascade delete, a wipe, a bulk import), wire it through `commitInChunks` rather than a raw `writeBatch`.
 - **`formatCurrencyCompact`** uses `Intl.NumberFormat` with `notation: 'compact'` — avoids the `"1000.0K"` bug at the million boundary.
-- **`hideBalances` defaults to `false`.** The eye button on any hero card toggles a session-wide hide; the flag is intentionally not persisted so a fresh tab starts with balances visible. Tests rely on this default — if you change it, update `Test/conftest.py`.
+- **`hideBalances` defaults to `true`.** The eye button on any hero card toggles a session-wide unhide; the flag is intentionally not persisted so a fresh tab starts with balances hidden.
 
 ---
 
@@ -1095,16 +992,14 @@ Add `KALCY_TEST_EMAIL` and `KALCY_TEST_PASSWORD` under **Settings → Secrets an
 - **Invite-only by design.** There is no sign-up UI; users must be created manually in Firebase Console → Authentication. Access is revoked by deleting the Auth user.
 - **Carry-over budgets** are stored but not yet applied in `getBudgetProgress` — the flag is forward-compatible.
 - **Recurring transactions** are not implemented (categories include a `Repeat` icon, but no scheduler exists).
-- **Multi-currency conversion** is not supported — one currency per user (set in Preferences); account-level currency field exists but is informational.
+- **Multi-currency conversion** is not supported — one currency per user (set in Settings); account-level currency field exists but is informational.
 - **Receipt uploads** (`receiptUrl`) are typed and stored but there is no upload UI yet.
 - **`monthlyStartDay` preference** is stored but the aggregation currently uses calendar months.
 - **Investment prices are manual.** There is no market-data feed yet — you update `currentPrice` per position. A future version could add a scheduled cloud function that fetches quotes from a provider (Alpha Vantage, Yahoo Finance, etc.) and calls `updateInvestmentPrice`.
 - **Investment quantities cannot be split.** Selling always sells the full position. Partial sells would require splitting the record into "sold lot" + "remaining position" (or tracking lots) — deliberately out of scope for v1.
 - **Sold investments cannot be un-sold.** The state machine treats `sold` as terminal. If a sale was recorded in error, the correct recovery is to delete the position and re-create it as active — which reverses the buy, refund, and sell transactions exactly.
-- **No `allowlist` collection.** Earlier versions of the README and test files mentioned one; it was removed. Access control is Firebase Auth + Firestore `isOwner(uid)` rules only.
-- **`Investment.appliedAmount`** is typed `number | null` but always written as `0` for non-IPO investments. Any code that reads it should use `?? 0`.
+- **No `allowlist` collection.** Earlier versions of the README mentioned one; it was removed. Access control is Firebase Auth + Firestore `isOwner(uid)` rules only.
 - **`resetToSampleData`** exists in the store but is not wired to any UI. It's retained for a future "Load Sample Data" feature. `restoreDefaults` (the UI-facing path) is the one to use if you're re-seeding.
-- **The E2E suite targets the live deployment**, not a Firestore emulator. Tests mutate a real Firebase user and rely on `KALCY_CLEANUP=1` to reset. Prefer the emulator for any new test infrastructure.
 - **`favicon-32x32.png` and `favicon-16x16.png` are not shipped.** Modern browsers use the SVG favicon declared in `index.html`; the PNG fallbacks were removed to avoid 404s. If you need them for legacy browsers, generate them and add them to `public/`.
 
 ---
@@ -1124,3 +1019,4 @@ See the [`LICENSE`](LICENSE) file for the full text.
   <br/>
   <em>Track it. Budget it. Invest it. Own it.</em>
 </p>
+```

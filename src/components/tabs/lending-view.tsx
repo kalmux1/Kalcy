@@ -92,7 +92,11 @@ export function LendingView() {
       toast.success('Loan deleted');
     } catch (err) {
       console.error(err);
-      toast.error('Failed to delete loan');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete loan');
+      // FIX: re-throw so ConfirmDialog knows the action failed and keeps
+      // itself open for a retry. Previously the dialog closed silently
+      // even when nothing was deleted.
+      throw err;
     }
   };
 
@@ -103,7 +107,11 @@ export function LendingView() {
       toast.success('Payment removed');
     } catch (err) {
       console.error(err);
-      toast.error('Failed to remove payment');
+      toast.error(err instanceof Error ? err.message : 'Failed to remove payment');
+      // FIX: re-throw so ConfirmDialog knows the action failed and keeps
+      // itself open for a retry. Previously the dialog closed silently
+      // even when nothing was deleted.
+      throw err;
     }
   };
 

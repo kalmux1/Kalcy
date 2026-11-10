@@ -22,11 +22,6 @@ export function TransactionItem({
   onEdit,
   onDelete,
 }: TransactionItemProps) {
-  // ── §2.1 FIX ─────────────────────────────────────────────────────────────
-  // Previously this component called `useStore()` with no selector, which
-  // subscribed the row to *every* collection change. Each transaction row
-  // now uses narrow selectors so unrelated updates never re-render it.
-  // ─────────────────────────────────────────────────────────────────────────
   const category = useStore((s) =>
     s.categories.find((c) => c.id === transaction.categoryId)
   );
@@ -77,6 +72,7 @@ export function TransactionItem({
       toast.error(
         err instanceof Error ? err.message : 'Failed to delete transaction'
       );
+      throw err;
     }
   };
 
@@ -88,11 +84,6 @@ export function TransactionItem({
     setShowDeleteConfirm(true);
   };
 
-  // ── §1.4 FIX ─────────────────────────────────────────────────────────────
-  // Guard the edit path the same way deletion is guarded. Without this, a
-  // linked transaction could be opened in the sheet and its amount/account
-  // edited directly, silently desynchronising the parent loan/investment.
-  // ─────────────────────────────────────────────────────────────────────────
   const requestEdit = () => {
     if (isLinked) {
       showLinkedError();
@@ -126,6 +117,7 @@ export function TransactionItem({
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={0.2}
         onDragEnd={handleDragEnd}
+        onClick={requestEdit}
         className="relative flex items-center gap-3 py-3 px-3 rounded-2xl hover:bg-muted/40 transition-colors cursor-grab active:cursor-grabbing"
       >
         <motion.div

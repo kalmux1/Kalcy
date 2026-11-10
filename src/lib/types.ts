@@ -34,8 +34,11 @@ export interface Investment {
   status: InvestmentStatus;
   listingDate: number | null;
   listingPrice: number | null;
-  /** Amount blocked for IPO application */
-  appliedAmount: number | null;
+  /**
+   * Amount blocked for IPO application. Always `0` for non-IPO positions.
+   * Writers always set a number — never `null`.
+   */
+  appliedAmount: number;
   note: string;
   createdAt: number;
   linkedTransactionId?: string | null;

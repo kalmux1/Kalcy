@@ -110,9 +110,6 @@ export function getDailyTotals(
   transactions: Transaction[],
   dayKey: string
 ): { income: number; expense: number } {
-  // FIX: honour isExcludedFromStats so daily totals agree with monthly
-  // totals. Previously a blocked IPO (a $15k "expense") appeared as a
-  // −$15k day total even though the month total excluded it.
   const dayTxs = transactions.filter(
     (tx) =>
       formatDateKey(tx.date) === dayKey &&
@@ -452,12 +449,8 @@ export function getInvestmentsSummary(investments: Investment[]): {
   let soldCount = 0;
 
   for (const inv of investments) {
-    // FIX: an applied IPO is *blocked cash*, not a portfolio position.
-    // It contributes to net worth (still an asset) but must NOT count as
-    // current value or unrealized profit — otherwise the header falsely
-    // showed "+$15,000 unrealized" the moment an IPO was applied for.
     if (inv.status === 'applied') {
-      blockedValue += inv.appliedAmount ?? 0;
+      blockedValue += inv.appliedAmount;
       continue;
     }
 
@@ -499,7 +492,7 @@ export function getInvestmentsNetWorth(investments: Investment[]): number {
       return s + (i.currentValue ?? (i.units * (i.currentPrice ?? i.buyPrice)));
     }
     if (i.status === 'applied') {
-      return s + (i.appliedAmount ?? 0);
+      return s + i.appliedAmount;
     }
     return s;
   }, 0);
@@ -517,14 +510,24 @@ export function getTotalNetWorth(
   );
 }
 
+/**
+ * Compute P&L for a single investment.
+ *
+ * For a *sold* position the "market value" is really the realized proceeds;
+ * we read `soldPrice` directly rather than relying on `currentPrice` staying
+ * in sync with it. For *active* positions `currentPrice` is the market price.
+ */
 export function getInvestmentPnl(inv: Investment): {
   pnl: number;
   pnlPercent: number;
   marketValue: number;
 } {
   const invested = inv.investedAmount ?? (inv.units * inv.buyPrice);
-  const curPrice = inv.currentPrice ?? inv.buyPrice;
-  const marketValue = inv.units * curPrice;
+  const price =
+    inv.status === 'sold' && inv.soldPrice !== null
+      ? inv.soldPrice
+      : inv.currentPrice ?? inv.buyPrice;
+  const marketValue = inv.units * price;
   const pnl = marketValue - invested;
   const pnlPercent = invested > 0 ? (pnl / invested) * 100 : 0;
   return { pnl, pnlPercent, marketValue };

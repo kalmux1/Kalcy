@@ -62,10 +62,13 @@ export function StatsTab() {
     [transactions, selectedMonth]
   );
 
+  // Normalise to day 1 of the target month. Using `new Date(y, m + dir, 1)`
+  // avoids the classic "Feb 31 → March 3" overflow that `setMonth` causes
+  // when the current day exceeds the target month's length.
   const changeMonth = (dir: number) => {
-    const d = new Date(selectedMonth);
-    d.setMonth(d.getMonth() + dir);
-    setSelectedMonth(d);
+    const y = selectedMonth.getFullYear();
+    const m = selectedMonth.getMonth() + dir;
+    setSelectedMonth(new Date(y, m, 1));
   };
 
   const pieData = breakdown.slice(0, 8).map((b) => ({

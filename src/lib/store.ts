@@ -141,11 +141,11 @@ function txEffects(
   return m;
 }
 
-// FIX: Firestore caps a single writeBatch at 500 operations. Anything
-// larger is rejected atomically — "Delete All Data" silently failed for
-// long-time users. Chunking at 400 keeps every batch safely under the
-// limit. Atomicity is per-chunk, which is acceptable for wipe/reset
-// operations (they can be retried) and unavoidable for account deletion.
+// Firestore caps a single writeBatch at 500 operations. Anything larger is
+// rejected atomically — "Delete All Data" silently failed for long-time users.
+// Chunking at 400 keeps every batch safely under the limit. Atomicity is
+// per-chunk, which is acceptable for wipe/reset operations (they can be
+// retried) and unavoidable for account deletion.
 const FIRESTORE_BATCH_LIMIT = 400;
 
 async function commitInChunks(
@@ -205,6 +205,22 @@ function pickPositive(...values: (number | null | undefined)[]): number | null {
   return null;
 }
 
+/**
+ * Fields that are considered "buy-side" on an investment. These are locked
+ * once a position is sold / not-allotted, and cannot be changed in the same
+ * edit that transitions the position to `sold` — the buy transaction would
+ * desync from the stored `investedAmount`.
+ */
+const INVESTMENT_BUY_SIDE_FIELDS = [
+  'name',
+  'symbol',
+  'type',
+  'units',
+  'buyPrice',
+  'accountId',
+  'date',
+] as const;
+
 const VALID_INVESTMENT_TRANSITIONS: Record<InvestmentStatus, InvestmentStatus[]> = {
   applied: ['active', 'not_allotted'],
   active: ['sold'],
@@ -215,9 +231,8 @@ const VALID_INVESTMENT_TRANSITIONS: Record<InvestmentStatus, InvestmentStatus[]>
 export const useStore = create<StoreState>((set, get) => ({
   user: null,
   isLoading: true,
-  // FIX: default to false so values are visible out-of-the-box (and the
-  // E2E suite can read balances without extra setup). Users can hide via
-  // the eye button on any hero card.
+  // Default to true so balances are hidden on first open — a privacy-first
+  // posture. Users can toggle visibility via the eye button on any hero card.
   hideBalances: true,
   accounts: [],
   categories: [],
@@ -276,8 +291,6 @@ export const useStore = create<StoreState>((set, get) => ({
       await batch.commit();
     };
 
-    // FIX: retry once — a transient network failure during first sign-in
-    // used to leave the user staring at a permanently empty app until reload.
     try {
       await trySeed();
     } catch (err) {
@@ -293,11 +306,23 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }
 
-    const READY_TARGET = 8;
+    // Derive the listener count from a tracked list so it can never drift out
+    // of sync with the onSnapshot registrations below. `registerListener`
+    // runs synchronously while listeners are wired up; `markReady` only runs
+    // from async snapshot callbacks, so by the time the first callback fires
+    // the expected count is already final.
+    const registeredKeys: string[] = [];
+    const registerListener = (key: string) => {
+      registeredKeys.push(key);
+    };
     const readySet = new Set<string>();
     const markReady = (key: string) => {
       readySet.add(key);
-      if (readySet.size >= READY_TARGET && get().isLoading) {
+      if (
+        registeredKeys.length > 0 &&
+        readySet.size >= registeredKeys.length &&
+        get().isLoading
+      ) {
         set({ isLoading: false });
       }
     };
@@ -313,6 +338,7 @@ export const useStore = create<StoreState>((set, get) => ({
       markReady(label);
     };
 
+    registerListener('preferences');
     unsubs.push(
       onSnapshot(
         prefRef,
@@ -324,6 +350,7 @@ export const useStore = create<StoreState>((set, get) => ({
       )
     );
 
+    registerListener('accounts');
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'accounts'),
@@ -335,6 +362,7 @@ export const useStore = create<StoreState>((set, get) => ({
       )
     );
 
+    registerListener('categories');
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'categories'),
@@ -349,6 +377,7 @@ export const useStore = create<StoreState>((set, get) => ({
       )
     );
 
+    registerListener('transactions');
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'transactions'),
@@ -363,6 +392,7 @@ export const useStore = create<StoreState>((set, get) => ({
       )
     );
 
+    registerListener('budgets');
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'budgets'),
@@ -374,6 +404,7 @@ export const useStore = create<StoreState>((set, get) => ({
       )
     );
 
+    registerListener('loans');
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'loans'),
@@ -388,6 +419,7 @@ export const useStore = create<StoreState>((set, get) => ({
       )
     );
 
+    registerListener('loanPayments');
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'loanPayments'),
@@ -402,6 +434,7 @@ export const useStore = create<StoreState>((set, get) => ({
       )
     );
 
+    registerListener('investments');
     unsubs.push(
       onSnapshot(
         collection(db, 'users', uid, 'investments'),
@@ -450,9 +483,9 @@ export const useStore = create<StoreState>((set, get) => ({
     const oldTx = transactions.find((t) => t.id === id);
     if (!oldTx) return;
 
-    // FIX: mirror the linked-record guard from deleteTransaction. Previously
-    // the store only relied on the UI blocking this; a modified client (or
-    // future caller) could desynchronise a parent loan/investment.
+    // Mirror the linked-record guard from deleteTransaction. Relying only on
+    // the UI to block this would let a modified client (or future caller)
+    // desync a parent loan/investment.
     const linkedInv = investments.find(
       (i) =>
         i.linkedTransactionId === id ||
@@ -635,10 +668,9 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     });
 
-    // FIX: previously this wrote `loan.remainingAmount + p.amount` for each
-    // payment independently, using the *snapshot* remainingAmount. Two
-    // payments on the same loan restored only the last one (last-write-wins).
-    // Accumulate the total first, then write once.
+    // Payments on surviving loans must be aggregated per loan *before*
+    // writing — otherwise two removed payments on the same loan would
+    // restore only the last one (last-write-wins).
     const restoreByLoan = new Map<string, number>();
     paymentsOnAccount.forEach((p) => {
       if (deletingLoanIds.has(p.loanId)) return;
@@ -654,6 +686,45 @@ export const useStore = create<StoreState>((set, get) => ({
           isSettled: restored <= 0,
         })
       );
+    });
+
+    // Null out dangling transaction pointers on investments that survive this
+    // deletion but reference transactions being removed.
+    investments.forEach((inv) => {
+      if (inv.accountId === id) return;
+      const patch: Partial<Investment> = {};
+      if (
+        inv.linkedTransactionId &&
+        txIdsToDelete.has(inv.linkedTransactionId)
+      ) {
+        patch.linkedTransactionId = null;
+      }
+      if (
+        inv.linkedSellTransactionId &&
+        txIdsToDelete.has(inv.linkedSellTransactionId)
+      ) {
+        patch.linkedSellTransactionId = null;
+      }
+      if (
+        inv.linkedApplyTransactionId &&
+        txIdsToDelete.has(inv.linkedApplyTransactionId)
+      ) {
+        patch.linkedApplyTransactionId = null;
+      }
+      if (
+        inv.linkedRefundTransactionId &&
+        txIdsToDelete.has(inv.linkedRefundTransactionId)
+      ) {
+        patch.linkedRefundTransactionId = null;
+      }
+      if (Object.keys(patch).length > 0) {
+        ops.push((batch) =>
+          batch.update(
+            doc(db, 'users', user.uid, 'investments', inv.id),
+            patch
+          )
+        );
+      }
     });
 
     txIdsToDelete.forEach((txId) =>
@@ -740,9 +811,6 @@ export const useStore = create<StoreState>((set, get) => ({
         )
       );
 
-    // FIX: outer loop variable was `b` (budget), then the pushed closure
-    // re-declared `(b: WriteBatch) =>`. `b.id` inside resolved to the
-    // WriteBatch (no `id`) and the budget `b` was never read. Renamed.
     budgets
       .filter((budget) => budget.categoryId && idsToDelete.includes(budget.categoryId))
       .forEach((budget) =>
@@ -1088,13 +1156,15 @@ export const useStore = create<StoreState>((set, get) => ({
     let linked = transactions.find((t) => t.linkedPaymentId === id);
 
     if (!linked) {
+      const paymentType: Transaction['type'] =
+        loan.type === 'lent' ? 'income' : 'expense';
       const candidates = transactions.filter(
         (t) =>
           t.linkedLoanId === payment.loanId &&
           !t.linkedPaymentId &&
+          t.type === paymentType &&
           t.amount === payment.amount &&
-          t.date === payment.date &&
-          (t.type === 'income' || t.type === 'expense')
+          t.date === payment.date
       );
       if (candidates.length === 1) {
         linked = candidates[0];
@@ -1293,15 +1363,31 @@ export const useStore = create<StoreState>((set, get) => ({
     const isEditingSold = inv.status === 'sold' && newStatus === 'sold';
     const isEditingApplied = wasApplied && newStatus === 'applied';
 
+    // ── Guard: buy-side fields are locked once a position is sold, not
+    // allotted, or in the same edit that marks it sold. The UI already
+    // disables these inputs; this guard closes the store-level hole so a
+    // direct caller cannot desync the buy transaction. ──
+    if (inv.status === 'sold' || inv.status === 'not_allotted' || isBecomingSold) {
+      for (const field of INVESTMENT_BUY_SIDE_FIELDS) {
+        const newVal = updates[field];
+        const oldVal = inv[field];
+        if (newVal !== undefined && newVal !== oldVal) {
+          throw new Error(
+            'Buy-side fields (name, symbol, type, units, buy price, account, purchase date) cannot be edited on a sold or not-allotted position. Only sale price, sale date, and note are editable.'
+          );
+        }
+      }
+    }
+
     const newUnits = updates.units ?? inv.units;
     const newBuyPrice = updates.buyPrice ?? inv.buyPrice;
     const newAccountId = updates.accountId ?? inv.accountId;
     const newDate = updates.date ?? inv.date;
     const newInvestedAmount = newUnits * newBuyPrice;
 
-    if (isBecomingAllotted && (newUnits <= 0 || newBuyPrice <= 0)) {
+    if ((isBecomingAllotted || isEditingActive) && (newUnits <= 0 || newBuyPrice <= 0)) {
       throw new Error(
-        'Units and buy price must be positive to allot the investment'
+        'Units and buy price must be positive for an active investment'
       );
     }
     if (isBecomingSold) {
@@ -1314,7 +1400,7 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }
     if (isEditingApplied) {
-      const newApplied = updates.appliedAmount ?? inv.appliedAmount ?? 0;
+      const newApplied = updates.appliedAmount ?? inv.appliedAmount;
       if (newApplied <= 0) {
         throw new Error('Applied amount must be positive');
       }
@@ -1456,7 +1542,7 @@ export const useStore = create<StoreState>((set, get) => ({
       patch.soldDate = finalSoldDate;
       patch.status = 'sold';
       patch.currentPrice = finalSoldPrice;
-      patch.currentValue = proceeds;
+      patch.currentValue = 0;
       patch.investedAmount = newInvestedAmount;
       patch.linkedSellTransactionId = txId;
     }
@@ -1505,9 +1591,9 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }
 
-    // ── Edit: sold → sold (recompute denormalised, reconcile sell tx) ──
+    // ── Edit: sold → sold (reconcile sell tx only; buy side is guarded) ──
     else if (isEditingSold) {
-      patch.investedAmount = newInvestedAmount;
+      patch.investedAmount = inv.investedAmount;
       const sp = pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
       const sd = updates.soldDate ?? inv.soldDate;
 
@@ -1515,27 +1601,18 @@ export const useStore = create<StoreState>((set, get) => ({
         patch.soldPrice = sp;
         patch.soldDate = sd;
         patch.currentPrice = sp;
-        patch.currentValue = newUnits * sp;
+        patch.currentValue = 0;
       }
 
       const sellTx = inv.linkedSellTransactionId
         ? transactions.find((t) => t.id === inv.linkedSellTransactionId)
         : null;
       if (sellTx && sp > 0) {
-        const accountChanged = newAccountId !== sellTx.accountId;
         const amountChanged = sp * newUnits !== sellTx.amount;
         const dateChanged = sd !== null && sd !== sellTx.date;
 
-        if (accountChanged) {
-          bump(sellTx.accountId, -sellTx.amount);
-          bump(newAccountId, sp * newUnits);
-        } else if (amountChanged) {
-          bump(newAccountId, sp * newUnits - sellTx.amount);
-        }
-
         const txPatch: Partial<Transaction> = {};
         if (amountChanged) txPatch.amount = sp * newUnits;
-        if (accountChanged) txPatch.accountId = newAccountId;
         if (dateChanged && sd !== null) txPatch.date = sd;
 
         if (Object.keys(txPatch).length > 0) {
@@ -1547,11 +1624,8 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     // ── Edit: applied → applied (reconcile blocked apply tx) ──
-    // FIX: previously there was no branch for this. Changing the applied
-    // amount or funding account left the apply transaction and the account
-    // balance untouched, corrupting net worth.
     else if (isEditingApplied) {
-      const newApplied = updates.appliedAmount ?? inv.appliedAmount ?? 0;
+      const newApplied = updates.appliedAmount ?? inv.appliedAmount;
       patch.appliedAmount = newApplied;
 
       const applyTx = inv.linkedApplyTransactionId
@@ -1592,8 +1666,6 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!user) throw new Error('Not authenticated');
     const inv = investments.find((i) => i.id === id);
     if (!inv) throw new Error('Investment not found');
-    // FIX: was only blocking sold/applied. Not_allotted also has no units
-    // to price — reject uniformly.
     if (inv.status !== 'active') {
       throw new Error(
         `Cannot update price on an investment in status "${inv.status}"`
@@ -1611,8 +1683,6 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!user) throw new Error('Not authenticated');
     const inv = investments.find((i) => i.id === id);
     if (!inv) throw new Error('Investment not found');
-    // FIX: was only checking sold/applied. Not_allotted has zero units, so
-    // selling it would create a zero-amount income transaction.
     if (inv.status !== 'active') {
       throw new Error(`Cannot sell an investment in status "${inv.status}"`);
     }
@@ -1646,7 +1716,7 @@ export const useStore = create<StoreState>((set, get) => ({
         soldPrice,
         soldDate,
         currentPrice: soldPrice,
-        currentValue: proceeds,
+        currentValue: 0,
         linkedSellTransactionId: txId,
       })
     );
@@ -1699,9 +1769,6 @@ export const useStore = create<StoreState>((set, get) => ({
     const { user } = get();
     if (!user) return;
     try {
-      // FIX: use setDoc with merge instead of full-document overwrite.
-      // A stale `preferences` snapshot from another tab can no longer
-      // revert concurrent changes.
       const patch: Partial<Preferences> = { ...updates };
       if (updates.currency) {
         patch.currencySymbol = getCurrencySymbol(updates.currency);
@@ -1720,12 +1787,13 @@ export const useStore = create<StoreState>((set, get) => ({
   restoreDefaults: async () => {
     const { user, categories, accounts } = get();
     if (!user) return;
+    const prefRef = doc(db, 'users', user.uid, 'profile', 'preferences');
+    const prefSnap = await getDoc(prefRef);
     const existingCatIds = new Set(categories.map((c) => c.id));
     const existingAccIds = new Set(accounts.map((a) => a.id));
     const ops: Array<(batch: WriteBatch) => void> = [];
     SEED_CATEGORIES.forEach((c) => {
       if (!existingCatIds.has(c.id)) {
-        // FIX: merge so renames/colour edits survive a Restore Defaults.
         ops.push((batch) =>
           batch.set(doc(db, 'users', user.uid, 'categories', c.id), c, {
             merge: true,
@@ -1744,6 +1812,9 @@ export const useStore = create<StoreState>((set, get) => ({
         );
       }
     });
+    if (!prefSnap.exists()) {
+      ops.push((batch) => batch.set(prefRef, DEFAULT_PREFERENCES));
+    }
     await commitInChunks(ops);
   },
 
@@ -1754,7 +1825,6 @@ export const useStore = create<StoreState>((set, get) => ({
     } = get();
     if (!user) return;
 
-    // ── Wipe phase ──
     const wipeOps: Array<(batch: WriteBatch) => void> = [];
     accounts.forEach((account) =>
       wipeOps.push((batch) =>
@@ -1771,8 +1841,6 @@ export const useStore = create<StoreState>((set, get) => ({
         batch.delete(doc(db, 'users', user.uid, 'transactions', transaction.id))
       )
     );
-    // FIX: outer loop var was `b` (budget); the pushed closure also used
-    // `(b: WriteBatch)`. `b.id` resolved to the WriteBatch. Renamed.
     budgets.forEach((budget) =>
       wipeOps.push((batch) =>
         batch.delete(doc(db, 'users', user.uid, 'budgets', budget.id))
@@ -1808,7 +1876,6 @@ export const useStore = create<StoreState>((set, get) => ({
       now.getMonth() + 1
     ).padStart(2, '0')}`;
 
-    // ── Seed phase ──
     const seedOps: Array<(batch: WriteBatch) => void> = [];
     SEED_CATEGORIES.forEach((category) =>
       seedOps.push((batch) =>
@@ -1832,10 +1899,6 @@ export const useStore = create<StoreState>((set, get) => ({
         })
       )
     );
-    // FIX: outer loop var was `b` (seed budget); the pushed closure was
-    // also `(b: WriteBatch)`. Both `b.id` and `...b` were resolving to the
-    // WriteBatch — the former errored, the latter would have spread the
-    // batch's methods into the document. Renamed to `seedBudget`.
     SEED_BUDGETS.forEach((seedBudget) =>
       seedOps.push((batch) =>
         batch.set(doc(db, 'users', user.uid, 'budgets', seedBudget.id), {
@@ -1875,8 +1938,6 @@ export const useStore = create<StoreState>((set, get) => ({
         batch.delete(doc(db, 'users', user.uid, 'transactions', transaction.id))
       )
     );
-    // FIX: outer loop var was `b` (budget); the pushed closure also used
-    // `(b: WriteBatch)`. `b.id` resolved to the WriteBatch. Renamed.
     budgets.forEach((budget) =>
       ops.push((batch) =>
         batch.delete(doc(db, 'users', user.uid, 'budgets', budget.id))
