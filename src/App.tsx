@@ -11,11 +11,13 @@ import { TransactionSheet } from '@/components/transaction-sheet';
 import { AuthView } from '@/components/auth-view';
 import { ProfileEditDrawer } from '@/components/profile-edit-drawer';
 import { AboutSection } from '@/components/about-section';
+import { LockScreen } from '@/components/lock-screen';
 import { useStore } from '@/lib/store';
 import { CURRENCIES } from '@/lib/currencies';
 import { exportToCSV, downloadCSV } from '@/lib/finance';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Select,
@@ -39,13 +41,10 @@ import {
   ListChecks,
   Settings,
   Tags,
+  Fingerprint,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-
-/* ------------------------------------------------------------------ */
-/*  Online/offline indicator                                          */
-/* ------------------------------------------------------------------ */
 
 function useOnlineStatus(): boolean {
   const [isOnline, setIsOnline] = useState(() =>
@@ -99,8 +98,6 @@ function ConnectionStatus() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-
 const NAV_ITEMS = [
   { key: 'transactions', label: 'Transactions', icon: ListChecks },
   { key: 'stats', label: 'Statistics', icon: BarChart3 },
@@ -114,6 +111,7 @@ export default function App() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isWipeDialogOpen, setIsWipeDialogOpen] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(false);
 
   const user = useStore((s) => s.user);
   const setUser = useStore((s) => s.setUser);
@@ -124,12 +122,14 @@ export default function App() {
   const categories = useStore((s) => s.categories);
   const preferences = useStore((s) => s.preferences);
   const updatePreferences = useStore((s) => s.updatePreferences);
+  const toggleBiometric = useStore((s) => s.toggleBiometric);
   const clearCloudData = useStore((s) => s.clearCloudData);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       if (!fbUser) {
         setUser(null);
+        setIsUnlocked(false);
         return;
       }
 
@@ -163,6 +163,7 @@ export default function App() {
 
   const handleSignOut = useCallback(async () => {
     await signOut(auth);
+    setIsUnlocked(false);
     toast.success('Signed out');
   }, []);
 
@@ -194,9 +195,12 @@ export default function App() {
     return <AuthView />;
   }
 
+  if (!isUnlocked) {
+    return <LockScreen onUnlock={() => setIsUnlocked(true)} />;
+  }
+
   return (
     <main className="flex h-[100dvh] w-full bg-background text-foreground overflow-hidden">
-      {/* ================= DESKTOP SIDEBAR ================= */}
       <aside className="hidden md:flex w-64 flex-col border-r border-border/40 bg-card h-full shrink-0">
         <div className="p-6 flex items-center gap-3">
           <img src="/kalcy-logo.svg" alt="Kalcy" className="h-8 w-auto" />
@@ -248,7 +252,6 @@ export default function App() {
         </div>
       </aside>
 
-      {/* ================= MAIN CONTENT ================= */}
       <div className="flex-1 flex flex-col min-w-0 h-full relative">
         <div className="flex-1 min-h-0 overflow-hidden">
           {activeTab === 'transactions' && (
@@ -259,7 +262,6 @@ export default function App() {
 
           {activeTab === 'settings' && (
             <div className="h-full overflow-y-auto no-scrollbar px-4 pt-4 pb-40 md:pb-10 space-y-6 max-w-4xl mx-auto w-full">
-              {/* Header (Mobile only) */}
               <div className="flex md:hidden items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
                   <img src="/kalcy-logo.svg" alt="" className="h-10 w-auto" />
@@ -282,7 +284,6 @@ export default function App() {
 
               <ConnectionStatus />
 
-              {/* Account / Profile */}
               <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm">
                 <h2 className="text-base font-semibold">Account</h2>
                 <Button
@@ -299,6 +300,26 @@ export default function App() {
                 >
                   <LogOut className="h-4 w-4" /> Sign Out
                 </Button>
+              </div>
+
+              <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <Fingerprint className="h-4 w-4 text-primary" />
+                  <h2 className="text-base font-semibold">Security</h2>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Biometric Authentication</p>
+                    <p className="text-xs text-muted-foreground">
+                      Use fingerprint or face unlock to open the app.
+                      If disabled, the app will require your device PIN, pattern, or password.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={preferences.biometricEnabled}
+                    onCheckedChange={toggleBiometric}
+                  />
+                </div>
               </div>
 
               <div className="space-y-3">

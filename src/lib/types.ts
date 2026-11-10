@@ -34,17 +34,12 @@ export interface Investment {
   status: InvestmentStatus;
   listingDate: number | null;
   listingPrice: number | null;
-  /**
-   * Amount blocked for IPO application. Always `0` for non-IPO positions.
-   * Writers always set a number — never `null`.
-   */
   appliedAmount: number;
   note: string;
   createdAt: number;
   linkedTransactionId?: string | null;
   linkedSellTransactionId?: string | null;
   linkedApplyTransactionId?: string | null;
-  /** Refund transaction produced when an IPO block is released (allotted or not allotted). */
   linkedRefundTransactionId?: string | null;
 }
 
@@ -135,6 +130,7 @@ export interface Preferences {
   theme: ThemeMode;
   weekStartDay: 0 | 1;
   monthlyStartDay: number;
+  biometricEnabled: boolean;
 }
 
 export interface Currency {

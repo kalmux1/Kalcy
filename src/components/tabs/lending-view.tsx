@@ -43,6 +43,22 @@ const formatLedgerDate = (ts: number) =>
     year: 'numeric',
   });
 
+/**
+ * Parse a `YYYY-MM-DD` string from an `<input type="date" />` into epoch ms.
+ * Returns `null` for malformed input so callers can show a toast instead of
+ * writing a `NaN` timestamp that JSON-serialises to `null` in Firestore.
+ */
+function parseDateInput(value: string): number | null {
+  if (!value) return null;
+  const parts = value.split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) {
+    return null;
+  }
+  const [y, m, d] = parts;
+  const ts = new Date(y, m - 1, d).getTime();
+  return Number.isFinite(ts) ? ts : null;
+}
+
 export function LendingView() {
   const {
     loans,
@@ -93,9 +109,8 @@ export function LendingView() {
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : 'Failed to delete loan');
-      // FIX: re-throw so ConfirmDialog knows the action failed and keeps
-      // itself open for a retry. Previously the dialog closed silently
-      // even when nothing was deleted.
+      // Re-throw so ConfirmDialog knows the action failed and keeps
+      // itself open for a retry.
       throw err;
     }
   };
@@ -108,9 +123,8 @@ export function LendingView() {
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : 'Failed to remove payment');
-      // FIX: re-throw so ConfirmDialog knows the action failed and keeps
-      // itself open for a retry. Previously the dialog closed silently
-      // even when nothing was deleted.
+      // Re-throw so ConfirmDialog knows the action failed and keeps
+      // itself open for a retry.
       throw err;
     }
   };
@@ -575,13 +589,20 @@ function LoanForm({
       toast.error('Please select an account');
       return;
     }
-    const [y, m, d] = date.split('-').map(Number);
-    const ts = new Date(y, m - 1, d).getTime();
+
+    const ts = parseDateInput(date);
+    if (ts === null) {
+      toast.error('Enter a valid loan date');
+      return;
+    }
 
     let dueTs: number | null = null;
     if (dueDate) {
-      const [dy, dm, dd] = dueDate.split('-').map(Number);
-      dueTs = new Date(dy, dm - 1, dd).getTime();
+      dueTs = parseDateInput(dueDate);
+      if (dueTs === null) {
+        toast.error('Enter a valid due date');
+        return;
+      }
     }
 
     onSubmit({
@@ -789,14 +810,21 @@ function LoanDetailSheet({
       toast.error('Please select an account');
       return;
     }
-    const [y, m, d] = payDate.split('-').map(Number);
+
+    // FIX: Use the safe date parser instead of raw split/Date logic.
+    const sd = parseDateInput(payDate);
+    if (sd === null) {
+      toast.error('Enter a valid payment date');
+      return;
+    }
+
     try {
       setSubmittingPayment(true);
       await onAddPayment({
         loanId: liveLoan.id,
         amount: amt,
         accountId: payAccountId,
-        date: new Date(y, m - 1, d).getTime(),
+        date: sd,
         note: payNote.trim(),
       });
       resetPaymentForm();

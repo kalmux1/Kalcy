@@ -36,4 +36,5 @@ export const DEFAULT_PREFERENCES: Preferences = {
   theme: 'light',
   weekStartDay: 1,
   monthlyStartDay: 1,
+  biometricEnabled: false,
 };

@@ -52,6 +52,7 @@ interface StoreState {
   initUserData: (uid: string) => Promise<void>;
   clearLocalState: () => void;
   toggleHideBalances: () => void;
+  toggleBiometric: () => Promise<void>;
 
   addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => Promise<void>;
   updateTransaction: (id: string, updates: Partial<Transaction>) => Promise<void>;
@@ -141,11 +142,6 @@ function txEffects(
   return m;
 }
 
-// Firestore caps a single writeBatch at 500 operations. Anything larger is
-// rejected atomically — "Delete All Data" silently failed for long-time users.
-// Chunking at 400 keeps every batch safely under the limit. Atomicity is
-// per-chunk, which is acceptable for wipe/reset operations (they can be
-// retried) and unavoidable for account deletion.
 const FIRESTORE_BATCH_LIMIT = 400;
 
 async function commitInChunks(
@@ -205,12 +201,6 @@ function pickPositive(...values: (number | null | undefined)[]): number | null {
   return null;
 }
 
-/**
- * Fields that are considered "buy-side" on an investment. These are locked
- * once a position is sold / not-allotted, and cannot be changed in the same
- * edit that transitions the position to `sold` — the buy transaction would
- * desync from the stored `investedAmount`.
- */
 const INVESTMENT_BUY_SIDE_FIELDS = [
   'name',
   'symbol',
@@ -231,8 +221,6 @@ const VALID_INVESTMENT_TRANSITIONS: Record<InvestmentStatus, InvestmentStatus[]>
 export const useStore = create<StoreState>((set, get) => ({
   user: null,
   isLoading: true,
-  // Default to true so balances are hidden on first open — a privacy-first
-  // posture. Users can toggle visibility via the eye button on any hero card.
   hideBalances: true,
   accounts: [],
   categories: [],
@@ -266,6 +254,27 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   toggleHideBalances: () => set((state) => ({ hideBalances: !state.hideBalances })),
+
+  toggleBiometric: async () => {
+    const { user, preferences } = get();
+    if (!user) return;
+    const newValue = !preferences.biometricEnabled;
+    try {
+      await setDoc(
+        doc(db, 'users', user.uid, 'profile', 'preferences'),
+        { biometricEnabled: newValue },
+        { merge: true }
+      );
+      toast.success(
+        newValue
+          ? 'Biometric authentication enabled'
+          : 'Biometric authentication disabled'
+      );
+    } catch (err) {
+      console.error('Failed to toggle biometric preference', err);
+      toast.error('Failed to update security preference');
+    }
+  },
 
   initUserData: async (uid: string) => {
     clearUnsubs();
@@ -306,11 +315,6 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }
 
-    // Derive the listener count from a tracked list so it can never drift out
-    // of sync with the onSnapshot registrations below. `registerListener`
-    // runs synchronously while listeners are wired up; `markReady` only runs
-    // from async snapshot callbacks, so by the time the first callback fires
-    // the expected count is already final.
     const registeredKeys: string[] = [];
     const registerListener = (key: string) => {
       registeredKeys.push(key);
@@ -483,9 +487,6 @@ export const useStore = create<StoreState>((set, get) => ({
     const oldTx = transactions.find((t) => t.id === id);
     if (!oldTx) return;
 
-    // Mirror the linked-record guard from deleteTransaction. Relying only on
-    // the UI to block this would let a modified client (or future caller)
-    // desync a parent loan/investment.
     const linkedInv = investments.find(
       (i) =>
         i.linkedTransactionId === id ||
@@ -668,9 +669,6 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     });
 
-    // Payments on surviving loans must be aggregated per loan *before*
-    // writing — otherwise two removed payments on the same loan would
-    // restore only the last one (last-write-wins).
     const restoreByLoan = new Map<string, number>();
     paymentsOnAccount.forEach((p) => {
       if (deletingLoanIds.has(p.loanId)) return;
@@ -688,8 +686,6 @@ export const useStore = create<StoreState>((set, get) => ({
       );
     });
 
-    // Null out dangling transaction pointers on investments that survive this
-    // deletion but reference transactions being removed.
     investments.forEach((inv) => {
       if (inv.accountId === id) return;
       const patch: Partial<Investment> = {};
@@ -1363,10 +1359,6 @@ export const useStore = create<StoreState>((set, get) => ({
     const isEditingSold = inv.status === 'sold' && newStatus === 'sold';
     const isEditingApplied = wasApplied && newStatus === 'applied';
 
-    // ── Guard: buy-side fields are locked once a position is sold, not
-    // allotted, or in the same edit that marks it sold. The UI already
-    // disables these inputs; this guard closes the store-level hole so a
-    // direct caller cannot desync the buy transaction. ──
     if (inv.status === 'sold' || inv.status === 'not_allotted' || isBecomingSold) {
       for (const field of INVESTMENT_BUY_SIDE_FIELDS) {
         const newVal = updates[field];
@@ -1417,7 +1409,6 @@ export const useStore = create<StoreState>((set, get) => ({
       );
     };
 
-    // ── Transition: applied → not_allotted (refund blocked funds) ──
     if (isBecomingNotAllotted && inv.appliedAmount) {
       const refundId = genId('t');
       const refundTx: Transaction = {
@@ -1446,10 +1437,7 @@ export const useStore = create<StoreState>((set, get) => ({
       patch.investedAmount = 0;
       patch.currentValue = 0;
       patch.linkedRefundTransactionId = refundId;
-    }
-
-    // ── Transition: applied → active (allotted) ──
-    else if (isBecomingAllotted) {
+    } else if (isBecomingAllotted) {
       if (inv.appliedAmount && inv.appliedAmount > 0) {
         const refundId = genId('t');
         const refundTx: Transaction = {
@@ -1508,10 +1496,7 @@ export const useStore = create<StoreState>((set, get) => ({
       patch.appliedAmount = 0;
       patch.units = newUnits;
       patch.buyPrice = newBuyPrice;
-    }
-
-    // ── Transition: active → sold ──
-    else if (isBecomingSold) {
+    } else if (isBecomingSold) {
       const finalSoldPrice =
         pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
       const finalSoldDate = updates.soldDate ?? Date.now();
@@ -1545,10 +1530,7 @@ export const useStore = create<StoreState>((set, get) => ({
       patch.currentValue = 0;
       patch.investedAmount = newInvestedAmount;
       patch.linkedSellTransactionId = txId;
-    }
-
-    // ── Edit: active → active (reconcile buy tx + denormalised) ──
-    else if (isEditingActive) {
+    } else if (isEditingActive) {
       patch.investedAmount = newInvestedAmount;
       const newCurrentPrice =
         pickPositive(updates.currentPrice, inv.currentPrice, newBuyPrice) ??
@@ -1589,10 +1571,7 @@ export const useStore = create<StoreState>((set, get) => ({
           );
         }
       }
-    }
-
-    // ── Edit: sold → sold (reconcile sell tx only; buy side is guarded) ──
-    else if (isEditingSold) {
+    } else if (isEditingSold) {
       patch.investedAmount = inv.investedAmount;
       const sp = pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
       const sd = updates.soldDate ?? inv.soldDate;
@@ -1621,10 +1600,7 @@ export const useStore = create<StoreState>((set, get) => ({
           );
         }
       }
-    }
-
-    // ── Edit: applied → applied (reconcile blocked apply tx) ──
-    else if (isEditingApplied) {
+    } else if (isEditingApplied) {
       const newApplied = updates.appliedAmount ?? inv.appliedAmount;
       patch.appliedAmount = newApplied;
 
