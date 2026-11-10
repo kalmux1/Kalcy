@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useStore } from '@/lib/store';
+import { useBackButton } from '@/lib/back-button';
 import type { Loan, LoanType, LoanPayment } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/currencies';
@@ -43,11 +44,6 @@ const formatLedgerDate = (ts: number) =>
     year: 'numeric',
   });
 
-/**
- * Parse a `YYYY-MM-DD` string from an `<input type="date" />` into epoch ms.
- * Returns `null` for malformed input so callers can show a toast instead of
- * writing a `NaN` timestamp that JSON-serialises to `null` in Firestore.
- */
 function parseDateInput(value: string): number | null {
   if (!value) return null;
   const parts = value.split('-').map(Number);
@@ -96,6 +92,28 @@ export function LendingView() {
   const [loanToDelete, setLoanToDelete] = useState<Loan | null>(null);
   const [paymentToDelete, setPaymentToDelete] = useState<LoanPayment | null>(null);
 
+  // Handle native back button — no second argument.
+  useBackButton(() => {
+    if (isAdding || editing) {
+      setIsAdding(false);
+      setEditing(null);
+      return true;
+    }
+    if (detailId) {
+      setDetailId(null);
+      return true;
+    }
+    if (loanToDelete) {
+      setLoanToDelete(null);
+      return true;
+    }
+    if (paymentToDelete) {
+      setPaymentToDelete(null);
+      return true;
+    }
+    return false;
+  });
+
   const summary = useMemo(() => getLoansSummary(loans), [loans]);
   const activeLoans = loans.filter((l) => !l.isSettled && l.remainingAmount > 0);
   const settledLoans = loans.filter((l) => l.isSettled || l.remainingAmount <= 0);
@@ -109,8 +127,6 @@ export function LendingView() {
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : 'Failed to delete loan');
-      // Re-throw so ConfirmDialog knows the action failed and keeps
-      // itself open for a retry.
       throw err;
     }
   };
@@ -123,8 +139,6 @@ export function LendingView() {
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : 'Failed to remove payment');
-      // Re-throw so ConfirmDialog knows the action failed and keeps
-      // itself open for a retry.
       throw err;
     }
   };
@@ -142,7 +156,6 @@ export function LendingView() {
   return (
     <div className="flex flex-col gap-4 md:gap-6">
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20">
-        
         <button
           type="button"
           onClick={toggleHideBalances}
@@ -811,7 +824,6 @@ function LoanDetailSheet({
       return;
     }
 
-    // FIX: Use the safe date parser instead of raw split/Date logic.
     const sd = parseDateInput(payDate);
     if (sd === null) {
       toast.error('Enter a valid payment date');

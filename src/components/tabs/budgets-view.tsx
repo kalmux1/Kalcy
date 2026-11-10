@@ -20,6 +20,7 @@ import { Switch } from '@/components/ui/switch';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CategoryIcon } from '@/components/icon-map';
 import { useStore } from '@/lib/store';
+import { useBackButton } from '@/lib/back-button';
 import type { Budget, Category } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/currencies';
@@ -55,6 +56,22 @@ export function BudgetsView() {
   const [editing, setEditing] = useState<Budget | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [budgetToDelete, setBudgetToDelete] = useState<Budget | null>(null);
+
+  // Handle native back button for drawers and dialogs
+  // NOTE: No second argument — the hook runs on every render to always
+  // capture the freshest state values.
+  useBackButton(() => {
+    if (isAdding || editing) {
+      setIsAdding(false);
+      setEditing(null);
+      return true;
+    }
+    if (budgetToDelete) {
+      setBudgetToDelete(null);
+      return true;
+    }
+    return false;
+  });
 
   const currentMonth = monthYearKey(Date.now());
   const monthBudgets = useMemo(

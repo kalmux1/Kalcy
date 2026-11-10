@@ -33,6 +33,7 @@ import {
   CATEGORY_COLORS,
 } from '@/components/icon-map';
 import { useStore } from '@/lib/store';
+import { useBackButton } from '@/lib/back-button';
 import type { Account, AccountType } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/currencies';
@@ -94,6 +95,25 @@ export function AccountsTab() {
   const [transferOpen, setTransferOpen] = useState(false);
 
   const [accountToDelete, setAccountToDelete] = useState<Account | null>(null);
+
+  // Handle native back button for drawers and dialogs
+  // NOTE: No second argument (dependency array) — the hook runs on every render.
+  useBackButton(() => {
+    if (isAdding || editingAccount) {
+      setIsAdding(false);
+      setEditingAccount(null);
+      return true;
+    }
+    if (transferOpen) {
+      setTransferOpen(false);
+      return true;
+    }
+    if (accountToDelete) {
+      setAccountToDelete(null);
+      return true;
+    }
+    return false;
+  });
 
   const cashBalance = getTotalBalance(accounts);
   const loansNet = getLoansNetWorth(loans);

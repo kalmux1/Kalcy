@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { CalculatorNumpad } from './calculator-numpad';
 import { CategoryIcon } from './icon-map';
 import { useStore } from '@/lib/store';
+import { useBackButton } from '@/lib/back-button';
 import type { TransactionType, Transaction, Category } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import {
@@ -124,6 +125,30 @@ function TransactionSheetContent({
       )
     : false;
   const isEditingLinked = linkedToLoan || linkedToInvestment;
+
+  // Handle native back button for navigating steps.
+  // No second argument — the hook re-registers on every render so the
+  // handler always sees the current step and parentCategory.
+  useBackButton(() => {
+    if (step !== 'main') {
+      if (step === 'category' && parentCategory) {
+        setParentCategory(null);
+        return true;
+      }
+      if (
+        step === 'category' ||
+        step === 'account' ||
+        step === 'toAccount' ||
+        step === 'date' ||
+        step === 'note'
+      ) {
+        setStep('main');
+        return true;
+      }
+    }
+    onClose();
+    return true;
+  });
 
   const handleSave = useCallback(async () => {
     if (saving) return;

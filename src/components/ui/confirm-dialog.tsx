@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle } from 'lucide-react';
+import { useBackButton } from '@/lib/back-button';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -19,8 +20,6 @@ interface ConfirmDialogProps {
   description: string;
   confirmText?: string;
   cancelText?: string;
-  // FIX: allow async handlers so the dialog can await completion,
-  // swallow (log) rejections, and keep itself open on failure.
   onConfirm: () => void | Promise<void>;
   isDestructive?: boolean;
 }
@@ -37,6 +36,18 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const [loading, setLoading] = useState(false);
 
+  // Handle the hardware back button on Android.
+  // No second argument — the hook re-registers on every render so the
+  // handler always sees the current `open`/`loading` values.
+  //
+  // When closed we return `false` so the App-level handler can take over
+  // (e.g. to navigate back to the Transactions tab or minimize the app).
+  useBackButton(() => {
+    if (!open) return false;
+    if (!loading) onOpenChange(false);
+    return true;
+  });
+
   const handleConfirm = async () => {
     if (loading) return;
     try {
@@ -44,8 +55,6 @@ export function ConfirmDialog({
       await onConfirm();
       onOpenChange(false);
     } catch (err) {
-      // Handlers are expected to toast the specific failure; we keep the
-      // dialog open so the user can retry or cancel.
       console.error('Confirm action failed:', err);
     } finally {
       setLoading(false);

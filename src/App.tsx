@@ -1,6 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
+import { StatusBar, Style } from '@capacitor/status-bar';
+import { Network } from '@capacitor/network';
 import { TransactionsTab } from '@/components/tabs/transactions-tab';
 import { StatsTab } from '@/components/tabs/stats-tab';
 import { AccountsTab } from '@/components/tabs/accounts-tab';
@@ -19,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { registerGlobalBackButton, useBackButton } from '@/lib/back-button';
 import {
   Select,
   SelectContent,
@@ -46,26 +51,46 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
+const RE_LOCK_DELAY_MS = 60_000;
+
 function useOnlineStatus(): boolean {
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    if (!Capacitor.isNativePlatform()) {
+      const handleOnline = () => setIsOnline(true);
+      const handleOffline = () => setIsOnline(false);
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      const interval = setInterval(() => setIsOnline(navigator.onLine), 5000);
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+        clearInterval(interval);
+      };
+    }
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    let cancelled = false;
+    let handle: { remove: () => Promise<void> } | null = null;
 
-    const interval = setInterval(() => {
-      setIsOnline(navigator.onLine);
-    }, 5000);
+    Network.getStatus()
+      .then((status) => { if (!cancelled) setIsOnline(status.connected); })
+      .catch(() => {});
+
+    Network.addListener('networkStatusChange', (status) => {
+      setIsOnline(status.connected);
+    })
+      .then((h) => {
+        if (cancelled) void h.remove();
+        else handle = h;
+      })
+      .catch(() => {});
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      clearInterval(interval);
+      cancelled = true;
+      if (handle) void handle.remove();
     };
   }, []);
 
@@ -79,21 +104,13 @@ function ConnectionStatus() {
     <div
       className={
         'flex items-center gap-2 p-3 rounded-2xl text-xs font-medium transition-colors duration-300 ' +
-        (isOnline
-          ? 'bg-income/10 text-income'
-          : 'bg-destructive/10 text-destructive')
+        (isOnline ? 'bg-income/10 text-income' : 'bg-destructive/10 text-destructive')
       }
       role="status"
       aria-live="polite"
     >
-      {isOnline ? (
-        <Wifi className="h-4 w-4" />
-      ) : (
-        <WifiOff className="h-4 w-4" />
-      )}
-      <span>
-        {isOnline ? 'Connected to the internet' : 'No internet connection'}
-      </span>
+      {isOnline ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+      <span>{isOnline ? 'Connected to the internet' : 'No internet connection'}</span>
     </div>
   );
 }
@@ -111,7 +128,10 @@ export default function App() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isWipeDialogOpen, setIsWipeDialogOpen] = useState(false);
+  
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [authResetKey, setAuthResetKey] = useState(0);
+  const backgroundedAtRef = useRef<number | null>(null);
 
   const user = useStore((s) => s.user);
   const setUser = useStore((s) => s.setUser);
@@ -124,6 +144,25 @@ export default function App() {
   const updatePreferences = useStore((s) => s.updatePreferences);
   const toggleBiometric = useStore((s) => s.toggleBiometric);
   const clearCloudData = useStore((s) => s.clearCloudData);
+
+  // Register global back button
+  useEffect(() => {
+    const sub = registerGlobalBackButton();
+    return () => {
+      void sub?.then((l) => {
+        if (l) void l.remove();
+      });
+    };
+  }, []);
+
+  // App-level back button handler
+  useBackButton(() => {
+    if (isSheetOpen) { setIsSheetOpen(false); setEditingTx(null); return true; }
+    if (isProfileOpen) { setIsProfileOpen(false); return true; }
+    if (isWipeDialogOpen) { setIsWipeDialogOpen(false); return true; }
+    if (activeTab !== 'transactions') { setActiveTab('transactions'); return true; }
+    return false;
+  });
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
@@ -144,6 +183,44 @@ export default function App() {
 
     return () => unsub();
   }, [setUser, initUserData]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const stateSub = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) {
+        backgroundedAtRef.current = Date.now();
+        return;
+      }
+      
+      const bgAt = backgroundedAtRef.current;
+      backgroundedAtRef.current = null;
+      
+      if (bgAt && Date.now() - bgAt > RE_LOCK_DELAY_MS) {
+        setIsUnlocked(false);
+        setAuthResetKey(prev => prev + 1);
+      }
+    });
+
+    return () => {
+      void stateSub.then((l) => l.remove());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const isDarkMode =
+      preferences.theme === 'dark' ||
+      (preferences.theme === 'system' &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+    StatusBar.setStyle({
+      style: isDarkMode ? Style.Light : Style.Dark,
+    }).catch(() => {});
+  }, [preferences.theme]);
+
+  const handleUnlock = useCallback(() => setIsUnlocked(true), []);
 
   const handleEditTransaction = useCallback((tx: Transaction) => {
     setEditingTx(tx);
@@ -196,7 +273,7 @@ export default function App() {
   }
 
   if (!isUnlocked) {
-    return <LockScreen onUnlock={() => setIsUnlocked(true)} />;
+    return <LockScreen key={authResetKey} onUnlock={handleUnlock} />;
   }
 
   return (
@@ -368,9 +445,7 @@ export default function App() {
                   <div className="flex gap-2 max-w-sm">
                     <Button
                       type="button"
-                      variant={
-                        preferences.weekStartDay === 1 ? 'default' : 'outline'
-                      }
+                      variant={preferences.weekStartDay === 1 ? 'default' : 'outline'}
                       size="sm"
                       className="flex-1 rounded-xl"
                       onClick={() => updatePreferences({ weekStartDay: 1 })}
@@ -379,9 +454,7 @@ export default function App() {
                     </Button>
                     <Button
                       type="button"
-                      variant={
-                        preferences.weekStartDay === 0 ? 'default' : 'outline'
-                      }
+                      variant={preferences.weekStartDay === 0 ? 'default' : 'outline'}
                       size="sm"
                       className="flex-1 rounded-xl"
                       onClick={() => updatePreferences({ weekStartDay: 0 })}
@@ -400,9 +473,7 @@ export default function App() {
                       <Button
                         key={mode}
                         type="button"
-                        variant={
-                          preferences.theme === mode ? 'default' : 'outline'
-                        }
+                        variant={preferences.theme === mode ? 'default' : 'outline'}
                         size="sm"
                         className="capitalize rounded-xl text-xs"
                         onClick={() => updatePreferences({ theme: mode })}

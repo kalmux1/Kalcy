@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { App } from '@capacitor/app';
 import {
   BiometricAuth,
   BiometryError,
@@ -22,11 +23,14 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
   );
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  
+  const authInProgress = useRef(false);
 
   const authenticate = useCallback(
     async (useBiometric: boolean) => {
-      if (isAuthenticating) return;
+      if (authInProgress.current) return;
       
+      authInProgress.current = true;
       setIsAuthenticating(true);
       setError(null);
       
@@ -35,7 +39,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
           await BiometricAuth.authenticate({
             reason: 'Unlock Kalcy',
             cancelTitle: 'Cancel',
-            allowDeviceCredential: true, // Crucial for PIN/Pattern fallback
+            allowDeviceCredential: true, 
             iosFallbackTitle: useBiometric ? 'Use Passcode' : 'Use Biometrics',
             androidTitle: 'Unlock Kalcy',
             androidSubtitle: useBiometric
@@ -43,28 +47,34 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
               : 'Enter your PIN, pattern, or password',
             androidConfirmationRequired: false,
           });
-          // If successful, unlock the app
           onUnlock();
         } else {
-          // Web fallback
-          console.warn('Biometric auth is simulated on web.');
           onUnlock();
         }
       } catch (e) {
         const err = e as BiometryError;
         
-        // 1. Ignore cancellations. 
-        // React StrictMode or the OS might cancel the first prompt on launch.
-        // We don't want to show a scary red error for a simple cancellation.
-        if (
-          err.code === BiometryErrorType.userCancel ||
-          err.code === BiometryErrorType.appCancel
-        ) {
-          // Just return silently, the user can tap the button to try again.
+        // 1. Handle explicit user cancellation (Clicking [X])
+        if (err.code === BiometryErrorType.userCancel) {
+          if (Capacitor.isNativePlatform()) {
+            // Reset state so it isn't stuck if the user immediately reopens
+            authInProgress.current = false;
+            setIsAuthenticating(false);
+            
+            // minimizeApp safely pauses the WebView. Using exitApp() here destroys
+            // the WebView surface while the native prompt is animating out, which
+            // causes the "black screen" on subsequent launches.
+            await App.minimizeApp();
+          }
           return;
         }
 
-        // 2. Handle specific configuration errors
+        // 2. Ignore background/app cancellations (e.g., incoming phone call)
+        if (err.code === BiometryErrorType.appCancel) {
+          return;
+        }
+
+        // 3. Handle specific configuration errors
         if (err.code === BiometryErrorType.passcodeNotSet) {
           setError('No device PIN, pattern, or password is set. Please configure it in your device settings.');
         } else if (err.code === BiometryErrorType.authenticationFailed) {
@@ -74,21 +84,21 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
         } else if (err.code === BiometryErrorType.biometryNotEnrolled) {
           setError('No biometrics enrolled. Please set up a fingerprint or face unlock in your device settings.');
         } else {
-          // Show the raw error code if it's something unexpected
           setError(`Error (${err.code}): ${err.message || 'Unknown error'}`);
         }
       } finally {
+        authInProgress.current = false;
         setIsAuthenticating(false);
       }
     },
-    [onUnlock, isAuthenticating]
+    [onUnlock]
   );
 
-  // Auto-trigger the prompt on mount, but wait 400ms to let the Activity fully focus
+  // Auto-trigger the prompt on mount
   useEffect(() => {
     const timer = setTimeout(() => {
       authenticate(mode === 'biometric');
-    }, 400);
+    }, 500);
     
     return () => clearTimeout(timer);
   }, [mode, authenticate]);

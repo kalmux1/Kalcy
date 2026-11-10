@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { X, Check, Mail, Lock, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useStore } from '@/lib/store';
+import { useBackButton } from '@/lib/back-button';
 
 interface ProfileEditDrawerProps {
   open: boolean;
@@ -31,7 +32,13 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Sync inputs with the current user whenever the drawer opens.
+  // The second argument (deps array) has been removed here
+  useBackButton(() => {
+    if (!open) return false;
+    onOpenChange(false);
+    return true;
+  });
+
   useEffect(() => {
     if (open) {
       setName(user?.displayName ?? '');
@@ -50,9 +57,6 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
       newPassword.length > 0 ||
       confirmPassword.length > 0;
 
-    // -------------------------------------------------------------
-    // Validate
-    // -------------------------------------------------------------
     if (!trimmedName && !wantsPasswordChange) {
       toast.error('Nothing to update');
       return;
@@ -77,22 +81,17 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
       }
     }
 
-    // -------------------------------------------------------------
-    // Save
-    // -------------------------------------------------------------
     setSaving(true);
     let nameUpdated = false;
     let passwordUpdated = false;
 
     try {
-      // Update display name (independent of password change).
       if (trimmedName && trimmedName !== user.displayName) {
         await updateProfile(auth.currentUser, { displayName: trimmedName });
         setUser({ ...user, displayName: trimmedName });
         nameUpdated = true;
       }
 
-      // Update password (needs re-authentication).
       if (wantsPasswordChange) {
         const email = auth.currentUser.email;
         if (!email) {
@@ -107,9 +106,6 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
         passwordUpdated = true;
       }
 
-      // -----------------------------------------------------------
-      // Feedback
-      // -----------------------------------------------------------
       if (nameUpdated && passwordUpdated) {
         toast.success('Name and password updated');
       } else if (nameUpdated) {
@@ -150,15 +146,12 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
   return (
     <Drawer open={open} onOpenChange={onOpenChange} repositionInputs>
       <DrawerContent className="rounded-t-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
-        {/* Fixed header */}
         <div className="shrink-0 px-4 pt-2 pb-3">
           <h2 className="text-xl font-bold">Edit Profile</h2>
         </div>
 
-        {/* Scrollable body */}
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 scroll-pt-4">
           <div className="flex flex-col gap-5 pb-4">
-            {/* Avatar preview */}
             <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/40">
               <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center">
                 <span className="text-lg font-bold text-primary">
@@ -175,7 +168,6 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
               </div>
             </div>
 
-            {/* Name */}
             <div>
               <Label className="text-xs text-muted-foreground">Display Name</Label>
               <div className="relative mt-1">
@@ -193,7 +185,6 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
               </p>
             </div>
 
-            {/* Email (read-only) */}
             <div>
               <Label className="text-xs text-muted-foreground">Email</Label>
               <div className="relative mt-1">
@@ -210,7 +201,6 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
               </p>
             </div>
 
-            {/* Password change */}
             <div className="pt-2 border-t">
               <div className="flex items-center gap-2 mb-3">
                 <Lock className="h-4 w-4 text-muted-foreground" />
@@ -267,7 +257,6 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
           </div>
         </div>
 
-        {/* Sticky footer */}
         <div className="shrink-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] bg-background border-t flex gap-2">
           <Button
             type="button"

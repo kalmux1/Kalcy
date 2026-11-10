@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { CategoryIcon, AVAILABLE_ICONS, CATEGORY_COLORS } from '@/components/icon-map';
 import { useStore } from '@/lib/store';
+import { useBackButton } from '@/lib/back-button';
 import type { Category, TransactionType } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -34,6 +35,22 @@ export function CategoriesView() {
   const [editing, setEditing] = useState<Category | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
+
+  // Handle native back button for drawers and dialogs
+  // NOTE: No second argument — the hook runs on every render so the
+  // handler always closes over the current `isAdding`/`editing` state.
+  useBackButton(() => {
+    if (isAdding || editing) {
+      setIsAdding(false);
+      setEditing(null);
+      return true;
+    }
+    if (categoryToDelete) {
+      setCategoryToDelete(null);
+      return true;
+    }
+    return false;
+  });
 
   const expenseCategories = categories.filter((c) => c.type === 'expense' && !c.parentId);
   const incomeCategories = categories.filter((c) => c.type === 'income' && !c.parentId);

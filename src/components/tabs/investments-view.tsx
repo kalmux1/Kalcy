@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { CategoryIcon, INVESTMENT_TYPES } from '@/components/icon-map';
 import { useStore } from '@/lib/store';
+import { useBackButton } from '@/lib/back-button';
 import type { Investment, InvestmentType, InvestmentStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/currencies';
@@ -83,6 +84,26 @@ export function InvestmentsView() {
   const [editing, setEditing] = useState<Investment | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [investmentToDelete, setInvestmentToDelete] = useState<Investment | null>(null);
+
+  // Handle native back button for drawers and dialogs
+  // NOTE: No second argument — the hook re-registers on every render so the
+  // handler always sees the current `isAdding` / `detailId` / etc.
+  useBackButton(() => {
+    if (isAdding || editing) {
+      setIsAdding(false);
+      setEditing(null);
+      return true;
+    }
+    if (detailId) {
+      setDetailId(null);
+      return true;
+    }
+    if (investmentToDelete) {
+      setInvestmentToDelete(null);
+      return true;
+    }
+    return false;
+  });
 
   const summary = useMemo(() => getInvestmentsSummary(investments), [investments]);
 
