@@ -1017,4 +1017,3 @@ See the [`LICENSE`](LICENSE) file for the full text.
   <br/>
   <em>Track it. Budget it. Invest it. Own it.</em>
 </p>
-```
