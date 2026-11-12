@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Kalcy</string>
-    <string name="title_activity_main">Kalcy</string>
-    <string name="package_name">com.kalcy.app</string>
-    <string name="custom_url_scheme">com.kalcy.app</string>
-</resources>

@@ -1,10 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { Capacitor } from '@capacitor/core';
-import { App as CapacitorApp } from '@capacitor/app';
-import { StatusBar, Style } from '@capacitor/status-bar';
-import { Network } from '@capacitor/network';
 import { TransactionsTab } from '@/components/tabs/transactions-tab';
 import { StatsTab } from '@/components/tabs/stats-tab';
 import { AccountsTab } from '@/components/tabs/accounts-tab';
@@ -16,14 +12,13 @@ import { AuthView } from '@/components/auth-view';
 import { ProfileEditDrawer } from '@/components/profile-edit-drawer';
 import { AboutSection } from '@/components/about-section';
 import { LockScreen } from '@/components/lock-screen';
+import { SecuritySettings } from '@/components/security-settings';
 import { useStore } from '@/lib/store';
 import { CURRENCIES } from '@/lib/currencies';
 import { exportToCSV, downloadCSV } from '@/lib/finance';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { registerGlobalBackButton, useBackButton } from '@/lib/back-button';
 import {
   Select,
   SelectContent,
@@ -46,10 +41,10 @@ import {
   ListChecks,
   Settings,
   Tags,
-  Fingerprint,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { registerGlobalBackButton, useBackButton } from '@/lib/back-button';
 
 const RE_LOCK_DELAY_MS = 60_000;
 
@@ -59,38 +54,16 @@ function useOnlineStatus(): boolean {
   );
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) {
-      const handleOnline = () => setIsOnline(true);
-      const handleOffline = () => setIsOnline(false);
-      window.addEventListener('online', handleOnline);
-      window.addEventListener('offline', handleOffline);
-      const interval = setInterval(() => setIsOnline(navigator.onLine), 5000);
-      return () => {
-        window.removeEventListener('online', handleOnline);
-        window.removeEventListener('offline', handleOffline);
-        clearInterval(interval);
-      };
-    }
-
-    let cancelled = false;
-    let handle: { remove: () => Promise<void> } | null = null;
-
-    Network.getStatus()
-      .then((status) => { if (!cancelled) setIsOnline(status.connected); })
-      .catch(() => {});
-
-    Network.addListener('networkStatusChange', (status) => {
-      setIsOnline(status.connected);
-    })
-      .then((h) => {
-        if (cancelled) void h.remove();
-        else handle = h;
-      })
-      .catch(() => {});
-
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    // Safari fallback — occasionally misses the events.
+    const interval = setInterval(() => setIsOnline(navigator.onLine), 5000);
     return () => {
-      cancelled = true;
-      if (handle) void handle.remove();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      clearInterval(interval);
     };
   }, []);
 
@@ -104,7 +77,9 @@ function ConnectionStatus() {
     <div
       className={
         'flex items-center gap-2 p-3 rounded-2xl text-xs font-medium transition-colors duration-300 ' +
-        (isOnline ? 'bg-income/10 text-income' : 'bg-destructive/10 text-destructive')
+        (isOnline
+          ? 'bg-income/10 text-income'
+          : 'bg-destructive/10 text-destructive')
       }
       role="status"
       aria-live="polite"
@@ -128,7 +103,7 @@ export default function App() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isWipeDialogOpen, setIsWipeDialogOpen] = useState(false);
-  
+
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [authResetKey, setAuthResetKey] = useState(0);
   const backgroundedAtRef = useRef<number | null>(null);
@@ -142,8 +117,8 @@ export default function App() {
   const categories = useStore((s) => s.categories);
   const preferences = useStore((s) => s.preferences);
   const updatePreferences = useStore((s) => s.updatePreferences);
-  const toggleBiometric = useStore((s) => s.toggleBiometric);
   const clearCloudData = useStore((s) => s.clearCloudData);
+  const isAuthConfigured = useStore((s) => s.isAuthConfigured);
 
   // Register global back button
   useEffect(() => {
@@ -155,15 +130,16 @@ export default function App() {
     };
   }, []);
 
-  // App-level back button handler
+  // App-level back button handler (handles tab navigation)
   useBackButton(() => {
-    if (isSheetOpen) { setIsSheetOpen(false); setEditingTx(null); return true; }
-    if (isProfileOpen) { setIsProfileOpen(false); return true; }
-    if (isWipeDialogOpen) { setIsWipeDialogOpen(false); return true; }
-    if (activeTab !== 'transactions') { setActiveTab('transactions'); return true; }
+    if (activeTab !== 'transactions') {
+      setActiveTab('transactions');
+      return true;
+    }
     return false;
-  });
+  }, activeTab !== 'transactions');
 
+  // Auth lifecycle
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       if (!fbUser) {
@@ -184,40 +160,35 @@ export default function App() {
     return () => unsub();
   }, [setUser, initUserData]);
 
+  // Re-lock after a period in the background (uses Page Visibility API).
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-
-    const stateSub = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (!isActive) {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
         backgroundedAtRef.current = Date.now();
-        return;
+      } else if (document.visibilityState === 'visible') {
+        const bgAt = backgroundedAtRef.current;
+        backgroundedAtRef.current = null;
+        if (bgAt && Date.now() - bgAt > RE_LOCK_DELAY_MS && isAuthConfigured) {
+          setIsUnlocked(false);
+          setAuthResetKey((prev) => prev + 1);
+        }
       }
-      
-      const bgAt = backgroundedAtRef.current;
-      backgroundedAtRef.current = null;
-      
-      if (bgAt && Date.now() - bgAt > RE_LOCK_DELAY_MS) {
-        setIsUnlocked(false);
-        setAuthResetKey(prev => prev + 1);
-      }
-    });
-
-    return () => {
-      void stateSub.then((l) => l.remove());
     };
-  }, []);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibility);
+  }, [isAuthConfigured]);
 
+  // Sync the browser chrome theme color with the app theme.
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-
     const isDarkMode =
       preferences.theme === 'dark' ||
       (preferences.theme === 'system' &&
         window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-    StatusBar.setStyle({
-      style: isDarkMode ? Style.Light : Style.Dark,
-    }).catch(() => {});
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      meta.setAttribute('content', isDarkMode ? '#0f0e10' : '#3f7a6f');
+    }
   }, [preferences.theme]);
 
   const handleUnlock = useCallback(() => setIsUnlocked(true), []);
@@ -260,9 +231,7 @@ export default function App() {
       <main className="flex h-[100dvh] w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <div className="h-9 w-9 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-xs text-muted-foreground animate-pulse">
-            Loading...
-          </p>
+          <p className="text-xs text-muted-foreground animate-pulse">Loading...</p>
         </div>
       </main>
     );
@@ -332,7 +301,10 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 h-full relative">
         <div className="flex-1 min-h-0 overflow-hidden">
           {activeTab === 'transactions' && (
-            <TransactionsTab onEditTransaction={handleEditTransaction} />
+            <TransactionsTab
+              onEditTransaction={handleEditTransaction}
+              onAddTransaction={handleAddTransaction}
+            />
           )}
           {activeTab === 'stats' && <StatsTab />}
           {activeTab === 'accounts' && <AccountsTab />}
@@ -379,25 +351,8 @@ export default function App() {
                 </Button>
               </div>
 
-              <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm">
-                <div className="flex items-center gap-2 mb-2">
-                  <Fingerprint className="h-4 w-4 text-primary" />
-                  <h2 className="text-base font-semibold">Security</h2>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">Biometric Authentication</p>
-                    <p className="text-xs text-muted-foreground">
-                      Use fingerprint or face unlock to open the app.
-                      If disabled, the app will require your device PIN, pattern, or password.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={preferences.biometricEnabled}
-                    onCheckedChange={toggleBiometric}
-                  />
-                </div>
-              </div>
+              {/* WebAuthn + PIN security */}
+              <SecuritySettings />
 
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -415,12 +370,10 @@ export default function App() {
                 <CategoriesView />
               </div>
 
-              <div className="space-y-4 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm max-w-2xl">
+              <div className="space-y-4 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm">
                 <h2 className="text-base font-semibold">Preferences</h2>
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">
-                    Currency
-                  </Label>
+                  <Label className="text-xs text-muted-foreground">Currency</Label>
                   <Select
                     value={preferences.currency}
                     onValueChange={(val) => updatePreferences({ currency: val })}
@@ -442,7 +395,7 @@ export default function App() {
                   <Label className="text-xs text-muted-foreground">
                     Week Starts On
                   </Label>
-                  <div className="flex gap-2 max-w-sm">
+                  <div className="flex gap-2">
                     <Button
                       type="button"
                       variant={preferences.weekStartDay === 1 ? 'default' : 'outline'}
@@ -468,7 +421,7 @@ export default function App() {
                   <Label className="text-xs text-muted-foreground">
                     Theme Mode
                   </Label>
-                  <div className="grid grid-cols-3 gap-2 max-w-sm">
+                  <div className="grid grid-cols-3 gap-2">
                     {(['light', 'dark', 'system'] as const).map((mode) => (
                       <Button
                         key={mode}
@@ -485,9 +438,9 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm max-w-2xl">
+              <div className="space-y-3 bg-card border border-border/40 rounded-3xl p-4 md:p-6 shadow-sm">
                 <h2 className="text-base font-semibold">Cloud Actions</h2>
-                <div className="flex flex-col gap-2 max-w-sm">
+                <div className="flex flex-col gap-2">
                   <Button
                     variant="outline"
                     className="w-full justify-start rounded-xl gap-2 text-sm"

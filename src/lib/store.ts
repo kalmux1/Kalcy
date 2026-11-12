@@ -34,6 +34,16 @@ import {
   DEFAULT_PREFERENCES,
 } from './seed-data';
 import { getCurrencySymbol } from './currencies';
+import {
+  type AuthSettings,
+  DEFAULT_AUTH_SETTINGS,
+  loadAuthSettings,
+  saveAuthSettings,
+  registerCredential,
+  hashPin,
+  verifyPin as verifyPinHash,
+  isSupported,
+} from './auth-service';
 
 interface StoreState {
   user: AuthUser | null;
@@ -48,11 +58,20 @@ interface StoreState {
   investments: Investment[];
   preferences: Preferences;
 
+  authSettings: AuthSettings;
+  authLoaded: boolean;
+  isAuthConfigured: boolean;
+
   setUser: (user: AuthUser | null) => void;
   initUserData: (uid: string) => Promise<void>;
   clearLocalState: () => void;
   toggleHideBalances: () => void;
-  toggleBiometric: () => Promise<void>;
+
+  enableWebAuthn: () => Promise<void>;
+  disableWebAuthn: () => Promise<void>;
+  setPin: (pin: string) => Promise<void>;
+  disablePin: () => Promise<void>;
+  verifyPin: (pin: string) => Promise<boolean>;
 
   addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => Promise<void>;
   updateTransaction: (id: string, updates: Partial<Transaction>) => Promise<void>;
@@ -231,9 +250,21 @@ export const useStore = create<StoreState>((set, get) => ({
   investments: [],
   preferences: DEFAULT_PREFERENCES,
 
+  authSettings: { ...DEFAULT_AUTH_SETTINGS },
+  authLoaded: false,
+  isAuthConfigured: false,
+
   setUser: (user) => {
     set({ user });
-    if (!user) {
+    if (user) {
+      const settings = loadAuthSettings(user.uid);
+      set({
+        authSettings: settings,
+        authLoaded: true,
+        isAuthConfigured:
+          settings.webauthnEnabled || settings.pinEnabled,
+      });
+    } else {
       clearUnsubs();
       get().clearLocalState();
     }
@@ -249,31 +280,106 @@ export const useStore = create<StoreState>((set, get) => ({
       loanPayments: [],
       investments: [],
       preferences: DEFAULT_PREFERENCES,
+      authSettings: { ...DEFAULT_AUTH_SETTINGS },
+      authLoaded: false,
+      isAuthConfigured: false,
       isLoading: false,
     });
   },
 
-  toggleHideBalances: () => set((state) => ({ hideBalances: !state.hideBalances })),
+  toggleHideBalances: () =>
+    set((state) => ({ hideBalances: !state.hideBalances })),
 
-  toggleBiometric: async () => {
-    const { user, preferences } = get();
-    if (!user) return;
-    const newValue = !preferences.biometricEnabled;
-    try {
-      await setDoc(
-        doc(db, 'users', user.uid, 'profile', 'preferences'),
-        { biometricEnabled: newValue },
-        { merge: true }
+  enableWebAuthn: async () => {
+    const { user } = get();
+    if (!user) throw new Error('Not authenticated');
+
+    const supported = await isSupported();
+    if (!supported) {
+      throw new Error(
+        'WebAuthn is not available on this device. Use a secure connection (HTTPS or localhost) with a platform authenticator.'
       );
-      toast.success(
-        newValue
-          ? 'Biometric authentication enabled'
-          : 'Biometric authentication disabled'
-      );
-    } catch (err) {
-      console.error('Failed to toggle biometric preference', err);
-      toast.error('Failed to update security preference');
     }
+
+    const credential = await registerCredential(
+      user.uid,
+      user.email ?? user.uid,
+      user.displayName ?? user.email ?? 'Kalcy user'
+    );
+
+    const next: AuthSettings = {
+      ...get().authSettings,
+      webauthnEnabled: true,
+      webauthnCredentialId: credential.id,
+    };
+    saveAuthSettings(user.uid, next);
+    set({
+      authSettings: next,
+      isAuthConfigured: next.webauthnEnabled || next.pinEnabled,
+    });
+  },
+
+  disableWebAuthn: async () => {
+    const { user } = get();
+    if (!user) return;
+    const next: AuthSettings = {
+      ...get().authSettings,
+      webauthnEnabled: false,
+      webauthnCredentialId: null,
+    };
+    saveAuthSettings(user.uid, next);
+    set({
+      authSettings: next,
+      isAuthConfigured: next.webauthnEnabled || next.pinEnabled,
+    });
+  },
+
+  setPin: async (pin: string) => {
+    const { user } = get();
+    if (!user) throw new Error('Not authenticated');
+    if (!/^\d{4}$/.test(pin)) {
+      throw new Error('PIN must be exactly 4 digits');
+    }
+    const { hash, salt } = await hashPin(pin);
+    const next: AuthSettings = {
+      ...get().authSettings,
+      pinEnabled: true,
+      pinHash: hash,
+      pinSalt: salt,
+    };
+    saveAuthSettings(user.uid, next);
+    set({
+      authSettings: next,
+      isAuthConfigured: next.webauthnEnabled || next.pinEnabled,
+    });
+  },
+
+  disablePin: async () => {
+    const { user } = get();
+    if (!user) return;
+    const next: AuthSettings = {
+      ...get().authSettings,
+      pinEnabled: false,
+      pinHash: null,
+      pinSalt: null,
+    };
+    saveAuthSettings(user.uid, next);
+    set({
+      authSettings: next,
+      isAuthConfigured: next.webauthnEnabled || next.pinEnabled,
+    });
+  },
+
+  verifyPin: async (pin: string) => {
+    const { authSettings } = get();
+    if (
+      !authSettings.pinEnabled ||
+      !authSettings.pinHash ||
+      !authSettings.pinSalt
+    ) {
+      return false;
+    }
+    return verifyPinHash(pin, authSettings.pinHash, authSettings.pinSalt);
   },
 
   initUserData: async (uid: string) => {
@@ -452,10 +558,6 @@ export const useStore = create<StoreState>((set, get) => ({
         handleError('investments')
       )
     );
-
-    setTimeout(() => {
-      if (get().isLoading) set({ isLoading: false });
-    }, 6000);
   },
 
   addTransaction: async (tx) => {
@@ -569,7 +671,9 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     const ops: Array<(batch: WriteBatch) => void> = [];
-    ops.push((batch) => batch.delete(doc(db, 'users', user.uid, 'transactions', id)));
+    ops.push((batch) =>
+      batch.delete(doc(db, 'users', user.uid, 'transactions', id))
+    );
     txEffects(tx).forEach((delta, accId) => {
       ops.push((batch) =>
         batch.update(doc(db, 'users', user.uid, 'accounts', accId), {
@@ -689,10 +793,7 @@ export const useStore = create<StoreState>((set, get) => ({
     investments.forEach((inv) => {
       if (inv.accountId === id) return;
       const patch: Partial<Investment> = {};
-      if (
-        inv.linkedTransactionId &&
-        txIdsToDelete.has(inv.linkedTransactionId)
-      ) {
+      if (inv.linkedTransactionId && txIdsToDelete.has(inv.linkedTransactionId)) {
         patch.linkedTransactionId = null;
       }
       if (
@@ -715,10 +816,7 @@ export const useStore = create<StoreState>((set, get) => ({
       }
       if (Object.keys(patch).length > 0) {
         ops.push((batch) =>
-          batch.update(
-            doc(db, 'users', user.uid, 'investments', inv.id),
-            patch
-          )
+          batch.update(doc(db, 'users', user.uid, 'investments', inv.id), patch)
         );
       }
     });
@@ -950,6 +1048,10 @@ export const useStore = create<StoreState>((set, get) => ({
       patch.remainingAmount = Math.max(0, newAmount - paid);
     }
 
+    if (updates.dueDate !== undefined) {
+      patch.dueDate = updates.dueDate;
+    }
+
     if (initialTx) {
       const oldSign = oldType === 'lent' ? -1 : 1;
       const newSign = newType === 'lent' ? -1 : 1;
@@ -1013,7 +1115,10 @@ export const useStore = create<StoreState>((set, get) => ({
               : `Repayment to ${newPersonName}`;
         }
         ops.push((batch) =>
-          batch.update(doc(db, 'users', user.uid, 'transactions', payTx.id), payTxPatch)
+          batch.update(
+            doc(db, 'users', user.uid, 'transactions', payTx.id),
+            payTxPatch
+          )
         );
       }
     }
@@ -1205,8 +1310,19 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   addInvestment: async ({
-    name, symbol, type, units, buyPrice, currentPrice, accountId, date, note,
-    status, listingPrice, listingDate, appliedAmount,
+    name,
+    symbol,
+    type,
+    units,
+    buyPrice,
+    currentPrice,
+    accountId,
+    date,
+    note,
+    status,
+    listingPrice,
+    listingDate,
+    appliedAmount,
   }) => {
     const { user } = get();
     if (!user) throw new Error('Not authenticated');
@@ -1359,7 +1475,11 @@ export const useStore = create<StoreState>((set, get) => ({
     const isEditingSold = inv.status === 'sold' && newStatus === 'sold';
     const isEditingApplied = wasApplied && newStatus === 'applied';
 
-    if (inv.status === 'sold' || inv.status === 'not_allotted' || isBecomingSold) {
+    if (
+      inv.status === 'sold' ||
+      inv.status === 'not_allotted' ||
+      isBecomingSold
+    ) {
       for (const field of INVESTMENT_BUY_SIDE_FIELDS) {
         const newVal = updates[field];
         const oldVal = inv[field];
@@ -1377,7 +1497,10 @@ export const useStore = create<StoreState>((set, get) => ({
     const newDate = updates.date ?? inv.date;
     const newInvestedAmount = newUnits * newBuyPrice;
 
-    if ((isBecomingAllotted || isEditingActive) && (newUnits <= 0 || newBuyPrice <= 0)) {
+    if (
+      (isBecomingAllotted || isEditingActive) &&
+      (newUnits <= 0 || newBuyPrice <= 0)
+    ) {
       throw new Error(
         'Units and buy price must be positive for an active investment'
       );
@@ -1457,7 +1580,10 @@ export const useStore = create<StoreState>((set, get) => ({
           linkedPaymentId: null,
         };
         ops.push((batch) =>
-          batch.set(doc(db, 'users', user.uid, 'transactions', refundId), refundTx)
+          batch.set(
+            doc(db, 'users', user.uid, 'transactions', refundId),
+            refundTx
+          )
         );
         bump(inv.accountId, inv.appliedAmount);
         patch.linkedRefundTransactionId = refundId;
@@ -1473,7 +1599,9 @@ export const useStore = create<StoreState>((set, get) => ({
           toAccountId: null,
           categoryId: null,
           date: newDate,
-          note: `Investment: ${inv.name}${inv.symbol ? ` (${inv.symbol})` : ''} (Allotted)`,
+          note: `Investment: ${inv.name}${
+            inv.symbol ? ` (${inv.symbol})` : ''
+          } (Allotted)`,
           receiptUrl: null,
           isExcludedFromStats: true,
           isExcludedFromBudget: true,
@@ -1559,21 +1687,29 @@ export const useStore = create<StoreState>((set, get) => ({
 
         const newName = updates.name ?? inv.name;
         const newSymbol = updates.symbol ?? inv.symbol;
-        const oldNote = `Investment: ${inv.name}${inv.symbol ? ` (${inv.symbol})` : ''}`;
-        const newNote = `Investment: ${newName}${newSymbol ? ` (${newSymbol})` : ''}`;
+        const oldNote = `Investment: ${inv.name}${
+          inv.symbol ? ` (${inv.symbol})` : ''
+        }`;
+        const newNote = `Investment: ${newName}${
+          newSymbol ? ` (${newSymbol})` : ''
+        }`;
         if (buyTx.note === oldNote && newNote !== buyTx.note) {
           txPatch.note = newNote;
         }
 
         if (Object.keys(txPatch).length > 0) {
           ops.push((batch) =>
-            batch.update(doc(db, 'users', user.uid, 'transactions', buyTx.id), txPatch)
+            batch.update(
+              doc(db, 'users', user.uid, 'transactions', buyTx.id),
+              txPatch
+            )
           );
         }
       }
     } else if (isEditingSold) {
       patch.investedAmount = inv.investedAmount;
-      const sp = pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
+      const sp =
+        pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
       const sd = updates.soldDate ?? inv.soldDate;
 
       if (sp > 0) {
@@ -1587,16 +1723,26 @@ export const useStore = create<StoreState>((set, get) => ({
         ? transactions.find((t) => t.id === inv.linkedSellTransactionId)
         : null;
       if (sellTx && sp > 0) {
-        const amountChanged = sp * newUnits !== sellTx.amount;
+        // ✅ BUGFIX: use proceeds (price × units), not price alone, and
+        // adjust the account balance so cash stays in sync with the sell tx.
+        const newProceeds = sp * newUnits;
+        const amountChanged = newProceeds !== sellTx.amount;
         const dateChanged = sd !== null && sd !== sellTx.date;
 
+        if (amountChanged) {
+          bump(sellTx.accountId, newProceeds - sellTx.amount);
+        }
+
         const txPatch: Partial<Transaction> = {};
-        if (amountChanged) txPatch.amount = sp * newUnits;
+        if (amountChanged) txPatch.amount = newProceeds;
         if (dateChanged && sd !== null) txPatch.date = sd;
 
         if (Object.keys(txPatch).length > 0) {
           ops.push((batch) =>
-            batch.update(doc(db, 'users', user.uid, 'transactions', sellTx.id), txPatch)
+            batch.update(
+              doc(db, 'users', user.uid, 'transactions', sellTx.id),
+              txPatch
+            )
           );
         }
       }
@@ -1625,7 +1771,10 @@ export const useStore = create<StoreState>((set, get) => ({
 
         if (Object.keys(txPatch).length > 0) {
           ops.push((batch) =>
-            batch.update(doc(db, 'users', user.uid, 'transactions', applyTx.id), txPatch)
+            batch.update(
+              doc(db, 'users', user.uid, 'transactions', applyTx.id),
+              txPatch
+            )
           );
         }
       }
@@ -1796,8 +1945,14 @@ export const useStore = create<StoreState>((set, get) => ({
 
   resetToSampleData: async () => {
     const {
-      user, accounts, categories, transactions, budgets,
-      loans, loanPayments, investments,
+      user,
+      accounts,
+      categories,
+      transactions,
+      budgets,
+      loans,
+      loanPayments,
+      investments,
     } = get();
     if (!user) return;
 
@@ -1894,8 +2049,14 @@ export const useStore = create<StoreState>((set, get) => ({
 
   clearCloudData: async () => {
     const {
-      user, accounts, categories, transactions, budgets,
-      loans, loanPayments, investments,
+      user,
+      accounts,
+      categories,
+      transactions,
+      budgets,
+      loans,
+      loanPayments,
+      investments,
     } = get();
     if (!user) return;
     const ops: Array<(batch: WriteBatch) => void> = [];

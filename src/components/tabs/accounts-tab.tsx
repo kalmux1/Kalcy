@@ -96,8 +96,6 @@ export function AccountsTab() {
 
   const [accountToDelete, setAccountToDelete] = useState<Account | null>(null);
 
-  // Handle native back button for drawers and dialogs
-  // NOTE: No second argument (dependency array) — the hook runs on every render.
   useBackButton(() => {
     if (isAdding || editingAccount) {
       setIsAdding(false);
@@ -113,7 +111,7 @@ export function AccountsTab() {
       return true;
     }
     return false;
-  });
+  }, isAdding || editingAccount !== null || transferOpen || accountToDelete !== null);
 
   const cashBalance = getTotalBalance(accounts);
   const loansNet = getLoansNetWorth(loans);
@@ -709,8 +707,6 @@ function TransferDialog({
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset the draft whenever the dialog is opened so a cancelled transfer
-  // never leaks into the next one. Matches the ProfileEditDrawer pattern.
   useEffect(() => {
     if (open) {
       setFromId('');

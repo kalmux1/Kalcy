@@ -126,9 +126,6 @@ function TransactionSheetContent({
     : false;
   const isEditingLinked = linkedToLoan || linkedToInvestment;
 
-  // Handle native back button for navigating steps.
-  // No second argument — the hook re-registers on every render so the
-  // handler always sees the current step and parentCategory.
   useBackButton(() => {
     if (step !== 'main') {
       if (step === 'category' && parentCategory) {
@@ -148,7 +145,7 @@ function TransactionSheetContent({
     }
     onClose();
     return true;
-  });
+  }, true);
 
   const handleSave = useCallback(async () => {
     if (saving) return;

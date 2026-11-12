@@ -1,33 +1,70 @@
-import { useEffect } from 'react';
-import { App } from '@capacitor/app';
-import { Capacitor } from '@capacitor/core';
+import { useEffect, useRef } from 'react';
 
 type BackHandler = () => boolean;
 const handlers: BackHandler[] = [];
 
-export function useBackButton(handler: BackHandler) {
-  // No dependency array — this runs on every render to ensure
-  // the handler always has access to the freshest state variables.
+let isBackNavigation = false;
+
+export function useBackButton(handler: BackHandler, isOpen: boolean): void {
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+
+  // Manage history stack
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    
-    handlers.push(handler);
+    if (isOpen) {
+      window.history.pushState({ app: true }, '');
+      return () => {
+        if (!isBackNavigation) {
+          window.history.back();
+        }
+        isBackNavigation = false;
+      };
+    }
+  }, [isOpen]);
+
+  // Manage handlers
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const wrappedHandler = () => {
+      const result = handlerRef.current();
+      if (result) {
+        isBackNavigation = true;
+      }
+      return result;
+    };
+    handlers.push(wrappedHandler);
     return () => {
-      const index = handlers.indexOf(handler);
+      const index = handlers.indexOf(wrappedHandler);
       if (index > -1) handlers.splice(index, 1);
     };
-  });
+  }, [isOpen]);
 }
 
 export function registerGlobalBackButton() {
-  if (!Capacitor.isNativePlatform()) return Promise.resolve(null);
-  
-  return App.addListener('backButton', () => {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+
+  // Push initial dummy state
+  window.history.pushState({ app: true }, '');
+
+  const handlePopState = () => {
     // Execute handlers from top-most (last added) to bottom-most
     for (let i = handlers.length - 1; i >= 0; i--) {
-      if (handlers[i]()) return;
+      if (handlers[i]()) {
+        // Handler caught it, modal is now closed.
+        // Push state back to catch the next back.
+        window.history.pushState({ app: true }, '');
+        return;
+      }
     }
-    // If no handler caught it, minimize the app
-    void App.minimizeApp();
+    // No handler caught it, allow browser to go back
+  };
+
+  window.addEventListener('popstate', handlePopState);
+
+  return Promise.resolve({
+    remove: () => {
+      window.removeEventListener('popstate', handlePopState);
+    },
   });
-}
+} 

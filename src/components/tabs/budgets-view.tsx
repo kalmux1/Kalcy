@@ -57,9 +57,6 @@ export function BudgetsView() {
   const [isAdding, setIsAdding] = useState(false);
   const [budgetToDelete, setBudgetToDelete] = useState<Budget | null>(null);
 
-  // Handle native back button for drawers and dialogs
-  // NOTE: No second argument — the hook runs on every render to always
-  // capture the freshest state values.
   useBackButton(() => {
     if (isAdding || editing) {
       setIsAdding(false);
@@ -71,7 +68,7 @@ export function BudgetsView() {
       return true;
     }
     return false;
-  });
+  }, isAdding || editing !== null || budgetToDelete !== null);
 
   const currentMonth = monthYearKey(Date.now());
   const monthBudgets = useMemo(
@@ -160,9 +157,6 @@ export function BudgetsView() {
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : 'Failed to delete budget');
-      // FIX: re-throw so ConfirmDialog knows the action failed and keeps
-      // itself open for a retry. Previously the dialog closed silently
-      // even when nothing was deleted.
       throw err;
     }
   };
@@ -211,10 +205,10 @@ export function BudgetsView() {
       <Button
         type="button"
         variant="outline"
-        className="rounded-2xl border-dashed max-w-xs"
+        className="rounded-2xl border-dashed w-full sm:w-auto gap-2"
         onClick={() => setIsAdding(true)}
       >
-        <Plus className="h-4 w-4 mr-2" /> Add Budget
+        <Plus className="h-4 w-4" /> Add Budget
       </Button>
 
       {monthBudgets.length === 0 ? (

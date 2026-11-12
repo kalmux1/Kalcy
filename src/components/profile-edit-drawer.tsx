@@ -32,12 +32,15 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // The second argument (deps array) has been removed here
+  // ✅ BUGFIX: `useBackButton` requires an `isOpen` argument. Passing `open`
+  // here makes the hook push a history entry and register the popstate
+  // handler — without it the browser back button exits the app instead of
+  // closing the drawer, and TypeScript fails on the required 2nd arg.
   useBackButton(() => {
     if (!open) return false;
     onOpenChange(false);
     return true;
-  });
+  }, open);
 
   useEffect(() => {
     if (open) {

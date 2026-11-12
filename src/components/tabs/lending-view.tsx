@@ -92,7 +92,6 @@ export function LendingView() {
   const [loanToDelete, setLoanToDelete] = useState<Loan | null>(null);
   const [paymentToDelete, setPaymentToDelete] = useState<LoanPayment | null>(null);
 
-  // Handle native back button — no second argument.
   useBackButton(() => {
     if (isAdding || editing) {
       setIsAdding(false);
@@ -218,11 +217,11 @@ export function LendingView() {
       <Button
         type="button"
         variant="outline"
-        className="rounded-2xl border-dashed max-w-xs"
+        className="rounded-2xl border-dashed w-full sm:w-auto gap-2"
         onClick={() => setIsAdding(true)}
         disabled={accounts.length === 0}
       >
-        <Plus className="h-4 w-4 mr-2" /> Add Loan
+        <Plus className="h-4 w-4" /> Add Loan
       </Button>
 
       {activeLoans.length === 0 && settledLoans.length === 0 ? (
@@ -466,9 +465,9 @@ function LoanCard({
               e.stopPropagation();
               onRecordPayment();
             }}
-            className="w-full rounded-xl h-8 text-xs font-semibold bg-primary/5 text-primary border-primary/20 hover:bg-primary/10"
+            className="w-full rounded-xl h-8 text-xs font-semibold bg-primary/5 text-primary border-primary/20 hover:bg-primary/10 gap-1"
           >
-            <Plus className="h-3.5 w-3.5 mr-1" /> Record Payment
+            <Plus className="h-3.5 w-3.5" /> Record Payment
           </Button>
         )}
         <div className="flex gap-1 justify-end">
@@ -977,9 +976,9 @@ function LoanDetailSheet({
                     setAdding(true);
                   }}
                   disabled={liveLoan.remainingAmount <= 0}
-                  className="w-full rounded-2xl mb-4"
+                  className="w-full rounded-2xl mb-4 gap-2"
                 >
-                  <Plus className="h-4 w-4 mr-2" /> Record Payment
+                  <Plus className="h-4 w-4" /> Record Payment
                 </Button>
               ) : (
                 <div className="rounded-2xl border border-border/40 p-3 mb-4 flex flex-col gap-3">
@@ -1078,9 +1077,9 @@ function LoanDetailSheet({
                     type="button"
                     onClick={submitPayment}
                     disabled={submittingPayment}
-                    className="w-full rounded-xl"
+                    className="w-full rounded-xl gap-2"
                   >
-                    <Check className="h-4 w-4 mr-1" />{' '}
+                    <Check className="h-4 w-4" />{' '}
                     {submittingPayment ? 'Saving…' : 'Save Payment'}
                   </Button>
                 </div>

@@ -44,11 +44,6 @@ const IPO_STATUS_OPTIONS: Record<InvestmentStatus, InvestmentStatus[]> = {
 
 const NEW_INVESTMENT_STATUSES: InvestmentStatus[] = ['applied', 'active'];
 
-/**
- * Parse a `YYYY-MM-DD` string from an `<input type="date" />` into epoch ms.
- * Returns `null` for malformed input so callers can show a toast instead of
- * writing a `NaN` timestamp that JSON-serialises to `null` in Firestore.
- */
 function parseDateInput(value: string): number | null {
   if (!value) return null;
   const parts = value.split('-').map(Number);
@@ -85,9 +80,6 @@ export function InvestmentsView() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [investmentToDelete, setInvestmentToDelete] = useState<Investment | null>(null);
 
-  // Handle native back button for drawers and dialogs
-  // NOTE: No second argument — the hook re-registers on every render so the
-  // handler always sees the current `isAdding` / `detailId` / etc.
   useBackButton(() => {
     if (isAdding || editing) {
       setIsAdding(false);
@@ -103,7 +95,7 @@ export function InvestmentsView() {
       return true;
     }
     return false;
-  });
+  }, isAdding || editing !== null || detailId !== null || investmentToDelete !== null);
 
   const summary = useMemo(() => getInvestmentsSummary(investments), [investments]);
 
@@ -244,8 +236,8 @@ export function InvestmentsView() {
         </div>
       )}
 
-      <Button type="button" variant="outline" className="rounded-2xl border-dashed max-w-xs" onClick={() => setIsAdding(true)} disabled={accounts.length === 0}>
-        <Plus className="h-4 w-4 mr-2" /> Add Investment
+      <Button type="button" variant="outline" className="rounded-2xl border-dashed w-full sm:w-auto gap-2" onClick={() => setIsAdding(true)} disabled={accounts.length === 0}>
+        <Plus className="h-4 w-4" /> Add Investment
       </Button>
 
       {investments.length === 0 ? (
@@ -449,14 +441,6 @@ function InvestmentCard({
   );
 }
 
-/**
- * Form payload submitted by `InvestmentForm`.
- *
- * `appliedAmount` is `number` (not `number | null`) because the form always
- * computes a number via `blockedAmt`, and `Investment.appliedAmount` is now
- * non-nullable in `types.ts`. Keeping it nullable would make this type
- * incompatible with `updateInvestment` (which expects `Partial<Investment>`).
- */
 type InvestmentFormData = {
   name: string;
   symbol: string;
@@ -592,8 +576,6 @@ function InvestmentForm({
     }
     if (!accountId) { toast.error('Please select an account'); return; }
 
-    // FIX: guard every date input — a malformed value used to become `NaN`
-    // and silently serialise to `null` in Firestore.
     const ts = parseDateInput(date);
     if (ts === null) {
       toast.error('Enter a valid purchase date');
@@ -705,7 +687,12 @@ function InvestmentForm({
                 key={s}
                 type="button"
                 disabled={lockBuySide && s !== status}
-                onClick={() => setStatus(s)}
+                onClick={() => {
+                  setStatus(s);
+                  if (s === 'not_allotted') {
+                    setAppliedAmount('');
+                  }
+                }}
                 className={cn(
                   'flex-1 py-2 rounded-xl text-xs font-medium capitalize transition-all',
                   status === s ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',

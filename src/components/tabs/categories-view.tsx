@@ -36,9 +36,6 @@ export function CategoriesView() {
   const [isAdding, setIsAdding] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
 
-  // Handle native back button for drawers and dialogs
-  // NOTE: No second argument — the hook runs on every render so the
-  // handler always closes over the current `isAdding`/`editing` state.
   useBackButton(() => {
     if (isAdding || editing) {
       setIsAdding(false);
@@ -50,7 +47,7 @@ export function CategoriesView() {
       return true;
     }
     return false;
-  });
+  }, isAdding || editing !== null || categoryToDelete !== null);
 
   const expenseCategories = categories.filter((c) => c.type === 'expense' && !c.parentId);
   const incomeCategories = categories.filter((c) => c.type === 'income' && !c.parentId);
@@ -65,9 +62,6 @@ export function CategoriesView() {
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : 'Failed to delete category');
-      // FIX: re-throw so ConfirmDialog knows the action failed and keeps
-      // itself open for a retry. Previously the dialog closed silently
-      // even when nothing was deleted.
       throw err;
     }
   };

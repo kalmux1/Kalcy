@@ -13,6 +13,7 @@ import {
   List,
   PieChart,
   LayoutGrid,
+  Plus,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { TransactionItem } from '../transaction-item';
@@ -20,6 +21,7 @@ import type { Transaction } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency, formatCurrencyCompact } from '@/lib/currencies';
 import { OpenEyeIcon, ClosedEyeIcon } from '@/components/ui/icons';
+import { Button } from '@/components/ui/button';
 import {
   groupTransactionsByDay,
   getDailyTotals,
@@ -39,6 +41,7 @@ type ViewMode = 'daily' | 'calendar' | 'monthly' | 'summary';
 
 interface TransactionsTabProps {
   onEditTransaction: (tx: Transaction) => void;
+  onAddTransaction: () => void;
 }
 
 function getGreeting(): string {
@@ -48,7 +51,7 @@ function getGreeting(): string {
   return 'Good Evening';
 }
 
-export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
+export function TransactionsTab({ onEditTransaction, onAddTransaction }: TransactionsTabProps) {
   const { transactions, accounts, preferences, deleteTransaction, hideBalances, toggleHideBalances } = useStore(
     useShallow((s) => ({
       transactions: s.transactions,
@@ -83,9 +86,6 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
     '';
   const greeting = getGreeting();
 
-  // Normalise to day 1 of the target month. `new Date(y, m + dir, 1)` avoids
-  // the "Feb 31 → March 3" overflow that `setMonth` causes when the current
-  // day exceeds the target month's length. Only year+month matter here.
   const changeMonth = (dir: number) => {
     const y = selectedMonth.getFullYear();
     const m = selectedMonth.getMonth() + dir;
@@ -116,7 +116,7 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-6 shadow-lg shadow-primary/20 w-full"
+          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground p-5 md:p-8 shadow-lg shadow-primary/20 w-full"
         >
           <button
             type="button"
@@ -131,18 +131,17 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
             )}
           </button>
 
-          <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6 md:gap-8">
-            <div>
-              <p className="text-sm opacity-90 font-medium">Total Balance</p>
-              <p className="text-3xl md:text-5xl font-bold tabular-nums mt-1">
-                {hideBalances
-                  ? `${preferences.currencySymbol}••••••`
-                  : formatCurrency(totalBalance, preferences.currencySymbol)}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
+          <div className="relative">
+            <p className="text-sm opacity-90 font-medium">Total Balance</p>
+            <p className="text-3xl md:text-5xl font-bold tabular-nums mt-1">
+              {hideBalances
+                ? `${preferences.currencySymbol}••••••`
+                : formatCurrency(totalBalance, preferences.currencySymbol)}
+            </p>
+
+            <div className="grid grid-cols-2 gap-4 mt-4 md:mt-6 md:max-w-md">
               <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-xl">
-                <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
+                <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
                   <TrendingDown className="h-4 w-4" />
                 </div>
                 <div className="flex flex-col">
@@ -155,7 +154,7 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
                 </div>
               </div>
               <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-xl">
-                <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
+                <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
                   <TrendingUp className="h-4 w-4" />
                 </div>
                 <div className="flex flex-col">
@@ -230,6 +229,7 @@ export function TransactionsTab({ onEditTransaction }: TransactionsTabProps) {
                 transactions={monthTxs}
                 onEdit={onEditTransaction}
                 onDelete={deleteTransaction}
+                onAdd={onAddTransaction}
                 symbol={preferences.currencySymbol}
               />
             )}
@@ -271,11 +271,13 @@ function DailyView({
   transactions,
   onEdit,
   onDelete,
+  onAdd,
   symbol,
 }: {
   transactions: Transaction[];
   onEdit: (tx: Transaction) => void;
   onDelete: (id: string) => void;
+  onAdd: () => void;
   symbol: string;
 }) {
   const grouped = useMemo(
@@ -284,7 +286,13 @@ function DailyView({
   );
 
   if (grouped.size === 0) {
-    return <EmptyState message="No transactions this month. Tap + to add one." />;
+    return (
+      <EmptyState
+        message="No transactions this month."
+        actionLabel="Add Transaction"
+        onAction={onAdd}
+      />
+    );
   }
 
   return (
@@ -798,13 +806,27 @@ function SummaryRow({
   );
 }
 
-function EmptyState({ message }: { message: string }) {
+function EmptyState({
+  message,
+  actionLabel,
+  onAction,
+}: {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
         <Wallet className="h-8 w-8 text-muted-foreground" />
       </div>
-      <p className="text-sm text-muted-foreground max-w-xs">{message}</p>
+      <p className="text-sm text-muted-foreground max-w-xs mb-4">{message}</p>
+      {actionLabel && onAction && (
+        <Button onClick={onAction} className="rounded-xl gap-2 shadow-sm">
+          <Plus className="h-4 w-4" />
+          {actionLabel}
+        </Button>
+      )}
     </div>
   );
 }

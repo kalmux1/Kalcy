@@ -36,17 +36,11 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const [loading, setLoading] = useState(false);
 
-  // Handle the hardware back button on Android.
-  // No second argument — the hook re-registers on every render so the
-  // handler always sees the current `open`/`loading` values.
-  //
-  // When closed we return `false` so the App-level handler can take over
-  // (e.g. to navigate back to the Transactions tab or minimize the app).
   useBackButton(() => {
     if (!open) return false;
     if (!loading) onOpenChange(false);
     return true;
-  });
+  }, open);
 
   const handleConfirm = async () => {
     if (loading) return;
