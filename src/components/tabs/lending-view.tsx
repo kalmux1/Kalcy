@@ -111,7 +111,7 @@ export function LendingView() {
       return true;
     }
     return false;
-  });
+  }, isAdding || editing !== null || detailId !== null || loanToDelete !== null || paymentToDelete !== null);
 
   const summary = useMemo(() => getLoansSummary(loans), [loans]);
   const activeLoans = loans.filter((l) => !l.isSettled && l.remainingAmount > 0);
