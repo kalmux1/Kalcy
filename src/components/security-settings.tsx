@@ -33,6 +33,7 @@ export function SecuritySettings() {
   const [showPinSetup, setShowPinSetup] = useState(false);
   const [pin, setPinValue] = useState('');
   const [pinConfirm, setPinConfirm] = useState('');
+  const [pendingWebAuthn, setPendingWebAuthn] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +52,13 @@ export function SecuritySettings() {
   const handleToggleWebAuthn = async (next: boolean) => {
     if (busy) return;
     if (next) {
+      // STRICT SECURITY REQUIREMENT: Intercept toggle if PIN is missing
+      if (!authSettings.pinEnabled) {
+        toast.error('Please set up a 4-digit backup PIN before enabling biometric unlock.');
+        setPendingWebAuthn(true);
+        setShowPinSetup(true);
+        return;
+      }
       try {
         setBusy(true);
         await enableWebAuthn();
@@ -72,6 +80,7 @@ export function SecuritySettings() {
       setShowPinSetup(true);
     } else {
       setShowPinSetup(false);
+      setPendingWebAuthn(false);
       disablePin();
       toast.success('Backup PIN removed');
     }
@@ -97,6 +106,14 @@ export function SecuritySettings() {
       setPinValue('');
       setPinConfirm('');
       setShowPinSetup(false);
+      
+      // Automatically proceed to WebAuthn if that was the original goal
+      if (pendingWebAuthn) {
+        setPendingWebAuthn(false);
+        setTimeout(() => {
+          handleToggleWebAuthn(true);
+        }, 100);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save PIN');
     } finally {
@@ -194,6 +211,7 @@ export function SecuritySettings() {
                 setShowPinSetup(false);
                 setPinValue('');
                 setPinConfirm('');
+                setPendingWebAuthn(false);
               }}
               disabled={busy}
             >

@@ -32,10 +32,6 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // ✅ BUGFIX: `useBackButton` requires an `isOpen` argument. Passing `open`
-  // here makes the hook push a history entry and register the popstate
-  // handler — without it the browser back button exits the app instead of
-  // closing the drawer, and TypeScript fails on the required 2nd arg.
   useBackButton(() => {
     if (!open) return false;
     onOpenChange(false);
@@ -55,21 +51,26 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
     if (!auth.currentUser || !user) return;
 
     const trimmedName = name.trim();
+    const nameChanged = trimmedName !== (user.displayName ?? '');
     const wantsPasswordChange =
       currentPassword.length > 0 ||
       newPassword.length > 0 ||
       confirmPassword.length > 0;
 
-    if (!trimmedName && !wantsPasswordChange) {
+    if (!nameChanged && !wantsPasswordChange) {
       toast.error('Nothing to update');
       return;
     }
 
+    // ✅ FIX: current password is now required for *any* change
+    // (display name included). On a shared device, someone walking up
+    // to an unlocked tab can no longer silently rename the profile.
+    if (!currentPassword) {
+      toast.error('Enter your current password to save changes');
+      return;
+    }
+
     if (wantsPasswordChange) {
-      if (!currentPassword) {
-        toast.error('Enter your current password');
-        return;
-      }
       if (newPassword.length < 6) {
         toast.error('New password must be at least 6 characters');
         return;
@@ -89,22 +90,23 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
     let passwordUpdated = false;
 
     try {
-      if (trimmedName && trimmedName !== user.displayName) {
-        await updateProfile(auth.currentUser, { displayName: trimmedName });
-        setUser({ ...user, displayName: trimmedName });
+      const email = auth.currentUser.email;
+      if (!email) {
+        toast.error('No email on this account — cannot re-authenticate');
+        return;
+      }
+
+      const credential = EmailAuthProvider.credential(email, currentPassword);
+      await reauthenticateWithCredential(auth.currentUser, credential);
+
+      if (nameChanged) {
+        const nextName = trimmedName || null;
+        await updateProfile(auth.currentUser, { displayName: nextName });
+        setUser({ ...user, displayName: nextName });
         nameUpdated = true;
       }
 
       if (wantsPasswordChange) {
-        const email = auth.currentUser.email;
-        if (!email) {
-          toast.error('No email on this account — cannot change password');
-          setSaving(false);
-          return;
-        }
-
-        const credential = EmailAuthProvider.credential(email, currentPassword);
-        await reauthenticateWithCredential(auth.currentUser, credential);
         await updatePassword(auth.currentUser, newPassword);
         passwordUpdated = true;
       }
@@ -207,10 +209,11 @@ export function ProfileEditDrawer({ open, onOpenChange }: ProfileEditDrawerProps
             <div className="pt-2 border-t">
               <div className="flex items-center gap-2 mb-3">
                 <Lock className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">Change Password</h3>
+                <h3 className="text-sm font-semibold">Authentication</h3>
               </div>
               <p className="text-[11px] text-muted-foreground mb-3">
-                Leave these blank to keep your current password.
+                Required to save any changes. Leave the new-password fields
+                blank to keep your current password.
               </p>
 
               <div className="flex flex-col gap-3">

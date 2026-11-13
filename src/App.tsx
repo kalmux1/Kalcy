@@ -58,7 +58,6 @@ function useOnlineStatus(): boolean {
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    // Safari fallback — occasionally misses the events.
     const interval = setInterval(() => setIsOnline(navigator.onLine), 5000);
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -120,7 +119,6 @@ export default function App() {
   const clearCloudData = useStore((s) => s.clearCloudData);
   const isAuthConfigured = useStore((s) => s.isAuthConfigured);
 
-  // Register global back button
   useEffect(() => {
     const sub = registerGlobalBackButton();
     return () => {
@@ -130,7 +128,6 @@ export default function App() {
     };
   }, []);
 
-  // App-level back button handler (handles tab navigation)
   useBackButton(() => {
     if (activeTab !== 'transactions') {
       setActiveTab('transactions');
@@ -139,7 +136,6 @@ export default function App() {
     return false;
   }, activeTab !== 'transactions');
 
-  // Auth lifecycle
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       if (!fbUser) {
@@ -160,7 +156,6 @@ export default function App() {
     return () => unsub();
   }, [setUser, initUserData]);
 
-  // Re-lock after a period in the background (uses Page Visibility API).
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
@@ -179,7 +174,6 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibility);
   }, [isAuthConfigured]);
 
-  // Sync the browser chrome theme color with the app theme.
   useEffect(() => {
     const isDarkMode =
       preferences.theme === 'dark' ||
@@ -226,7 +220,12 @@ export default function App() {
     }
   }, [clearCloudData]);
 
-  if (isLoading && !user) {
+  // ✅ FIX: gate on `isLoading` alone. `setUser(null)` calls
+  // `clearLocalState()` which sets `isLoading: false`, so the signed-out
+  // path still reaches `AuthView`. And when a user just signed in,
+  // `isLoading` stays `true` until `initUserData`'s listeners all fire,
+  // preventing the flash of empty tabs.
+  if (isLoading) {
     return (
       <main className="flex h-[100dvh] w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -351,7 +350,6 @@ export default function App() {
                 </Button>
               </div>
 
-              {/* WebAuthn + PIN security */}
               <SecuritySettings />
 
               <div className="space-y-3">

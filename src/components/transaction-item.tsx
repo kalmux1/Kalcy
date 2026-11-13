@@ -92,10 +92,14 @@ export function TransactionItem({
     onEdit(transaction);
   };
 
+  // ✅ FIX: 60px finger travel (was 100px) — achievable on mobile.
+  // dragElastic bumped to 0.5 so the row visibly shifts ~30px by threshold.
+  const SWIPE_THRESHOLD = 60;
+
   const handleDragEnd = (_e: unknown, info: PanInfo) => {
-    if (info.offset.x < -100) {
+    if (info.offset.x < -SWIPE_THRESHOLD) {
       requestDelete();
-    } else if (info.offset.x > 100) {
+    } else if (info.offset.x > SWIPE_THRESHOLD) {
       requestEdit();
     }
   };
@@ -115,7 +119,7 @@ export function TransactionItem({
       <motion.div
         drag="x"
         dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.2}
+        dragElastic={0.5}
         onDragEnd={handleDragEnd}
         onClick={requestEdit}
         className="relative flex items-center gap-3 py-3 px-3 rounded-2xl hover:bg-muted/40 transition-colors cursor-grab active:cursor-grabbing"

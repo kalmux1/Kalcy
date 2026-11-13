@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { TransactionItem } from '../transaction-item';
-import type { Transaction } from '@/lib/types';
+import type { Account, Transaction } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency, formatCurrencyCompact } from '@/lib/currencies';
 import { OpenEyeIcon, ClosedEyeIcon } from '@/components/ui/icons';
@@ -610,7 +610,7 @@ function SummaryView({
   selectedMonth,
 }: {
   transactions: Transaction[];
-  accounts: ReturnType<typeof useStore.getState>['accounts'];
+  accounts: Account[];
   symbol: string;
   selectedMonth: Date;
 }) {

@@ -22,7 +22,7 @@ import {
 import { CategoryIcon, INVESTMENT_TYPES } from '@/components/icon-map';
 import { useStore } from '@/lib/store';
 import { useBackButton } from '@/lib/back-button';
-import type { Investment, InvestmentType, InvestmentStatus } from '@/lib/types';
+import type { Account, Investment, InvestmentType, InvestmentStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/currencies';
 import {
@@ -44,6 +44,7 @@ const IPO_STATUS_OPTIONS: Record<InvestmentStatus, InvestmentStatus[]> = {
 
 const NEW_INVESTMENT_STATUSES: InvestmentStatus[] = ['applied', 'active'];
 
+// ✅ FIX: reject impossible calendar dates (e.g. 2024-02-31) via round-trip.
 function parseDateInput(value: string): number | null {
   if (!value) return null;
   const parts = value.split('-').map(Number);
@@ -51,8 +52,16 @@ function parseDateInput(value: string): number | null {
     return null;
   }
   const [y, m, d] = parts;
-  const ts = new Date(y, m - 1, d).getTime();
-  return Number.isFinite(ts) ? ts : null;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const date = new Date(y, m - 1, d);
+  if (
+    date.getFullYear() !== y ||
+    date.getMonth() !== m - 1 ||
+    date.getDate() !== d
+  ) {
+    return null;
+  }
+  return date.getTime();
 }
 
 export function InvestmentsView() {
@@ -502,7 +511,7 @@ function InvestmentForm({
 }: {
   initial: Investment | null;
   currencySymbol: string;
-  accounts: ReturnType<typeof useStore.getState>['accounts'];
+  accounts: Account[];
   onSubmit: (data: InvestmentFormData) => void;
 }) {
   const [type, setType] = useState<InvestmentType>(initial?.type ?? 'stocks');

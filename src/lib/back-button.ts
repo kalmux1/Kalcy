@@ -4,6 +4,7 @@ type BackHandler = () => boolean;
 const handlers: BackHandler[] = [];
 
 let isBackNavigation = false;
+let ignoreNextPopState = false;
 
 export function useBackButton(handler: BackHandler, isOpen: boolean): void {
   const handlerRef = useRef(handler);
@@ -15,6 +16,10 @@ export function useBackButton(handler: BackHandler, isOpen: boolean): void {
       window.history.pushState({ app: true }, '');
       return () => {
         if (!isBackNavigation) {
+          // If the modal is closed programmatically (not via the browser back button),
+          // we need to pop the history state we pushed. We set a flag to tell the
+          // global popstate listener to ignore this specific event.
+          ignoreNextPopState = true;
           window.history.back();
         }
         isBackNavigation = false;
@@ -48,6 +53,11 @@ export function registerGlobalBackButton() {
   window.history.pushState({ app: true }, '');
 
   const handlePopState = () => {
+    if (ignoreNextPopState) {
+      ignoreNextPopState = false;
+      return;
+    }
+
     // Execute handlers from top-most (last added) to bottom-most
     for (let i = handlers.length - 1; i >= 0; i--) {
       if (handlers[i]()) {
@@ -67,4 +77,4 @@ export function registerGlobalBackButton() {
       window.removeEventListener('popstate', handlePopState);
     },
   });
-} 
+}

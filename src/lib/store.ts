@@ -230,6 +230,12 @@ const INVESTMENT_BUY_SIDE_FIELDS = [
   'date',
 ] as const;
 
+const INVESTMENT_USER_FIELDS: ReadonlySet<keyof Investment> = new Set([
+  'name', 'symbol', 'type', 'units', 'buyPrice', 'currentPrice',
+  'accountId', 'date', 'soldPrice', 'soldDate', 'status',
+  'listingPrice', 'listingDate', 'appliedAmount', 'note',
+]);
+
 const VALID_INVESTMENT_TRANSITIONS: Record<InvestmentStatus, InvestmentStatus[]> = {
   applied: ['active', 'not_allotted'],
   active: ['sold'],
@@ -291,8 +297,13 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({ hideBalances: !state.hideBalances })),
 
   enableWebAuthn: async () => {
-    const { user } = get();
+    const { user, authSettings } = get();
     if (!user) throw new Error('Not authenticated');
+
+    // STRICT SECURITY REQUIREMENT: Biometrics cannot be enabled without a PIN
+    if (!authSettings.pinEnabled) {
+      throw new Error('A 4-digit backup PIN must be configured before enabling biometric unlock.');
+    }
 
     const supported = await isSupported();
     if (!supported) {
@@ -1455,7 +1466,14 @@ export const useStore = create<StoreState>((set, get) => ({
     const inv = investments.find((i) => i.id === id);
     if (!inv) return;
 
-    const newStatus = updates.status ?? inv.status;
+    const sanitized: Partial<Investment> = {};
+    for (const key of Object.keys(updates) as (keyof Investment)[]) {
+      if (INVESTMENT_USER_FIELDS.has(key)) {
+        (sanitized as Record<string, unknown>)[key] = updates[key];
+      }
+    }
+
+    const newStatus = sanitized.status ?? inv.status;
 
     if (newStatus !== inv.status) {
       const allowed = VALID_INVESTMENT_TRANSITIONS[inv.status];
@@ -1481,7 +1499,7 @@ export const useStore = create<StoreState>((set, get) => ({
       isBecomingSold
     ) {
       for (const field of INVESTMENT_BUY_SIDE_FIELDS) {
-        const newVal = updates[field];
+        const newVal = sanitized[field];
         const oldVal = inv[field];
         if (newVal !== undefined && newVal !== oldVal) {
           throw new Error(
@@ -1491,10 +1509,23 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }
 
-    const newUnits = updates.units ?? inv.units;
-    const newBuyPrice = updates.buyPrice ?? inv.buyPrice;
-    const newAccountId = updates.accountId ?? inv.accountId;
-    const newDate = updates.date ?? inv.date;
+    if (isEditingApplied) {
+      if (sanitized.units !== undefined && sanitized.units !== 0) {
+        throw new Error(
+          'Units cannot be set on an applied IPO. Allot it first.'
+        );
+      }
+      if (sanitized.buyPrice !== undefined && sanitized.buyPrice !== 0) {
+        throw new Error(
+          'Buy price cannot be set on an applied IPO. Allot it first.'
+        );
+      }
+    }
+
+    const newUnits = sanitized.units ?? inv.units;
+    const newBuyPrice = sanitized.buyPrice ?? inv.buyPrice;
+    const newAccountId = sanitized.accountId ?? inv.accountId;
+    const newDate = sanitized.date ?? inv.date;
     const newInvestedAmount = newUnits * newBuyPrice;
 
     if (
@@ -1507,7 +1538,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     if (isBecomingSold) {
       const finalSoldPrice =
-        updates.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
+        sanitized.soldPrice ?? inv.soldPrice ?? inv.currentPrice;
       if (typeof finalSoldPrice !== 'number' || finalSoldPrice <= 0) {
         throw new Error(
           'A positive sale price is required to mark this investment as sold'
@@ -1515,13 +1546,13 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }
     if (isEditingApplied) {
-      const newApplied = updates.appliedAmount ?? inv.appliedAmount;
+      const newApplied = sanitized.appliedAmount ?? inv.appliedAmount;
       if (newApplied <= 0) {
         throw new Error('Applied amount must be positive');
       }
     }
 
-    const patch: Partial<Investment> = { ...updates };
+    const patch: Partial<Investment> = { ...sanitized };
     const ops: Array<(batch: WriteBatch) => void> = [];
     const bump = (accId: string, delta: number) => {
       if (delta === 0) return;
@@ -1616,7 +1647,7 @@ export const useStore = create<StoreState>((set, get) => ({
         patch.linkedTransactionId = buyId;
         patch.investedAmount = newInvestedAmount;
         const newCurrentPrice =
-          pickPositive(updates.currentPrice, inv.currentPrice, newBuyPrice) ??
+          pickPositive(sanitized.currentPrice, inv.currentPrice, newBuyPrice) ??
           newBuyPrice;
         patch.currentPrice = newCurrentPrice;
         patch.currentValue = newUnits * newCurrentPrice;
@@ -1626,8 +1657,8 @@ export const useStore = create<StoreState>((set, get) => ({
       patch.buyPrice = newBuyPrice;
     } else if (isBecomingSold) {
       const finalSoldPrice =
-        pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
-      const finalSoldDate = updates.soldDate ?? Date.now();
+        pickPositive(sanitized.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
+      const finalSoldDate = sanitized.soldDate ?? Date.now();
       const proceeds = finalSoldPrice * newUnits;
       const txId = genId('t');
       const tx: Transaction = {
@@ -1661,7 +1692,7 @@ export const useStore = create<StoreState>((set, get) => ({
     } else if (isEditingActive) {
       patch.investedAmount = newInvestedAmount;
       const newCurrentPrice =
-        pickPositive(updates.currentPrice, inv.currentPrice, newBuyPrice) ??
+        pickPositive(sanitized.currentPrice, inv.currentPrice, newBuyPrice) ??
         newBuyPrice;
       patch.currentPrice = newCurrentPrice;
       patch.currentValue = newUnits * newCurrentPrice;
@@ -1685,8 +1716,8 @@ export const useStore = create<StoreState>((set, get) => ({
         if (accountChanged) txPatch.accountId = newAccountId;
         if (newDate !== buyTx.date) txPatch.date = newDate;
 
-        const newName = updates.name ?? inv.name;
-        const newSymbol = updates.symbol ?? inv.symbol;
+        const newName = sanitized.name ?? inv.name;
+        const newSymbol = sanitized.symbol ?? inv.symbol;
         const oldNote = `Investment: ${inv.name}${
           inv.symbol ? ` (${inv.symbol})` : ''
         }`;
@@ -1709,8 +1740,8 @@ export const useStore = create<StoreState>((set, get) => ({
     } else if (isEditingSold) {
       patch.investedAmount = inv.investedAmount;
       const sp =
-        pickPositive(updates.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
-      const sd = updates.soldDate ?? inv.soldDate;
+        pickPositive(sanitized.soldPrice, inv.soldPrice, inv.currentPrice) ?? 0;
+      const sd = sanitized.soldDate ?? inv.soldDate;
 
       if (sp > 0) {
         patch.soldPrice = sp;
@@ -1723,8 +1754,6 @@ export const useStore = create<StoreState>((set, get) => ({
         ? transactions.find((t) => t.id === inv.linkedSellTransactionId)
         : null;
       if (sellTx && sp > 0) {
-        // ✅ BUGFIX: use proceeds (price × units), not price alone, and
-        // adjust the account balance so cash stays in sync with the sell tx.
         const newProceeds = sp * newUnits;
         const amountChanged = newProceeds !== sellTx.amount;
         const dateChanged = sd !== null && sd !== sellTx.date;
@@ -1747,7 +1776,7 @@ export const useStore = create<StoreState>((set, get) => ({
         }
       }
     } else if (isEditingApplied) {
-      const newApplied = updates.appliedAmount ?? inv.appliedAmount;
+      const newApplied = sanitized.appliedAmount ?? inv.appliedAmount;
       patch.appliedAmount = newApplied;
 
       const applyTx = inv.linkedApplyTransactionId

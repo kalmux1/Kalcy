@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -44,6 +44,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
   const [showRecovery, setShowRecovery] = useState(false);
 
   const authInProgress = useRef(false);
+  const hasAutoTriggered = useRef(false);
 
   // Detect WebAuthn support once.
   useEffect(() => {
@@ -65,7 +66,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
     onUnlock,
   ]);
 
-  const handleBiometric = async () => {
+  const handleBiometric = useCallback(async () => {
     if (authInProgress.current) return;
     if (!authSettings.webauthnCredentialId) {
       setError('No biometric credential stored. Please re-enable in Settings.');
@@ -89,7 +90,25 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
       authInProgress.current = false;
       setBusy(false);
     }
-  };
+  }, [authSettings.webauthnCredentialId, onUnlock]);
+
+  const isBioMode = mode === 'biometric' && authSettings.webauthnEnabled;
+  const isPinMode = mode === 'pin' && authSettings.pinEnabled;
+
+  // STRICT UX REQUIREMENT: Auto-trigger biometrics on mount if configured
+  useEffect(() => {
+    if (!authLoaded || !isBioMode || !supported) return;
+    if (hasAutoTriggered.current) return;
+
+    hasAutoTriggered.current = true;
+    
+    // Slight delay to allow UI to paint before the native prompt appears
+    const timer = setTimeout(() => {
+      handleBiometric();
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [authLoaded, isBioMode, supported, handleBiometric]);
 
   const handlePinSubmit = async () => {
     if (pin.length < 4) {
@@ -123,9 +142,20 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
     }
   };
 
-  // ✅ BUGFIX: recovery sign-out must clear the device-local auth settings
-  // (`kalcy.authSettings.<uid>` in localStorage), otherwise the same lock is
-  // restored on the next sign-in and the recovery path is useless.
+  const handleSwitchToPin = () => {
+    setMode('pin');
+    setError(null);
+    // Reset the auto-trigger so if they switch back to biometrics, it prompts again
+    hasAutoTriggered.current = false;
+  };
+
+  const handleSwitchToBio = () => {
+    setMode('biometric');
+    setError(null);
+    // We don't reset hasAutoTriggered here, so it won't immediately re-prompt
+    // unless they explicitly click the "Authenticate" button.
+  };
+
   const handleSignOut = async () => {
     try {
       if (user) clearAuthSettings(user.uid);
@@ -135,12 +165,9 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
     }
   };
 
-  const isBioMode = mode === 'biometric' && authSettings.webauthnEnabled;
-  const isPinMode = mode === 'pin' && authSettings.pinEnabled;
   const hasAnyAuth =
     authSettings.webauthnEnabled || authSettings.pinEnabled;
 
-  // Still loading auth state from localStorage.
   if (!authLoaded) {
     return (
       <div className="fixed inset-0 z-[100] bg-background flex items-center justify-center">
@@ -149,7 +176,6 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
     );
   }
 
-  // No lock configured → auto-unlocked above; render nothing briefly.
   if (!hasAnyAuth) {
     return null;
   }
@@ -203,10 +229,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
             {authSettings.pinEnabled && (
               <button
                 type="button"
-                onClick={() => {
-                  setMode('pin');
-                  setError(null);
-                }}
+                onClick={handleSwitchToPin}
                 disabled={busy}
                 className="text-sm text-primary font-medium hover:underline disabled:opacity-50"
               >
@@ -254,10 +277,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
               {authSettings.webauthnEnabled ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    setMode('biometric');
-                    setError(null);
-                  }}
+                  onClick={handleSwitchToBio}
                   disabled={busy}
                   className="h-14 rounded-2xl bg-muted hover:bg-muted/70 flex items-center justify-center transition-all touch-manipulation disabled:opacity-50"
                   aria-label="Use biometrics instead"

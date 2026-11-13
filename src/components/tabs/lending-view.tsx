@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/select';
 import { useStore } from '@/lib/store';
 import { useBackButton } from '@/lib/back-button';
-import type { Loan, LoanType, LoanPayment } from '@/lib/types';
+import type { Account, Loan, LoanType, LoanPayment } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/currencies';
 import { getLoansSummary, formatDateKey, toDateInputValue } from '@/lib/finance';
@@ -51,8 +51,16 @@ function parseDateInput(value: string): number | null {
     return null;
   }
   const [y, m, d] = parts;
-  const ts = new Date(y, m - 1, d).getTime();
-  return Number.isFinite(ts) ? ts : null;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const date = new Date(y, m - 1, d);
+  if (
+    date.getFullYear() !== y ||
+    date.getMonth() !== m - 1 ||
+    date.getDate() !== d
+  ) {
+    return null;
+  }
+  return date.getTime();
 }
 
 export function LendingView() {
@@ -520,7 +528,12 @@ function LoanSheet({
   const formKey = open ? loan?.id ?? 'new' : 'closed';
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
+    <Drawer 
+      open={open} 
+      onOpenChange={onOpenChange} 
+      repositionInputs={false}
+      shouldScaleBackground={false}
+    >
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
         <div className="shrink-0 px-4 pt-2 pb-3 md:pt-6 border-b border-border/40">
           <h2 className="text-xl font-bold">
@@ -568,7 +581,7 @@ function LoanForm({
 }: {
   initial: Loan | null;
   currencySymbol: string;
-  accounts: ReturnType<typeof useStore.getState>['accounts'];
+  accounts: Account[];
   onSubmit: (data: LoanFormData) => void;
 }) {
   const [type, setType] = useState<LoanType>(initial?.type ?? 'lent');
@@ -756,7 +769,7 @@ function LoanDetailSheet({
 }: {
   loanId: string | null;
   initialAdding?: boolean;
-  payments: ReturnType<typeof useStore.getState>['loanPayments'];
+  payments: LoanPayment[];
   hideBalances: boolean;
   onOpenChange: (open: boolean) => void;
   onAddPayment: (data: {
@@ -852,6 +865,7 @@ function LoanDetailSheet({
         onOpenChange(o);
       }}
       repositionInputs={false}
+      shouldScaleBackground={false}
     >
       <DrawerContent className="rounded-t-[2rem] md:rounded-[2rem] flex flex-col max-h-[90dvh] overflow-hidden">
         {liveLoan && (

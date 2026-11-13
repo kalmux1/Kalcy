@@ -6,7 +6,7 @@ import { Drawer as DrawerPrimitive } from 'vaul';
 import { cn } from '@/lib/utils';
 
 const Drawer = ({
-  shouldScaleBackground = true,
+  shouldScaleBackground = false,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Root>) => (
   <DrawerPrimitive.Root
@@ -37,24 +37,40 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content>
->(({ className, children, ...props }, ref) => (
-  <DrawerPortal>
-    <DrawerOverlay />
-    <DrawerPrimitive.Content
-      ref={ref}
-      className={cn(
-        'fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto max-h-[90dvh] flex-col rounded-t-[10px] border bg-background',
-        // Desktop responsive styles
-        'md:inset-x-auto md:bottom-auto md:top-[50%] md:left-[50%] md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md md:rounded-[2rem] md:border-border/60 md:shadow-2xl md:mt-0',
-        className
-      )}
-      {...props}
-    >
-      <div className="mx-auto mt-4 mb-2 h-2 w-[100px] shrink-0 rounded-full bg-muted md:hidden" />
-      {children}
-    </DrawerPrimitive.Content>
-  </DrawerPortal>
-));
+>(({ className, children, onCloseAutoFocus, ...props }, ref) => {
+  // FIX: Blur the active element immediately on mount to prevent Chrome's
+  // "Blocked aria-hidden on an element because its descendant retained focus" warning.
+  React.useEffect(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, []);
+
+  return (
+    <DrawerPortal>
+      <DrawerOverlay />
+      <DrawerPrimitive.Content
+        ref={ref}
+        className={cn(
+          'fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto max-h-[90dvh] flex-col rounded-t-[10px] border bg-background',
+          // Desktop responsive styles
+          'md:inset-x-auto md:bottom-auto md:top-[50%] md:left-[50%] md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md md:rounded-[2rem] md:border-border/60 md:shadow-2xl md:mt-0',
+          className
+        )}
+        onCloseAutoFocus={(e) => {
+          // Prevents the browser aria-hidden warning caused by focus restoration
+          // conflicts when the drawer closes.
+          if (onCloseAutoFocus) onCloseAutoFocus(e);
+          else e.preventDefault();
+        }}
+        {...props}
+      >
+        <div className="mx-auto mt-4 mb-2 h-2 w-[100px] shrink-0 rounded-full bg-muted md:hidden" />
+        {children}
+      </DrawerPrimitive.Content>
+    </DrawerPortal>
+  );
+});
 DrawerContent.displayName = DrawerPrimitive.Content.displayName;
 
 const DrawerHeader = ({
